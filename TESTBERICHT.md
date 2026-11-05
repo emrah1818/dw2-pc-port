@@ -2,7 +2,7 @@
 
 ## 1.4.0 – Zwischenstand (kein Release)
 
-**Warum kein Release:** In der Arbeitssitzung lagen weder das Disc-Image noch die bisherige `texts.tsv` vor. Ohne Image ließen sich keine Dialoge exportieren, nichts übersetzen und nichts im Spiel prüfen. Fertig ist alles, was ohne Spieldaten geht. Es ist mit erzeugten Testdaten geprüft.
+**Warum noch kein Release:** Dialoge, Story und Wortgrafiken sind mit dem echten Image umgesetzt und geprüft. Offen sind: Menüs, die nicht in den Texttabellen stehen, der Statusbildschirm im Spiel, eine vollständige Story-Spielprobe auf Deutsch und Windows-Klicktests. Details stehen unten. Die Übersetzungsdateien liegen nicht im Repository (aus der Disc abgeleitet), sie bekommt der Spieler getrennt.
 
 ### Phase 1 – Ereignisskripte und Dialoge
 
@@ -20,29 +20,54 @@
   | F1 / F2 | 4 | Digimon-/Itemname |
 
   Maßgeblich ist der Weg, den ein schon ausgeführter Befehl in jedem späteren Bild nimmt. Ein Argument darf 0xFF sein (F3 FF xx), das Textende wird deshalb skriptbewusst gesucht.
-- **Dialog-Quelle:** Gesprächstexte stehen in Ereignistabellen (`Flag_SelectBranch`, `src/main/flagtable.c`). Kopf: u32-Offsets. Einträge à 0x2C Byte bis Digimon-ID 0. Je Eintrag 6 Zweig-Offsets ab +0x14, relativ zum Dateianfang. Sprungadressen gibt es nur dort, nicht im Text selbst.
-- **Inventur:** `--export-texts` durchsucht alle Datendateien nach diesem Aufbau. Jede Datei muss vollständig passen: Endeintrag vorhanden, Zweig 0 belegt, jeder Offset ein gültiger Text. Schlüssel `DATEI:ZEIGERPOSITION`, Kategorie `dialog e<Eintrag> b<Zweig> digi<ID>`. Dazu `dialog_files.tsv` mit dem Befund je Datei.
-- **Sicheres Neupacken:**
-  - Ein Textbereich gilt nur als verstanden, wenn er lückenlos aus den bekannten Texten besteht (höchstens 3 Byte Füllung 00/FF) und kein Kopf-Offset hineinzeigt.
-  - Freier Platz am Dateiende wird nur benutzt, wenn der Textbereich der letzte Block ist.
-  - Jede Übersetzung wird als vollständiges Skript geprüft.
-  - Passt sie nicht, bleibt der englische Text. Passt nicht einmal der, wird die Datei nicht verändert.
-- **Behobener Fehler aus 1.3.0:** Passte ein Text nicht, zeigte sein Zeiger bisher in den neu beschriebenen Bereich (falscher Text). Das kann nicht mehr passieren.
-- **Wortgrafik-Codes** 0x5E–0xE5 erscheinen im Export als `{G:..}`, Texte mit ihnen wurden bisher übersprungen.
+- **Aufbau der Ereignistabellen** (`Flag_SelectBranch`), am echten Image bestimmt: Kopf aus 3 u32 (Einträge, Positionsblock, Bedingungsblock). Die Texte stehen direkt hinter dem Kopf, 4-Byte-ausgerichtet. Danach folgen Positionen, Bedingungen und Einträge (0x2C Byte, Zweig-Offsets ab +0x14, Endeintrag Digimon-ID 0), dann Nullen bis Dateiende.
+- **Erkennung:** 81 Dateien erkannt. 5 Fehltreffer (023A, 0CE1, 0CE2, 0CE4, 0CE5) werden abgelehnt, weil der Aufbau nicht vollständig passt. Abgelehnte Dateien werden nie verändert.
+- **Neupacken mit Verschieben:** Die Texte werden neu gelegt, die Blöcke dahinter um ein Vielfaches von 4 verschoben, Kopf und Zweig-Offsets angepasst. Die Dateigröße bleibt gleich. Passt nicht alles, behalten die Texte mit dem größten Zuwachs ihr Englisch, bis es passt.
+- **Wörterbuch-Kompression:** Das Original kürzt häufige Wörter über F0-Codes ab. Deutsche Dialoge sind länger, deshalb lädt der Port `Languages/German/dictionary.txt` (bis 183 Wörter, Einträge 67–249 der erweiterten Wortliste, nur im PC-Build). `tools/i18n/build_dict.py` wählt die Wörter aus der Übersetzung.
+- **Werkzeuge:** `tools/i18n/dialog_segments.py` (Dialoge in übersetzbare Abschnitte zerlegen und wieder zusammensetzen), `dialog_wrap.py` (Zeilenumbruch auf 31 Spalten, 3 Zeilen je Fenster, Seiten an Satzenden), `tools/autoplay/dialog_shots.py` (Bildschirmfotos jeder Gesprächsseite).
 
-**Getestet:** `tests/textscript_test.c` mit erzeugten Bytes, 85/85 (alle Befehlslängen, abgeschnittene Befehle, Ereignistabelle erkannt bzw. abgelehnt, Bereich mit fremden Daten abgelehnt, Neupacken mit längerer Übersetzung, kaputte Übersetzung abgewiesen, Daten hinter dem Bereich unberührt). Läuft in der CI.
+**Getestet mit dem echten Image (Linux):**
+
+- `tests/textscript_test.c`: 90/90 (auch kürzere und zu lange Übersetzungen). Läuft in der CI.
+- **Übersetzt:** 1682 von 1682 Dialogtexten (2431 Abschnitte), dazu die 879 Tabellentexte aus 1.3.0 und 4 Systemzeilen mit Wortgrafiken. Das Spiel meldet `texts.tsv: 2565 texts German, 0 failed`.
+- **Bildschirmfotos** echter Gespräche in Digital City: Sprechername, Porträt, Umlaute und ß korrekt. Keine Zeile ist abgeschnitten, keine Auswahl ist über zwei Seiten verteilt.
+- **Einzelne Restwörter auf eigener Seite:** von 491 Verdachtsstellen auf 8 gesenkt. Erreicht durch Seitenwechsel an Satzenden und 123 gekürzte Formulierungen. Die 8 Reste sind kurze, vollständige Sätze.
+- Englischer Modus: Referenzbilder 6/6 bitgleich, Speichertest 9/9.
+- **Domaintest Deutsch** (`--lang de --cheats`, Domains 0–5): alle geladen, Etagenwechsel und Kämpfe ohne Absturz.
+- **Cheattest Deutsch:** 5 von 7 bestanden. Die 2 Level-Prüfungen scheitern, weil im benutzten Spielstand Kaderplatz 0 leer ist („no Digimon in that roster slot“). Das ist eine Testvoraussetzung, kein Programmfehler. Mit dem vorgesehenen Spielstand `card_round0.mcd` nicht wiederholt.
 
 **Nicht getestet / offen:**
 
-- Ob die echten Gesprächsdateien den erwarteten Aufbau haben und wie viele Texte erfasst werden.
-- Übersetzung der Dialoge.
-- Ingame-Prüfung von Dialogfenstern, Seitenwechseln, Auswahl, Skriptfortschritt, Spielständen.
-- Die 879 Texte aus 1.3.0 müssen mit der neuen Neupack-Logik erneut eingespielt und geprüft werden. Die neue Logik hält vorsorglich Platz für nachfolgende Originaltexte frei und könnte einzelne lange Texte auf Englisch belassen (steht dann im Bericht).
-- Domain-Ereignisse (`src/stag4000/spawn.c`) nutzen dieselbe Tabellenform und werden vom selben Scanner erfasst. Bestätigt ist das erst mit Daten.
+- Kein vollständiger Story-Durchlauf auf Deutsch. Geprüft sind Gespräche in der Stadt, nicht jede Zwischensequenz.
+- Domain-Ereignisse und spätere Kapitel nur über die Prüfwerkzeuge geprüft (Befehle unverändert, Seiten passen), nicht im Bild.
 
 ### Phase 2 – Wortgrafiken
 
-Nicht umgesetzt: Die Zuordnung Code → Wort steht nur im Schriftbild der Disc.
+**Umgesetzt** (`host/lang.c`, `patch_words`): Im kleinen Font (Datei 0x13A) sind 18 Begriffe als fertige Bilder über mehrere Zellen gezeichnet (Codes 0x5E–0xE2). Im deutschen Modus zeichnet der Port beim Start 13 davon neu, und zwar aus den Glyphen des Spiels selbst. Wie im Original wird jede Glyphe auf ihre Tinte beschnitten und ohne Abstand gesetzt. Ist ein Wort zu breit, teilen sich Nachbarn eine Spalte, aber nur wo keine Tinte auf Tinte trifft. Passt es trotzdem nicht, bleibt das englische Bild. Es werden keine Grafiken gespeichert oder mitgeliefert.
+
+| Code | Englisch | Deutsch |
+|---|---|---|
+| 0x6D | Condition | Zustand |
+| 0x88 | Digivolve | Digitieren |
+| 0x8F | DNA Digivolve | DNA-Digit. |
+| 0x99 | Auto Pilot | Autopilot |
+| 0xA0 | Button | Taste |
+| 0xA5 | Parents | Eltern |
+| 0xB1 | Specialty | Spezial. |
+| 0xBB | Important | Wichtig |
+| 0xC2 | Counter Attack | Gegenangriff |
+| 0xCC | Battle | Kampf |
+| 0xD1 | Cannon | Kanone |
+| 0xD6 | Choose | Wählen |
+| 0xDD | Assemble | Montage |
+
+Unverändert, weil auch deutsch: Digi-Beetle, Digimon, Transfer, Digi-Line, Generation. Eigene Wörter gehen über `Languages/German/words.tsv` (Zeilen `CODE<TAB>Wort`, leeres Wort = Englisch).
+
+**Getestet:** Die Schrift-Textur nach dem Patch wurde ausgelesen, alle 13 Wörter sind vollständig und lesbar, die übrigen Zellen sind unverändert. Das Feldmenü (Status, Items, Digimon, Digi-Line, Transfer) wurde im Spiel fotografiert.
+
+**Offen:** Statusbildschirm („Spezial.“), DNA-Labor und Kampfmenü („Gegenangriff“) sind nicht im Bild geprüft, weil der Testbot diese Menüs nicht zuverlässig öffnet. „DNA-Digitation“ passt nicht in 9 Zellen, deshalb die Abkürzung. Der große Font hat keine Wortgrafiken.
+
+**Hinweis zur Übersetzung:** Im Feldmenü ragte „Speichern“ (aus der Tabellenübersetzung) über den Rahmen hinaus. Im gelieferten Paket steht dafür „Sichern“ (7 Zeichen wie „Transfer“). Das ist im Bild noch nicht bestätigt.
 
 ### Phase 3 – HD-Texturpakete
 
@@ -75,7 +100,7 @@ Nicht umgesetzt: Die Zuordnung Code → Wort steht nur im Schriftbild der Disc.
 
 - **Regressionen:** Alle neuen Wege sind ohne Pakete und im englischen Modus inaktiv: kein Paket heißt kein Tracking, Englisch heißt keine Sprach-Ebene. Classic (Skalierung 1) zeichnet nie Ersatztexturen.
 - **CI:** Windows-Build (MinGW) und Renderer-Test grün, Linux grün.
-- **Nicht wiederholt (brauchen Image):** Referenzbilder, Speichertest 9/9, Cheattest 7/7, Domaintest.
+- **Mit Image wiederholt:** Referenzbilder 6/6, Speichertest 9/9, Domaintest 0–5 (Deutsch), Cheattest 5/7 (2 Prüfungen brauchen einen anderen Spielstand, siehe Phase 1).
 - **PC-Oberfläche:** Auflösung, Vollbild/Fenster, Grafik und Sprache gab es schon (F1). Neu ist der Bereich Texturpakete im Reiter Modding. Kein Klicktest auf echter Hardware.
 
 

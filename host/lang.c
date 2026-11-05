@@ -1034,6 +1034,182 @@ static void patch_texts(const char *dir, int umlauts) {
     note("texts.tsv: %s texts German, %s failed (see report.txt)", a, b);
 }
 
+/* ---- word graphics ----
+ * The small font holds some menu words as ready drawn pictures over several cells (codes 0x5E..0xE2,
+ * e.g. "Counter Attack" in 10 cells). They are drawn again here with German words, made of the
+ * font's own glyphs the way the game's pictures are made: each glyph trimmed to its ink, no gap,
+ * a space 2 pixels. A word wider than its cells is squeezed by letting neighbours share a column
+ * where no ink meets ink; when it still does not fit the English picture stays.
+ * Languages/German/words.tsv (optional): lines "CODE<TAB>word" (CODE = first cell, hex) replace
+ * the built-in words, an empty word keeps the English picture. */
+
+static const struct { int code, cells; const char *de; } WORDS[] = {
+    { 0x6D, 7, "Zustand" },       /* Condition */
+    { 0x88, 7, "Digitieren" },    /* Digivolve */
+    { 0x8F, 9, "DNA-Digit." },    /* DNA Digivolve */
+    { 0x99, 7, "Autopilot" },     /* Auto Pilot */
+    { 0xA0, 5, "Taste" },         /* Button */
+    { 0xA5, 5, "Eltern" },        /* Parents */
+    { 0xB1, 7, "Spezial." },      /* Specialty */
+    { 0xBB, 7, "Wichtig" },       /* Important */
+    { 0xC2, 10, "Gegenangriff" }, /* Counter Attack */
+    { 0xCC, 5, "Kampf" },         /* Battle */
+    { 0xD1, 5, "Kanone" },        /* Cannon */
+    { 0xD6, 5, "Wählen" },        /* Choose */
+    { 0xDD, 6, "Montage" },       /* Assemble */
+    /* kept as they are German too: Digi-Beetle 0x5E, Digimon 0x66, Transfer 0x77, Digi-Line 0x7E,
+       Generation 0xAA */
+};
+#define NWORDS ((int)(sizeof(WORDS) / sizeof(WORDS[0])))
+#define WG_MAXW (10 * 7)
+#define WG_MAXC 32
+
+/* the word as a picture of `w` columns into img (ch rows of WG_MAXW); 1 when it fits */
+static int compose_word(const uint8_t *d, const Font *f, const uint8_t *codes, int n, int w,
+                        uint8_t img[][WG_MAXW]) {
+    int x0[WG_MAXC], gw[WG_MAXC], over[WG_MAXC] = { 0 }, total = 0;
+
+    for (int i = 0; i < n; i++) {
+        x0[i] = 0;
+        gw[i] = 2; /* space */
+        if (codes[i] != 0xFD) {
+            int cx, cy, l = 99, r = -1;
+            cell_xy(f, codes[i], &cx, &cy);
+            for (int x = 0; x < f->cw; x++) {
+                for (int y = 0; y < f->ch; y++) {
+                    if (px(d, cx + x, cy + y)) {
+                        l = x < l ? x : l;
+                        r = x > r ? x : r;
+                    }
+                }
+            }
+            if (r < 0) {
+                return 0; /* an empty glyph */
+            }
+            x0[i] = l;
+            gw[i] = r - l + 1;
+        }
+        total += gw[i];
+    }
+    /* squeeze: joints without ink on ink, the middle ones first */
+    while (total > w) {
+        int best = -1, bd = 999;
+        for (int j = 1; j < n; j++) {
+            int cx, cy, ax, ay, hit = 0;
+            if (over[j] || codes[j] == 0xFD || codes[j - 1] == 0xFD) {
+                continue;
+            }
+            cell_xy(f, codes[j - 1], &ax, &ay);
+            cell_xy(f, codes[j], &cx, &cy);
+            for (int y = 0; y < f->ch && !hit; y++) {
+                hit = px(d, ax + x0[j - 1] + gw[j - 1] - 1, ay + y) && px(d, cx + x0[j], cy + y);
+            }
+            int dist = 2 * j > n ? 2 * j - n : n - 2 * j;
+            if (!hit && dist < bd) {
+                bd = dist;
+                best = j;
+            }
+        }
+        if (best < 0) {
+            return 0;
+        }
+        over[best] = 1;
+        total--;
+    }
+    memset(img, 0, sizeof(uint8_t) * WG_MAXW * (size_t)f->ch);
+    for (int i = 0, x = 0; i < n; i++) {
+        x -= over[i];
+        if (codes[i] != 0xFD) {
+            int cx, cy;
+            cell_xy(f, codes[i], &cx, &cy);
+            for (int y = 0; y < f->ch; y++) {
+                for (int k = 0; k < gw[i]; k++) {
+                    int v = px(d, cx + x0[i] + k, cy + y);
+                    if (v && (img[y][x + k] == 0 || v == 1)) {
+                        img[y][x + k] = (uint8_t)v; /* ink over the neighbour's shadow */
+                    }
+                }
+            }
+        }
+        x += gw[i];
+    }
+    return 1;
+}
+
+static const char *word_override(const char *dir, int code, char *buf, int size) {
+    char path[1024], line[256];
+    const char *res = NULL;
+    FILE *fp;
+
+    snprintf(path, sizeof(path), "%swords.tsv", dir);
+    fp = fopen(path, "r");
+    if (fp == NULL) {
+        return NULL;
+    }
+    while (res == NULL && fgets(line, sizeof(line), fp) != NULL) {
+        char *tab = strchr(line, '\t');
+        if (line[0] == '#' || tab == NULL || (int)strtol(line, NULL, 16) != code) {
+            continue;
+        }
+        tab++;
+        tab[strcspn(tab, "\r\n")] = 0;
+        snprintf(buf, (size_t)size, "%s", tab);
+        res = buf;
+    }
+    fclose(fp);
+    return res;
+}
+
+/* returns the number of words drawn */
+static int patch_words(uint8_t *d, const Font *f, const char *dir, int umlauts) {
+    int done = 0;
+
+    for (int i = 0; i < NWORDS; i++) {
+        char buf[128];
+        const char *de = word_override(dir, WORDS[i].code, buf, sizeof(buf));
+        uint8_t codes[WG_MAXC + 1], img[16][WG_MAXW];
+        int n, w = WORDS[i].cells * f->cw, empty = 1;
+
+        de = de != NULL ? de : WORDS[i].de;
+        if (de[0] == 0) {
+            continue;
+        }
+        for (int c = WORDS[i].code; c < WORDS[i].code + WORDS[i].cells; c++) {
+            empty = empty && cell_empty(d, f, c);
+        }
+        n = encode(de, codes, WG_MAXC + 1, umlauts);
+        if (empty || n <= 1) {
+            note("word graphic %s: %s, English kept", de, empty ? "cells empty (unknown font)" : "a character without glyph");
+            continue;
+        }
+        n--; /* the end code */
+        for (int k = 0; k < n; k++) {
+            if (codes[k] >= 0x5E && codes[k] != 0xFD && (codes[k] < G_AE || codes[k] > G_ss)) {
+                n = 0; /* a command or a word graphic: no plain glyph */
+            }
+        }
+        if (n == 0) {
+            note("word graphic %s: only letters, digits and punctuation, English kept%s", de, "");
+            continue;
+        }
+        if (!compose_word(d, f, codes, n, w, img)) {
+            note("word graphic %s: too wide for its cells, English kept%s", de, "");
+            continue;
+        }
+        for (int c = 0; c < WORDS[i].cells; c++) {
+            int cx, cy;
+            cell_xy(f, WORDS[i].code + c, &cx, &cy);
+            for (int y = 0; y < f->ch; y++) {
+                for (int x = 0; x < f->cw; x++) {
+                    setpx(d, cx + x, cy + y, img[y][c * f->cw + x]);
+                }
+            }
+        }
+        done++;
+    }
+    return done;
+}
+
 /* --lang-dump DIR (tests): the patched font files as the game gets them */
 static const char *dump_dir;
 void Lang_SetDump(const char *dir) {
@@ -1076,6 +1252,9 @@ void Lang_Apply(void) {
 
         d = Host_PakReadFileLayered(F_SMALLFONT, &size);
         if (d != NULL && (ok = patch_font(d, size, &small, "small"))) {
+            char num[16];
+            snprintf(num, sizeof(num), "%d", patch_words(d, &small, dir, 1));
+            note("small font: %s word graphics in German", num, "");
             Host_PakSetLayer(F_SMALLFONT, d, size);
             dump(F_SMALLFONT, d, size);
         }

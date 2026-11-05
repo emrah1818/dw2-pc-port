@@ -127,13 +127,8 @@ Siehe TESTBERICHT.md. Kurzfassung:
 
 Reihenfolge nach Priorität des Nutzers:
 
-1. **Dialoge und Story auf Deutsch:** *Stand 1.4.0-dev: Befehle modelliert, Scanner für Ereignistabellen, Export, sicheres Neupacken fertig und mit Testdaten geprüft. Offen: Lauf mit echtem Image (`dialog_files.tsv` prüfen), Übersetzung, Ingame-Tests.*
-   - F3/F4/F6/F7 in `src/main/text.c` exakt modellieren und den Tokenizer in `host/lang.c` erweitern (heute sind sie gesperrt).
-   - Die Dateien mit Ereignistexten finden (Flag-Tabellen, `Flag_SelectBranch`, `Text_OpenMsgClearChoice` in `src/stag2000/walker.c`, Domain-Texte).
-   - `k_tables` erweitern oder einen allgemeinen Zeigerlisten-Scanner bauen, dann `--export-texts`.
-   - Übersetzen und mit `tools/i18n/build_texts.py` prüfen.
-   - Testen mit Bot-Gesprächen (`town.talk_to`) und Bildern.
-2. **Wortgrafiken lokalisieren:** Zellen 0x5E–0xE4 im kleinen Font (und entsprechende im großen) zur Laufzeit mit deutschen Wörtern aus Spielglyphen neu zeichnen, so wie `patch_font`. Zuordnung Code → Wort aus dem Font-Bild ermitteln. Breite beachten.
+1. **Dialoge und Story auf Deutsch:** *Stand 1.4.0-dev: erledigt und mit dem Image geprüft. 81 Ereignistabellen, 1682/1682 Dialoge übersetzt, 2565 Texte, 0 Fehler. Dazu Wörterbuch-Kompression (`dictionary.txt`) und Umbruch auf 31 Spalten. Offen: vollständiger Story-Durchlauf im Bild. Siehe TESTBERICHT.md.*
+2. **Wortgrafiken lokalisieren:** *Stand 1.4.0-dev: 13 von 18 Wortbildern im kleinen Font werden zur Laufzeit aus Spielglyphen deutsch gezeichnet (`patch_words`, eigene Wörter über `words.tsv`). Offen: Prüfung im Statusbildschirm, Kampf- und Labor-Menü.*
 3. **Originalmenüs modernisieren** (Remastered), mit Erhalt von Classic.
 4. **3D-Studio im Programm:** Modell und Animation aus der Modelldatei, Logik wie im Viewer (`dw2-viewer-android`, `native_gltf.py`/`native_model.py`), Anzeige in ImGui oder über den GPU-Renderer.
 5. **HD-Ersatztexturen** – *1.4.0-dev: im Software-Renderer fertig (Texturpakete), mit Testszene geprüft. Offen: GPU-Renderer (Shader müssten Ersatztexturen binden), Test mit echten Texturen.*
@@ -172,5 +167,5 @@ Reihenfolge nach Priorität des Nutzers:
 | 1.1.0 | Modding, Cheats, F1 DE/EN, Testbericht |
 | 1.2.0 | Attackennamen DE, Typen, Umlaute |
 | 1.3.0 | Textinventur, 879 Tabellentexte DE (Datei an den Nutzer), Neupacken |
-| 1.4.0-dev (Zwischenstand) | Skriptbefehle, Dialog-Inventur, sicheres Neupacken, Texturpakete (Software-Renderer). Ohne Image: keine Übersetzung, keine Ingame-Tests |
+| 1.4.0-dev (Zwischenstand) | Skriptbefehle, Ereignistabellen, Neupacken mit Verschieben, Wörterbuch, alle Dialoge deutsch, Wortgrafiken deutsch, Texturpakete (Software-Renderer) |
 | 1.4.0 (geplant) | Dialoge und Story DE, Wortgrafiken, dann Menüs, Studio, HD-Texturen, Launcher (Abschnitt 7) |

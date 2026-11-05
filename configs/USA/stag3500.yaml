@@ -1,0 +1,96 @@
+name: Stage overlay STAG3500.PRO
+sha1: 79b8c96b9ea1c11b45ebc223eeb14bf5a5f54812
+options:
+  basename: stag3500
+  target_path: dumps/disc/AAA/3.PRO/STAG3500.PRO
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/USA/stag3500
+  src_path: src/stag3500
+  build_path: build/USA
+  ld_script_path: linkers/USA/stag3500.ld
+  elf_path: build/USA/stag3500.elf
+  ld_dependencies: False
+
+  find_file_boundaries: True
+  migrate_rodata_to_functions: False
+  pair_rodata_to_text: False
+  gp_value: 0x800506F8
+
+  o_as_suffix: False
+  use_legacy_include_asm: False
+
+  asm_function_macro: glabel
+  asm_jtbl_label_macro: jlabel
+  asm_data_macro: dlabel
+  generate_asm_macros_files: False
+
+  section_order: [".rodata", ".text", ".data", ".sdata", ".sbss", ".bss"]
+
+  symbol_addrs_path:
+    - configs/USA/sym.main.txt
+    - configs/USA/sym.stag3500.txt
+
+  undefined_funcs_auto_path: linkers/USA/undefined_funcs_auto.stag3500.txt
+  undefined_syms_auto_path: linkers/USA/undefined_syms_auto.stag3500.txt
+
+  subalign: 4
+
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+  ld_bss_is_noload: False
+
+# Stage overlay: loaded by Ovl_Load (main exe) to 0x80063360, over the main exe's
+# .data there. Text range found by scanning for the first prologue / last `jr ra`.
+segments:
+  - name: stag3500
+    type: code
+    start: 0x0
+    vram: 0x80063360
+    align: 4
+    subalign: 4
+    subsegments:
+      - [0x0, rodata, stag3500_rodata]
+      - [0x19C, c, bg]
+      - [0x274, c, fightbg]
+      - [0x324, c, actionload]
+      - [0xB14, c, stag3500]
+      - [0xBD8, c, vsmenu]
+      - [0x1360, c, matchup]
+      - [0x1834, c, battle]
+      - [0x2370, c, textrect]
+      - [0x2880, c, turn]
+      - [0x2DC0, c, parts]
+      - [0x3470, c, fighter]
+      - [0x41A8, c, roundbanner]
+      - [0x43E8, c, xaplay]
+      - [0x4670, c, hud]
+      - [0x59D4, c, battlescript]
+      - [0x6510, c, camera]
+      - [0x6D74, c, cmdlist]
+      - [0x6F70, c, winbanner]
+      - [0x70EC, .data, bg]
+      - [0x7104, .data, fightbg]
+      - [0x711C, .data, actionload]
+      - [0x7134, .data, stag3500]
+      - [0x714C, .data, vsmenu]
+      - [0x717C, .data, matchup]
+      - [0x71C8, .data, battle]
+      - [0x71E0, .data, turn]
+      - [0x7214, .data, fighter]
+      - [0x7250, .data, roundbanner]
+      - [0x72A0, .data, xaplay]
+      - [0x72E8, .data, hud]
+      - [0x7318, .data, battlescript]
+      - [0x7330, .data, camera]
+      - [0x737C, .data, cmdlist]
+      - [0x76DC, .data, winbanner]
+      - [0x76F8, .bss, turn]
+      - [0x7A80, .bss, battlescript]
+      - [0x7C10, .bss, camera]
+  - [0x7C14]

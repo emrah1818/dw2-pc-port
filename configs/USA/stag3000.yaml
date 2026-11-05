@@ -1,0 +1,111 @@
+name: Stage overlay STAG3000.PRO
+sha1: 6aaf6f61f2af3d9b7379764912cf09b42c2af52b
+options:
+  basename: stag3000
+  target_path: dumps/disc/AAA/3.PRO/STAG3000.PRO
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/USA/stag3000
+  src_path: src/stag3000
+  build_path: build/USA
+  ld_script_path: linkers/USA/stag3000.ld
+  elf_path: build/USA/stag3000.elf
+  ld_dependencies: False
+
+  find_file_boundaries: True
+  migrate_rodata_to_functions: False
+  pair_rodata_to_text: False
+  gp_value: 0x800506F8
+
+  o_as_suffix: False
+  use_legacy_include_asm: False
+
+  asm_function_macro: glabel
+  asm_jtbl_label_macro: jlabel
+  asm_data_macro: dlabel
+  generate_asm_macros_files: False
+
+  section_order: [".rodata", ".text", ".data", ".sdata", ".sbss", ".bss"]
+
+  symbol_addrs_path:
+    - configs/USA/sym.main.txt
+    - configs/USA/sym.stag3000.txt
+
+  undefined_funcs_auto_path: linkers/USA/undefined_funcs_auto.stag3000.txt
+  undefined_syms_auto_path: linkers/USA/undefined_syms_auto.stag3000.txt
+
+  subalign: 4
+
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+  ld_bss_is_noload: False
+
+# Stage overlay: loaded by Ovl_Load (main exe) to 0x80063360, over the main exe's
+# .data there. Text range found by scanning for the first prologue / last `jr ra`.
+segments:
+  - name: stag3000
+    type: code
+    start: 0x0
+    vram: 0x80063360
+    align: 4
+    subalign: 4
+    subsegments:
+      - [0x0, rodata, stag3000_rodata]
+      - [0x538, c, banner]
+      - [0x70C, c, fightbg]
+      - [0x810, c, actionload]
+      - [0x1080, c, commandinput]
+      - [0x17D0, c, commandmenu]
+      - [0x1DA0, c, itemmenu]
+      - [0x2CA0, c, skillmenu]
+      - [0x3A50, c, targetselect]
+      - [0x41D0, c, battle]
+      - [0x5A40, c, turn]
+      - [0x6A88, c, skilleffect]
+      - [0x96DC, c, battlescript]
+      - [0x9F8C, c, itemeffect]
+      - [0xAF5C, c, battlestate]
+      - [0xB4F0, c, fighter]
+      - [0xC314, c, fightmsg]
+      - [0xC56C, c, popup]
+      - [0xC918, c, interruptselect]
+      - [0xCF48, c, xaplay]
+      - [0xD1D0, c, camera]
+      - [0xDA08, c, fighterhud]
+      - [0xE110, c, result]
+      - [0xEA10, c, skilllearn]
+      - [0xF540, c, joinprompt]
+      - [0xFC68, .data, banner]
+      - [0xFC90, .data, fightbg]
+      - [0xFCE0, .data, actionload]
+      - [0xFCF8, .data, commandinput]
+      - [0xFD10, .data, commandmenu]
+      - [0xFD30, .data, itemmenu]
+      - [0xFD88, .data, skillmenu]
+      - [0xFDF0, .data, targetselect]
+      - [0xFE28, .data, battle]
+      - [0xFE54, .data, turn]
+      - [0xFEB0, .data, skilleffect]
+      - [0xFF1C, .data, battlescript]
+      - [0xFF34, .data, fighter]
+      - [0xFF70, .data, fightmsg]
+      - [0xFFA0, .data, popup]
+      - [0xFFE0, .data, interruptselect]
+      - [0x10060, .data, xaplay]
+      - [0x100A8, .data, camera]
+      - [0x100F4, .data, fighterhud]
+      - [0x101B0, .data, result]
+      - [0x103D0, .data, skilllearn]
+      - [0x10458, .data, joinprompt]
+      - [0x10480, .bss, commandmenu]
+      - [0x10488, .bss, itemmenu]
+      - [0x104A0, .bss, skillmenu]
+      - [0x10530, .bss, skilleffect]
+      - [0x106C0, .bss, battlestate]
+      - [0x10D40, .bss, camera]
+  - [0x10D44]

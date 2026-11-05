@@ -1,0 +1,129 @@
+# dw2-pc-port: builds the game program for Windows x64 and Linux x64 WITHOUT any game data
+# (tools/build_native.py --no-disc). The program loads the disc tables at start from the
+# player's own disc image (host/discassets.c). Nothing from the game is checked out, downloaded
+# or packaged here.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "doc/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SDL_VERSION: 3.4.8
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ninja and SDL3 (MinGW development release)
+        shell: pwsh
+        run: |
+          python -m pip install ninja
+          $url = "https://github.com/libsdl-org/SDL/releases/download/release-$env:SDL_VERSION/SDL3-devel-$env:SDL_VERSION-mingw.tar.gz"
+          Invoke-WebRequest $url -OutFile sdl3.tar.gz
+          tar -xzf sdl3.tar.gz
+          "DW2_SDL3=$((Resolve-Path "SDL3-$env:SDL_VERSION").Path)" | Out-File $env:GITHUB_ENV -Append
+          "DW2_MINGW=${{ steps.msys2.outputs.msys2-location }}\mingw64" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Build (release, no disc data)
+        shell: pwsh
+        run: python tools/build_native.py --arch x64 --release --no-disc
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $b = "build/native64_rel_nodisc"
+          & "$b/dw2.exe" --version
+          $pkg = "DW2-PC-Port/DW2-PC"
+          New-Item -ItemType Directory -Force $pkg | Out-Null
+          Copy-Item "$b/dw2.exe", "$b/SDL3.dll" $pkg
+          # MinGW runtime DLLs the exe imports (none expected: libgcc/libstdc++ are static)
+          $objdump = "$env:DW2_MINGW\bin\objdump.exe"
+          $dlls = & $objdump -p "$b/dw2.exe" | Select-String "DLL Name: (.+)" | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() }
+          "imports: $($dlls -join ', ')"
+          foreach ($d in $dlls) {
+            $p = Join-Path "$env:DW2_MINGW\bin" $d
+            if (Test-Path $p) { Copy-Item $p $pkg; "bundled $d" }
+          }
+          Copy-Item LICENSE "$pkg/LICENSE.txt"
+          Copy-Item README_PORT.md "$pkg/README_PORT.md"
+          Compress-Archive -Path $pkg -DestinationPath DW2-PC-Port-windows-x64.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DW2-PC-Port-windows-x64
+          path: DW2-PC-Port-windows-x64.zip
+
+  linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake gcc g++ libx11-dev libxext-dev libxcursor-dev libxi-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libasound2-dev libpulse-dev libgl-dev libvulkan-dev
+
+      - name: SDL3 from source
+        run: |
+          curl -sSL -o sdl.tar.gz https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL3-$SDL_VERSION.tar.gz
+          tar -xzf sdl.tar.gz
+          cmake -S SDL3-$SDL_VERSION -B sdlbuild -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PWD/sdl3inst -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_WAYLAND=OFF
+          cmake --build sdlbuild
+          cmake --install sdlbuild
+          echo "CMAKE_PREFIX_PATH=$PWD/sdl3inst" >> $GITHUB_ENV
+
+      - name: Build (release, no disc data)
+        run: python3 tools/build_native.py --release --no-disc
+
+      - name: Package
+        run: |
+          b=build/linux64_rel_nodisc
+          $b/dw2 --version
+          mkdir -p DW2-PC-Port/DW2-PC
+          cp $b/dw2 DW2-PC-Port/DW2-PC/
+          cp -L sdl3inst/lib/libSDL3.so.0 DW2-PC-Port/DW2-PC/
+          cp LICENSE DW2-PC-Port/DW2-PC/LICENSE.txt
+          cp README_PORT.md DW2-PC-Port/DW2-PC/
+          (cd DW2-PC-Port && zip -r ../DW2-PC-Port-linux-x64.zip DW2-PC)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DW2-PC-Port-linux-x64
+          path: DW2-PC-Port-linux-x64.zip
+
+  release:
+    needs: [windows-x64, linux-x64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publish test build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete test-build --yes --cleanup-tag || true
+          gh release create test-build DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
+            --prerelease --target "${{ github.sha }}" --title "Test-Build (${GITHUB_SHA::7})" \
+            --notes "Automatischer Test-Build ohne Spieldaten. Beim ersten Start braucht das Programm dein eigenes Digimon World 2 (USA) Image (.cue/.bin). Siehe README_PORT.md."

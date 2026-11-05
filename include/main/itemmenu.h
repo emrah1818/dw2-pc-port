@@ -1,0 +1,18 @@
+#ifndef MAIN_ITEMMENU_H
+#define MAIN_ITEMMENU_H
+
+#include "main/game.h"
+
+/* Functions src/main/itemmenu.c defines. */
+void Item_BuildMenuList(MenuItemWork *w);
+void Menu_DrawItemGrid(MenuItemWork *a0, s32 a1);
+void Item_MoveToStorage(Actor *a0, MenuItemWork *w);
+void Item_TakeFromStorage(Actor *a0, MenuItemWork *w);
+void Menu_PickItemToUse(Actor *a0, MenuItemPickWork *o);
+void Menu_ItemGridSelect(Actor *a0, GridMenu *m);
+void Menu_ShowSelItemText(Actor *a0, MenuItemPickWork *o);
+void Menu_ItemInit(Actor *arg0, s16 arg1);
+void Menu_ItemTask(Actor *a0);
+void Menu_ItemDraw(Actor *actor);
+
+#endif /* MAIN_ITEMMENU_H */

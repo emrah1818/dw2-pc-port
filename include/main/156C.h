@@ -1,0 +1,3469 @@
+#ifndef MAIN_156C_H
+#define MAIN_156C_H
+
+#include "common.h"
+
+#ifdef NON_MATCHING
+/* Kernel function tables. The BIOS dispatchers at 0xA0/0xB0/0xC0 jump through these with the
+ * function number in t1; the NON_MATCHING bodies of the dispatch stubs call the table entry.
+ * B0(0x56) = GetC0Table, B0(0x57) = GetB0Table. */
+#define BIOS_A0_TABLE ((void **)0x00000200)
+#define BIOS_B0_TABLE ((void **)0x00000874)
+#define BIOS_C0_TABLE ((void **)0x00000674)
+#define BIOS_GetC0Table() (((void **(*)(void))BIOS_B0_TABLE[0x56])())
+#define BIOS_GetB0Table() (((void **(*)(void))BIOS_B0_TABLE[0x57])())
+#endif
+
+/* Two halfwords copied as one 4-byte value (lwl/lwr). */
+typedef struct {
+    /* 0x0 */ s16 field_0;
+    /* 0x2 */ s16 field_2;
+} Pair54;
+
+/* The struct reached through Actor.work (offset 0x2C). Field names are by byte
+ * offset until the layout is understood; pads keep the known fields aligned.
+ * Extend as more accessors are matched. */
+typedef struct {
+    /* 0x00 */ s32 field_0;
+    /* 0x04 */ s32 field_4;
+    /* 0x08 */ s32 field_8;
+    /* 0x0C */ s32 field_C;
+    u8 _pad10[0x04];
+    /* 0x14 */ u16 field_14;
+    u8 _pad16[0x02];
+    /* 0x18 */ s32 duration;
+    u8 _pad1C[0x08];
+    /* 0x24 */ s32 namePos;
+    /* 0x28 */ s32 field_28;
+    /* 0x2C */ s16 field_2C;
+    /* 0x2E */ s16 field_2E;
+    /* 0x30 */ s16 field_30;
+    u8 _pad32[0x06];
+    /* 0x38 */ s16 menuId;
+    u8 _pad3A[0x02];
+    /* 0x3C */ s16 optionsHidden;
+    u8 _pad3E[0x02];
+    /* 0x40 */ s32 subMenuRamp;
+    u8 _pad44[0x10];
+    /* 0x54 */ Pair54 itemCursor;
+    /* 0x58 */ s16 itemGridSize;
+    u8 _pad5A[0x0A];
+    /* 0x64 */ s16 menuMode;
+    u8 _pad66[0x02];
+    /* 0x68 */ s32 fade;
+    /* 0x6C */ s16 field_6C;
+    /* 0x6E */ s16 scrollRow;
+    /* 0x70 */ s16 hasItems;
+    u8 _pad72[0x16];
+    /* 0x88 */ s32 useCursor;
+    /* 0x8C */ s16 useGridSize;
+    u8 _pad8E[0x0A];
+    /* 0x98 */ s16 useMode;
+    u8 _pad9A[0x02];
+    /* 0x9C */ s32 useRamp;
+    u8 _padA0[0x04];
+    /* 0xA4 */ s16 field_A4;
+} ActorWork;
+
+/* Global struct Gfx_FadeState; only field_0 and field_8 are known so far. */
+typedef struct {
+    /* 0x00 */ s32 mode;
+    /* 0x04 */ s32 speed;
+    /* 0x08 */ s32 additive;
+} FadeState;
+
+/* Global object pointer D_80048F08 with method pointers at 0x38 / 0x3C. */
+typedef struct {
+    u8 _pad00[0x08];
+    /* 0x08 */ s32 (*addque2)(s32, s32, s32, s32);
+    /* 0x0C */ s32 clr;
+    /* 0x10 */ void (*ctl)(s32);
+    /* 0x14 */ void (*cwb)(u8 *, s32);
+    /* 0x18 */ void (*cwc)(u32 *);
+    /* 0x1C */ s32 (*drs)(s32, s32);
+    /* 0x20 */ void (*dws)(s32, s32);
+    u8 _pad24[0x08];
+    /* 0x2C */ void (*otc)(s32 *, s32);
+    u8 _pad30[0x04];
+    /* 0x34 */ s32 (*reset)(s32);
+    /* 0x38 */ s32 (*status)(void);
+    /* 0x3C */ void (*sync)(void *);
+} GpuFuncTable;
+
+/* Record returned by the Cd_FindLruCachedFile lookup; cleared by Cd_EvictLruFile. */
+typedef struct {
+    /* 0x00 */ u16 state;
+    /* 0x02 */ u16 locked;
+    /* 0x04 */ s32 fileId;
+    /* 0x08 */ s32 lastUsed;
+    /* 0x0C */ s32 data;
+} CdLruEntry;
+
+CdLruEntry *Cd_FindLruCachedFile();
+
+/* Entry returned by the Flag_GetEntry table lookup (0x2C stride). */
+typedef struct {
+    /* 0x00 */ s16 digiId;
+    /* 0x02 */ s16 dir;
+    /* 0x04 */ u8 blockIndex;
+    u8 _pad05[0x0F];
+    /* 0x14 */ s32 branchOffsets[6];
+} FlagBranchEntry;
+
+/* Global struct Flag_EntryIter; field_0 is an id, 4/8 hold results, field_C walks the
+ * Cd_GetFileEntry entry table and field_10 holds the entry Flag_NextPassingEntry picked. */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    /* 0x04 */ s32 fileBase;
+    /* 0x08 */ s32 entryIndex;
+    /* 0x0C */ FlagBranchEntry *cursor;
+    /* 0x10 */ FlagBranchEntry match;
+} FlagEntryState;
+
+/* Record cleared by Pad_ResetButtons. */
+typedef struct {
+    /* 0x00 */ s32 pressed;
+    /* 0x04 */ s32 held;
+    /* 0x08 */ s32 prevHeld;
+    /* 0x0C */ s32 connected;
+    /* 0x10 */ s32 repeat;
+    /* 0x14 */ u8 repeating;
+    /* 0x15 */ u8 repeatTimer;
+} PadButtons;
+
+/* Global struct Task_FindFilter populated by Task_FindFirst. */
+typedef struct {
+    /* 0x00 */ s32 key0;
+    /* 0x04 */ s32 key1;
+    /* 0x08 */ s32 key2;
+    /* 0x0C */ s32 nextIndex;
+} TaskFindFilter;
+
+/* Element of the Gfx_TexSlots array (stride 0x20), indexed by Gfx_GetTexSlot and
+   initialized by Gfx_InitTexSlots. */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    /* 0x04 */ s32 lastUsed;
+    /* 0x08 */ s32 colorMode;
+    /* 0x0C */ s32 uOffset;
+    /* 0x10 */ s16 tpage;
+    u8 _pad12[2];
+    /* 0x14 */ s32 index;
+    /* 0x18 */ s32 vramX;
+    /* 0x1C */ s32 vramY;
+} GfxTexSlot;
+
+/* A 0x1C-byte (7 word) block copied wholesale into ActorWork by Fx_ModelInit. */
+typedef struct {
+    s32 words[7];
+} Block1C;
+
+/* A 12-byte element in the array at offset 0x6C of the buffer that Ctx38.buf
+ * points to; Actor_StopAxisMotion zeroes one. */
+typedef struct {
+    /* 0x0 */ s32 speed;
+    /* 0x4 */ s32 accel;
+    /* 0x8 */ s32 maxSpeed;
+} Elem12;
+
+/* The buffer reached through Ctx38.buf (offset 0x38): an Elem12 array at 0x6C. */
+typedef struct {
+    u8 _pad00[0x6C];
+    /* 0x6C */ Elem12 elems[1];
+} Buf38;
+
+/* Container whose field at 0x38 points to a Buf38. Distinct from Actor (whose
+ * 0x38 is a byte), so kept as its own type. */
+typedef struct {
+    u8 _pad00[PTRW(0x38, 0x48)]; /* Actor.u38 */
+    /* 0x38 */ Buf38 *buf;
+} Ctx38;
+
+/* View of Actor.work used by Menu_UndoLastPick: a s16 counter at 0x19E indexing a
+ * s16 array at 0x1A0, plus a stride-8 element array reached at offset 0x6C. */
+typedef struct {
+    u8 _pad0[0x02];
+    /* 0x2 */ u8 pickState;
+    u8 _pad3[0x05];
+} WorkElem8; /* size 0x8 */
+
+typedef struct {
+    u8 _pad00[0x19E];
+    /* 0x19E */ s16 pickCount;
+    /* 0x1A0 */ s16 picks[16];
+} MenuPickWork;
+
+/* A 0x20 block copied verbatim from the const table Gfx_IdentityMatrix. */
+typedef struct {
+    /* 0x0 */ s16 m[3][3];
+} Mat12; /* size 0x12 */
+
+/* A matrix block (rotation + translation). */
+typedef struct {
+    /* 0x00 */ Mat12 m;
+    u8 _pad12[0x02];
+    /* 0x14 */ s32 t[3];
+} Blk20;
+
+/* 0x18-byte part key: rotation plus a short translation. */
+typedef struct {
+    /* 0x00 */ Mat12 m;
+    /* 0x12 */ s16 t[3];
+} Rec18; /* size 0x20 */
+
+/* Stride-0x84 destination element Gfx_ResetModelBones fills; the copied block lands
+ * at offset 0x60. */
+typedef struct {
+    /* 0x00 */ Blk20 viewMat;
+    /* 0x20 */ s32 worldM0;
+    /* 0x24 */ s32 worldM1;
+    /* 0x28 */ s32 worldM2;
+    /* 0x2C */ s32 worldM3;
+    /* 0x30 */ s32 worldM4;
+    /* 0x34 */ s32 worldTx;
+    /* 0x38 */ s32 worldTy;
+    /* 0x3C */ s32 worldTz;
+    /* 0x40 */ Blk20 lightMat;
+    /* 0x60 */ Blk20 localMat;
+    /* 0x80 */ s32 keyIndex;
+} ModelBone; /* size 0x84 */
+
+/* Object reached through Actor at 0x38 (overlaps the u8 field_38); Gfx_ShadowUpdate
+ * writes three words at 0x30/0x34/0x38. */
+typedef struct {
+    /* 0x00 */ Blk20 matrix;
+    u8 _pad20[0x10];
+    /* 0x30 */ s32 posX;
+    /* 0x34 */ s32 posY;
+    /* 0x38 */ s32 posZ;
+} ActorTransformView;
+
+/* Three-word vector copied field-to-field by value in Actor_UpdateTransform. */
+typedef struct {
+    /* 0x0 */ s32 x;
+    /* 0x4 */ s32 y;
+    /* 0x8 */ s32 z;
+} Vec3;
+
+/* Larger object reached through Actor at 0x38 (same slot as ActorTransformView, used by
+ * Actor_UpdateTransform): two Vec3s at 0x20/0x30 plus scalar state at 0x40..0x60. */
+typedef struct {
+    u8 _pad00[0x20];
+    /* 0x20 */ Vec3 prevPos;
+    u8 _pad2C[0x04];
+    /* 0x30 */ Vec3 pos;
+    u8 _pad3C[0x04];
+    /* 0x40 */ s32 rot;
+    u8 _pad44[0x04];
+    /* 0x48 */ s32 moveX;
+    /* 0x4C */ s32 moveY;
+    /* 0x50 */ s32 moveZ;
+    u8 _pad54[0x04];
+    /* 0x58 */ s32 scaleX;
+    /* 0x5C */ s32 scaleY;
+    /* 0x60 */ s32 scaleZ;
+} Obj209;
+
+/* The struct reached through Actor at offset 0x3C. Only the fields written by
+ * Anim_SetModelAnimFile / Gfx_ResetModelBones are known so far: field_8 is a signed count and
+ * field_78 an array of ModelBone. */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    /* 0x04 */ struct GfxModelFile *file;
+    /* 0x08 */ s32 boneCount;
+    /* Tables of 32-bit file words in the model file (Gfx_AttachModel relocates them). */
+    /* 0x0C */ PTR32(s16) *boneVerts;
+    /* 0x10 */ PTR32(s16) *boneNormals;
+    /* 0x14 */ PTR32(struct ModelQuadSection) *bonePolys;
+    /* 0x18 */ s32 *boneDepths;
+    /* 0x1C */ s32 *texAnimParts;
+    /* 0x20 */ s32 maxVerts;
+    /* 0x24 */ s32 maxNormals;
+    /* 0x28 */ s32 field_28;
+    /* 0x2C */ s32 blinkTimer;
+    /* 0x30 */ s32 texAnimTimer;
+    /* 0x34 */ s16 clutRow;
+    /* 0x36 */ s16 tpageFlags;
+    u8 _pad38[0x04];
+    /* 0x3C */ s32 otIndex;
+    /* 0x40 */ s32 otzShift;
+    /* 0x44 */ struct GfxModelTexSlot *texSlot;
+    /* 0x48 */ s32 animFileId;
+    /* 0x4C */ s32 animIndex;
+    /* 0x50 */ s32 *animData;
+    /* 0x54 */ s32 animId;
+    /* 0x58 */ s32 animPos;
+    /* 0x5C */ s32 animTimer;
+    /* 0x60 */ s32 animDone;
+    /* 0x64 */ s32 *animTable;
+    /* 0x68 */ s32 *bonePoseTables;
+    /* 0x6C */ s32 *screenXY;
+    /* 0x70 */ s32 *vertOtz;
+    /* 0x74 */ s32 *vertColors;
+    /* 0x78 */ ModelBone *bones;
+} ActorModel;
+
+/* Sub-object reached through the TaskFreeView container at 0x3C; Task_Free frees
+   the four owned pointers at 0x6C..0x78. */
+typedef struct {
+    u8 _pad00[NATIVE_OFS(ActorModel, screenXY, 0x6C)];
+    /* 0x6C */ ActorWork *screenXY;
+    /* 0x70 */ ActorWork *vertOtz;
+    /* 0x74 */ ActorWork *vertColors;
+    /* 0x78 */ ActorWork *bones;
+} ActorModelFreeView;
+
+/* Container torn down by Task_Free: a Task_Destroy array at 0x34 with count
+   at 0x30, plus owned pointers freed via Mem_Free. */
+typedef struct {
+    u8 _pad00[0x2C];
+    /* 0x2C */ ActorWork *work;
+    /* 0x30 */ s32 childCount;
+    /* 0x34 */ s32 *children;
+    /* 0x38 */ ActorWork *transform;
+    /* 0x3C */ ActorModelFreeView *model;
+} TaskFreeView;
+
+/* Two of these live in Actor at 0x48 (stride 0x5C). Gpu_SetBgClearColor stamps the
+ * four-byte header of each; field_0 is the pair earlier read as Actor.field_48
+ * (element 0) and Actor.field_A4 (element 1). */
+typedef struct {
+    /* 0x0 */ u8 isbg;
+    /* 0x1 */ u8 r0;
+    /* 0x2 */ u8 g0;
+    /* 0x3 */ u8 b0;
+    u8 _pad04[0x58];
+} ActorSub5C; /* size 0x5C */
+
+/* arg0 of the 0x2C accessor family: a container holding a pointer to its
+ * ActorWork at offset 0x2C. */
+typedef struct {
+    /* 0x00 */ s32 id;
+    u8 _pad04[0x04];
+    /* 0x08 */ s32 param;
+    /* 0x0C */ s32 digiId;
+    /* 0x10 */ s32 stateLevel0;
+    /* 0x14 */ s32 stateLevel1;
+    /* 0x18 */ s32 stateLevel2;
+    /* 0x1C */ s32 stateLevel3;
+    /* 0x20 */ s32 stateLevel4;
+    /* 0x24 */ u8 frameCount;
+    u8 _pad25[0x03];
+    /* 0x28 */ s32 elapsed;
+    /* 0x2C */ ActorWork *work;
+    /* 0x30 */ s32 childCount;
+    /* 0x34 read as a word by Text_LoadFontsTask, or as the two bytes 0x36/0x37 elsewhere. */
+    union {
+        /* 0x34 */ sptr children;
+        struct {
+            u8 _b34[0x02];
+            /* 0x36 */ u8 _pad36;
+            /* 0x37 */ u8 _pad37;
+        } b;
+    } u34;
+    /* 0x38 read as a byte (field_38) or as an ActorTransformView* (ptr38) by Gfx_ShadowUpdate. */
+    union {
+        /* 0x38 */ u8 _pad38;
+        ActorTransformView *ptr38;
+    } u38;
+    /* 0x3C */ ActorModel *model;
+    u8 _pad40[0x06];
+    /* 0x46 */ u8 infoStep;
+    /* 0x47 */ u8 infoIndex;
+    /* 0x48 */ ActorSub5C _pad48[2];
+    u8 _pad100[0x10];
+    /* 0x110 */ u16 _pad110;
+    u8 _pad112[0x02];
+    /* 0x114 */ u16 _pad114;
+    u8 _pad116[0x02];
+    /* 0x118 */ s32 _pad118[8];
+    /* 0x138 */ s32 *_pad138[8];
+} Actor;
+NATIVE_ASSERT(offsetof(Actor, u38) == PTRW(0x38, 0x48))
+NATIVE_ASSERT(offsetof(Actor, _pad40) == PTRW(0x40, 0x58))
+
+/* Entry returned by the Digi_FindBaseData table lookup (0x12 stride); accessed
+ * fields only. */
+typedef struct {
+    /* 0x00 */ s16 id;
+    /* 0x02 */ u8 learnedSkill;
+    /* 0x03 */ u8 dnaGroup;
+    union {
+        /* 0x04 */ u8 attrsLo;
+        /* 0x04 */ u16 field_4h;
+    } u4;
+    union {
+        /* 0x06 */ u8 growthLo;
+        /* 0x06 */ u16 field_6h;
+    } u6;
+    /* 0x08 */ u8 rangeBounds[5];
+    /* 0x0D */ u8 rangeValues[4];
+    u8 _pad11;
+} DigiBaseData;
+
+/* Record returned by Enemy_FindSetById; Enemy_GetSetSummary unpacks it. field_0 is read as
+   a word (nibble fields at bits 8-11 / 12-15) and as an s16 at 0x2; field_4 as a
+   byte at 0x4, an s16 at 0x6, and a word (nibbles at bits 8-11 / 12-15). */
+typedef struct {
+    union {
+        /* 0x00 */ s32 field_0;
+        struct { u8 _b[2]; s16 mapDigiId; } h;
+    } u0;
+    union {
+        /* 0x04 */ u32 field_4;
+        u8 likedGift;
+        struct { u8 _b[2]; s16 pointsPerLevel; } h;
+    } u4;
+    /* 0x08 */ u16 digiId;
+    u8 _pad0A[0x8];
+    /* 0x12 */ u8 level;
+    u8 _pad13[0xB];
+} Ent1DB18;
+
+/* Stride-0x1E view of the Ent1DB18 array that Enemy_GetSetSummary walks (the record's
+   s32 unions force C to size Ent1DB18 as 0x20, but the on-disc stride is 0x1E, so
+   the copy loop indexes this 2-aligned row instead). */
+typedef struct {
+    u8 _pad00[0x08];
+    /* 0x08 */ u16 digiId;
+    /* 0x0A */ u16 hp;
+    /* 0x0C */ u16 mp;
+    u8 _pad0E[0x4];
+    /* 0x12 */ u8 level;
+    /* 0x13 */ u8 attack;
+    /* 0x14 */ u16 defense;
+    /* 0x16 */ u8 speed;
+    /* 0x17 */ u8 skill0;
+    /* 0x18 */ u8 skill1;
+    /* 0x19 */ u8 skill2;
+    u8 _pad1A[0x4];
+} DigiInitRow; /* 0x1E */
+
+/* Record Enemy_GetSetSummary fills from an Ent1DB18. */
+typedef struct {
+    /* 0x00 */ s32 mapDigiId;
+    /* 0x04 */ s32 aiType;
+    /* 0x08 */ s32 paceType;
+    /* 0x0C */ s32 likedGift;
+    /* 0x10 */ s32 useDungeonBgm;
+    /* 0x14 */ s32 isBossFight;
+    /* 0x18 */ s32 pointsPerLevel;
+    /* 0x1C */ u16 digiIds[3];
+    /* 0x22 */ u16 levels[3];
+} Out1DB68;
+
+Ent1DB18 *Enemy_FindSetById();
+
+
+/* Entry returned by the Digi_FindDataById table lookup (0x28 stride). */
+typedef struct {
+    /* 0x00 */ s32 nameOffset;
+    union {
+        /* 0x04 */ u32 packedId;
+        struct {
+            u8 _b4[2];
+            /* 0x06 */ s16 modelFile;
+        } h4;
+    } u4;
+    /* 0x08 */ s16 animFiles[11];
+    /* 0x1E */ s16 field_1E;
+    /* 0x20 */ s16 hitFxOffsetY;
+    /* 0x22 */ s16 castFxRow0;
+    /* 0x24 */ s16 castFxRow1;
+    /* 0x26 */ s16 castFxRow2;
+} DigiData;
+
+/* Packed record returned by the Skill_FindById lookup. Several 32-bit words hold
+ * bitfields read at multiple widths, so overlapping offsets use unions. */
+typedef struct {
+    union {
+        /* 0x00 */ u32 field_0;
+        /* 0x00 */ s16 id;
+        struct {
+            u8 _b0[2];
+            /* 0x02 */ u16 field_2;
+        } h0;
+        struct {
+            u8 _b0[3];
+            /* 0x03 */ u8 field_3;
+        } b0;
+    } u0;
+    /* 0x04 */ u8 mpCost;
+    /* 0x05 */ u8 shotXaChannel;
+    /* 0x06 */ s16 shotXaFile;
+    /* 0x08 */ s16 power;
+    u8 _pad0A[0x02];
+    /* 0x0C */ s32 partsEntry;
+    union {
+        /* 0x10 */ u32 field_10;
+        /* 0x10 */ u8 field_10b;
+    } u10;
+    /* 0x14 */ u32 field_14;
+    /* 0x18 */ u32 statusFlags;
+    /* 0x1C */ u32 field_1C;
+    /* 0x20 */ u32 field_20;
+    /* 0x24 */ u32 nameOffset;
+    /* 0x28 */ u32 descOffset;
+    /* 0x2C */ s16 fxFiles[4][3]; /* -> size 0x44 (table stride) */
+} EntED40;
+
+/* Record returned by the Item_FindById lookup; two 32-bit words read at both
+ * word and byte widths. */
+typedef struct {
+    union {
+        /* 0x00 */ u32 field_0;
+        /* 0x00 */ s16 id;
+        struct {
+            u8 _b0[2];
+            /* 0x02 */ u8 category;
+            /* 0x03 */ u8 field_3;
+        } b0;
+    } u0;
+    union {
+        /* 0x04 */ u32 field_4;
+        struct {
+            u8 _b4[3];
+            /* 0x07 */ u8 bodyMask;
+        } b4;
+    } u4;
+    /* 0x08 */ s32 nameOffset;
+    /* 0x0C */ s32 descOffset;
+} ItemTableEntry;
+
+DigiBaseData *Digi_FindBaseData();
+FlagBranchEntry *Flag_GetEntry();
+DigiData *Digi_FindDataById();
+
+/* 6-byte record copied wholesale by Digi_GetCastFxOffsets from a stride-6 table (base is
+ * the Cd_GetFileEntry lookup, index is DigiData.field_22/24/26). 2-byte alignment
+ * makes the copy an unaligned lwl/lwr word plus an lh half. */
+typedef struct {
+    /* 0x0 */ s16 data[3];
+} Row6;
+EntED40 *Skill_FindById();
+ItemTableEntry *Item_FindById();
+
+/* Base record returned by the Cd_GetFileEntry lookup. Stride 0x28 when indexed. */
+typedef struct {
+    u8 _pad00[0x04];
+    /* 0x04 */ u32 packedId;
+    u8 _pad08[0x20];
+} EntA0;
+
+EntA0 *Cd_GetFileEntry();
+s32 Cd_GetFileOrNull(s32 arg0);
+s32 Skill_GetType();
+
+/* Record returned by the Cd_FindCachedFile lookup. */
+typedef struct {
+    /* 0x00 */ s16 state;
+    /* 0x02 */ s16 locked;
+    /* 0x04 */ s32 fileId;
+    /* 0x08 */ s32 lastUsed;
+    /* 0x0C */ s32 data;
+} CdCacheEntry;
+
+CdCacheEntry *Cd_FindCachedFile();
+
+/* 3-entry table at Snd_Slots, stride 0x2C, searched by Snd_AnySlotLoading. */
+typedef struct {
+    /* 0x00 */ s32 contentId;
+    /* 0x04 */ s32 loadState;
+    /* 0x08 */ s16 vabId;
+    /* 0x0A */ s16 sepCount;
+    /* 0x0C */ s16 sepIds[0xA];
+    /* 0x20 */ s32 vbFileId;
+    /* 0x24 */ s32 vhFileId;
+    /* 0x28 */ s32 *headerBuf;
+} SndSlot; /* 0x2C */
+
+/* Args to SetDrawOffset: a record it stamps (field_3/field_4/field_8) and a
+   two-halfword source read for the get_ofs call. */
+typedef struct {
+    u8 _pad0[3];
+    /* 0x03 */ u8 len;
+    /* 0x04 */ s32 code0;
+    /* 0x08 */ s32 code1;
+} DR_AREA;
+
+typedef struct {
+    /* 0x00 */ s16 x;
+    /* 0x02 */ s16 y;
+    /* 0x04 */ u16 w;
+    /* 0x06 */ u16 h;
+} DrawAreaRect;
+
+/* Integer stack at Text_ReturnStack (0x28 bytes): count, then 9 entries. Text_PushReturn pushes,
+   Text_PopReturn pops. */
+typedef struct {
+    /* 0x00 */ s32 count;
+    /* 0x04 */ s32 data[9];
+} TextStack;
+
+/* Global struct Cd_ReadState: field_0 is a small state (Cd_PollRead), field_4 a
+   countdown and field_8 an advancing buffer pointer (Cd_ReadSectorCallback; note the
+   symbol D_80048DBC aliases field_4), field_1C a counter compared/bumped by
+   Cd_CheckNextSector. */
+typedef struct {
+    /* 0x00 */ s32 state;
+    /* 0x04 */ s32 sectorsLeft;
+    /* 0x08 */ s32 dest;
+    /* 0x0C */ u8 cdMode;
+    u8 _padD[0x3];
+    /* 0x10 */ s32 sectorCount;
+    /* 0x14 */ s32 fileId;
+    /* 0x18 */ s32 buf;
+    /* 0x1C */ s32 nextLba;
+} CdReadState;
+
+/* Source record read by Text_OpenDesc to fill an TextOpenArgs. */
+typedef struct {
+    /* 0x00 */ s32 text;
+    /* 0x04 */ s32 strArg0;
+    /* 0x08 */ s32 strArg1;
+    /* 0x0C */ u16 x;
+    /* 0x0E */ u16 y;
+    /* 0x10 */ u8 packedStyle;
+    /* 0x11 */ u8 color;
+} TextDesc;
+
+/* A pair of 16-bit values passed by value in one register (Text_OpenPacked). */
+typedef struct {
+    /* 0x0 */ u16 lo;
+    /* 0x2 */ u16 hi;
+} Halves;
+
+/* 0x2C-byte parameter block built on the stack and passed to Text_Open
+   (only the leading fields are written; the tail is left uninitialized). */
+typedef struct {
+    /* 0x00 */ s32 bigFont;
+    /* 0x04 */ s32 color;
+    /* 0x08 */ s16 x;
+    /* 0x0A */ s16 y;
+    /* 0x0C */ s32 charAdvance;
+    /* 0x10 */ s32 lineAdvance;
+    /* 0x14 */ s32 text;
+    /* 0x18 */ s32 charDelay;
+    /* 0x1C */ s32 strArg0;
+    /* 0x20 */ s32 strArg1;
+    u8 _pad24[0x8];
+} TextOpenArgs;
+
+/* Read view of the TextOpenArgs block used by Text_Open: same layout, but the
+   0x8/0xA halfwords are read unsigned and 0x24/0x28 are read as words. */
+typedef struct {
+    /* 0x00 */ s32 bigFont;
+    /* 0x04 */ s32 color;
+    /* 0x08 */ u16 x;
+    /* 0x0A */ u16 y;
+    /* 0x0C */ s32 charAdvance;
+    /* 0x10 */ s32 lineAdvance;
+    /* 0x14 */ s32 text;
+    /* 0x18 */ s32 charDelay;
+    /* 0x1C */ s32 strArg0;
+    /* 0x20 */ s32 strArg1;
+    /* 0x24 */ s32 strArg2;
+    /* 0x28 */ s32 strArg3;
+} TextOpenSrc;
+
+/* Stride-0x34 record built by Text_Open into the Task_FindFirst array. */
+typedef struct {
+    /* 0x00 */ u8 inUse;
+    /* 0x01 */ u8 bigFont;
+    /* 0x02 */ u8 color;
+    /* 0x03 */ u8 charAdvance;
+    /* 0x04 */ u8 lineAdvance;
+    u8 _pad5;
+    /* 0x06 */ s16 charDelay;
+    /* 0x08 */ s32 text;
+    /* 0x0C */ s32 strArg0;
+    /* 0x10 */ s32 strArg1;
+    /* 0x14 */ s32 strArg2;
+    /* 0x18 */ s32 strArg3;
+    /* 0x1C */ s16 x;
+    /* 0x1E */ s16 y;
+    /* 0x20 */ u8 baseColor;
+    /* 0x21 */ u8 delayTimer;
+    /* 0x22 */ u8 visibleChars;
+    /* 0x23 */ u8 finished;
+    /* 0x24 */ u8 cmdFADone;
+    /* 0x25 */ u8 cmdFBDone;
+    /* 0x26 */ u8 cmdF9Done;
+    /* 0x27 */ u8 waitingInput;
+    /* 0x28 */ u8 choicesDone;
+    /* 0x29 */ u8 choiceCursor;
+    /* 0x2A */ u8 cmdF6Done;
+    /* 0x2B */ u8 pausesDone;
+    /* 0x2C */ u8 cmdF4TurnDone;
+    /* 0x2D */ u8 cmdF4ObjDone;
+    /* 0x2E */ u8 cmdF4TaskDone;
+    /* 0x2F */ u8 soundsDone;
+    /* 0x30 */ u8 padIndex;
+    /* 0x31 */ u8 otIndex;
+    u8 _pad32[2];
+} TextBox;
+
+/* Returned by Task_FindNext/Task_FindFirst: the stride-0x34 record array at 0x2C. */
+typedef struct {
+    /* 0x00 */ s32 id;
+    /* 0x04 */ s32 field_4;
+    /* 0x08 */ s32 param;
+    u8 _pad0C[0x20];
+    /* 0x2C */ TextBox *work;
+    u8 _pad30[4];
+    /* 0x34 */ PTR32(Actor) *children; /* 32-bit task slots (Task_Create) */
+} TaskEntry;
+
+/* 0x10-stride record; Gfx_FlatLights array, per-slot init by Gfx_InitLights. */
+typedef struct {
+    /* 0x00 */ s32 x;
+    /* 0x04 */ s32 y;
+    /* 0x08 */ s32 z;
+    /* 0x0C */ u8 r;
+    /* 0x0D */ u8 g;
+    /* 0x0E */ u8 b;
+    u8 _pad0F;
+} Blk16;
+
+/* 0xC-stride record returned by the Flag_GetEntryPosList getter (base is the
+   Cd_GetFileEntry((Flag_EntryIter.field_0<<16)|1) lookup, index is FlagBranchEntry.field_4). */
+typedef struct {
+    u8 data[0xC];
+} Blk12;
+
+/* 0x18-stride record; the Flag_GetEntryCondBlock getter family returns &base[index] where
+   base is the Cd_GetFileEntry((Flag_EntryIter.field_0<<16)|2) lookup result. */
+typedef struct {
+    u8 data[0x18];
+} Blk18;
+
+/* Argument to the Flag_GetEntryCondBlock getter family: a byte index lives at one of several
+   offsets (0x5/0x6/0xC) and selects a Blk18. */
+typedef struct {
+    u8 _pad0[5];
+    /* 0x5 */ u8 condIdx;
+    /* 0x6 */ u8 altCondIdx;
+    u8 _pad7[5];
+    /* 0xC */ u8 altSetIdx;
+} FlagEntryIdx;
+
+/* Per-channel bucket built by Menu_SkillListBuildTabs: a count at +0, then a count-indexed
+   array of s16 slots. Stride 0x1A; four channels live at Actor194C8.records. */
+typedef struct {
+    /* 0x00 */ s16 count;
+    /* 0x02 */ s16 arr[12];
+} Rec1A;
+
+/* s16 held in a 4-byte stride slot (Actor194C8.slot54). */
+typedef struct {
+    /* 0x00 */ s16 v;
+    /* 0x02 */ s16 row;
+} Slot4;
+
+/* View of the Actor block touched by Menu_SkillListBuildTabs. */
+typedef struct {
+    /* 0x00 */ s32 textBoxes[18];
+    /* 0x48 */ s32 descText;
+    /* 0x4C */ s32 numberText;
+    /* 0x50 */ s32 nameText;
+    /* 0x54 */ Slot4 slot54[4];
+    /* 0x64 */ Blk12 block64[4]; /* the channel count is re-stored at +2 */
+    /* 0x94 */ s32 scrollTop[4];
+    u8 _padA4[0x4];
+    /* 0xA8 */ s32 fadeRamp;
+    /* 0xAC */ Rec1A records[4];
+    /* 0x114 */ s32 curTab;
+    /* 0x118 */ u8 *selRecord;
+    /* 0x11C */ u8 numBuf[8];
+} Actor194C8;
+
+/* Destination record for _SsUtResolveADSR's bitfield unpack (all s16 fields). */
+typedef struct {
+    /* 0x00 */ s16 ar;
+    /* 0x02 */ s16 dr;
+    /* 0x04 */ s16 sl;
+    /* 0x06 */ s16 sr;
+    /* 0x08 */ s16 rr;
+    /* 0x0A */ s16 aMode;
+    /* 0x0C */ s16 sMode;
+    /* 0x0E */ s16 rMode;
+    /* 0x10 */ s16 sDir;
+} SndAdsr;
+
+/* Fixed-stride block indexed by Gpu_ClearOt (element size 0x4030). */
+typedef struct {
+    /* 0x0000 */ s32 entries[0x100C];
+} GpuOtBuf;
+
+/* Event flags at Save_GameState.eventFlags (Save_GameState + 0x1004). Flag_Set / Flag_Test map flag
+ * ids onto bit arrays by range (ids 0..599 run past flags0 into the next arrays). */
+typedef struct {
+    /* 0x00 */ u8 flags0[0x20];     /* ids 0..599 */
+    /* 0x20 */ u8 flags600[0x8];    /* ids 600..699 */
+    /* 0x28 */ u8 flags700[0x8];    /* ids 700..799 */
+    /* 0x30 */ u8 flags800[0x10];   /* ids 800..999 */
+    /* 0x40 */ s32 progress;        /* ids 1000..1999: value id - 1900 */
+} EventFlags; /* size 0x44 */
+
+/* One digimon: Save_GameState.elems[] (the tamer's 0x24 roster slots) and the battle copies
+   (Stg30_Battle digis, Stg30_FighterStateBackup). */
+typedef struct {
+    /* 0x00 */ u8 state;                /* 0 = empty slot */
+    /* 0x01 */ u8 digiId;
+    u8 _pad02[0xB];
+    /* 0x0D */ u8 level;
+    /* 0x0E */ u8 dp;
+    /* 0x0F */ u8 maxLevel;
+    /* 0x10 */ s32 exp;
+    /* 0x14 */ s16 maxHp;
+    /* 0x16 */ s16 hp;
+    /* 0x18 */ s16 maxMp;
+    /* 0x1A */ s16 mp;
+    /* 0x1C */ s16 attack;
+    /* 0x1E */ s16 defense;
+    /* 0x20 */ s16 speed;
+    /* 0x22 */ u8 skills[12];           /* skill ids; 0..2 from the init row */
+    /* 0x2E */ u8 learnableSkills[0x18]; /* DNA digivolve: the parents' other skills, learnable by rank */
+    /* 0x46 */ u8 pendingSkill;         /* digivolve: the new form's skill, offered after a won battle */
+    /* 0x47 */ u8 parent0;              /* DNA digivolve parents (digimon ids) */
+    /* 0x48 */ u8 parent1;
+    /* 0x49 */ u8 isTransferred;        /* came from a memory card transfer */
+    /* 0x4A */ u16 transferUid;
+    /* 0x4C */ u8 name[14];
+    u8 _pad5A[0x2];
+} DigiRosterEntry; /* size 0x5C */
+
+/* Save_GameState: the save data, one block of 0x1058 bytes (Save_ResetGameState zeroes it, the
+   memory card code copies it whole). Everything one tamer owns: name, rank, bits, the DigiBeetle
+   (hp/mp, part slots), the item bag, the 0x24-slot digimon roster, item storage and the event flags. */
+typedef struct {
+    /* 0x00 */ u8 automapMode;
+    /* 0x01 */ u8 areaSelectArg;
+    u8 _pad02[0x02];
+    /* 0x04 */ s32 playTime;
+    /* 0x08 */ s32 bits;
+    u8 _pad0C[0x05];
+    /* 0x11 */ u8 rankTitleSet;
+    /* 0x12 */ u8 rank;
+    u8 _pad13[0x01];
+    /* 0x14 */ u8 playerName[0x10];
+    /* 0x24 */ s16 hp;                  /* DigiBeetle */
+    /* 0x26 */ s16 maxHp;
+    /* 0x28 */ s16 mp;
+    /* 0x2A */ s16 maxMp;
+    /* 0x2C */ u16 slotItems[0x13];     /* DigiBeetle part item id per slot: 0 body, 5 tires, 8 gun,
+                                           9 Z cannon, 10 R cannon, 11 missile gun */
+    /* 0x52 */ u8 slotStatus[0x14];     /* per part slot, nonzero = broken */
+    /* 0x66 */ u16 bagItems[0x30];      /* Flag_Set ids 2000..2236 store id - 2000 in the last one */
+    u8 _padC6[0x0B];
+    /* 0xD1 */ u8 beetleName[0x13];     /* a second name buffer (text escape F0 05) */
+    /* 0xE4 */ DigiRosterEntry elems[0x24];
+    /* 0xDD4 */ u16 storageCounts[0x100]; /* item storage, count per item id */
+    u8 _padFD4[0x1004 - 0xFD4];
+    /* 0x1004 */ EventFlags eventFlags;
+    u8 _pad1048[0x10];
+} GameState; /* size 0x1058 */
+
+/* Table cleared by Task_ClearList: a count word followed by 100 entries. */
+typedef struct {
+    /* 0x00 */ s32 count;
+    /* 0x04 */ s32 entries[100];
+    u8 _pad194[0xC];
+} TaskList; /* size 0x1A0 */
+
+/* Doubly-linked node reached at (arg0 - 0xC) by Mem_Free; field_0 is the
+   sibling pointer, field_4 links to a neighbour whose field_0 points back. */
+typedef struct MemFreeBlock {
+    /* 0x00 */ struct MemFreeBlock *prev;
+    /* 0x04 */ struct MemFreeBlock *next;
+    /* 0x08 */ s32 tag;
+} MemFreeBlock;
+
+/* arg0 of GsMulCoord3: three s32 accumulators at 0x14/0x18/0x1C. */
+typedef struct {
+    u8 _pad00[0x14];
+    /* 0x14 */ s32 tx;
+    /* 0x18 */ s32 ty;
+    /* 0x1C */ s32 tz;
+} CoordMatrix;
+
+/* arg1 of GsMulCoord3: a GTE-style MATRIX. Math_MulMatrixRotZ fills m[3][3] (a Z
+ * rotation scaled to 0x1000) + the field_14/18/1C translation; &field_14 is
+ * handed to ApplyMatrixLV. */
+typedef struct {
+    /* 0x00 */ s16 m[3][3];
+    /* 0x14 */ s32 tx;
+    /* 0x18 */ s32 ty;
+    /* 0x1C */ s32 tz;
+} ArgC0E4;
+
+/* Accumulate-and-clamp record used by Actor_StepAxisMotion: field_0 += field_4, then
+ * clamped against field_8. */
+typedef struct {
+    /* 0x0 */ s32 speed;
+    /* 0x4 */ s32 accel;
+    /* 0x8 */ s32 maxSpeed;
+} AxisMotion;
+
+/* Buffer allocated into a container's field_38 by Actor_InitTransform (0x90 bytes via
+ * Mem_Alloc); only the fields it stamps are known. */
+/* Three s32 words copied as one block (position -> matrix translation). */
+typedef struct {
+    s32 v[3];
+} LongVec3;
+
+/* PsyQ VECTOR shape: three s32 components and a pad word. Code indexes the
+   components as (&v.vx)[i]. */
+typedef struct {
+    s32 vx;
+    s32 vy;
+    s32 vz;
+    s32 pad;
+} VecL;
+
+typedef struct {
+    /* 0x00 */ s16 m[3][3];
+    u8 _pad12[0x02];
+    /* 0x14 */ LongVec3 t;
+    u8 _pad20[0x10];
+    /* 0x30 */ s32 posX;
+    /* 0x34 */ s32 posY;
+    /* 0x38 */ s32 posZ;
+    u8 _pad3C[0x06];
+    /* 0x42 */ s16 rotY;
+    u8 _pad44[0x04];
+    /* 0x48 */ VecL moveDelta;
+    /* 0x58 */ s32 scaleX;
+    /* 0x5C */ s32 scaleY;
+    /* 0x60 */ s32 scaleZ;
+    u8 _pad64[0x04];
+    /* 0x68 */ s16 screenX;
+    /* 0x6A */ s16 screenY;
+    /* 0x6C */ AxisMotion axisMotion[3];
+} AllocC40;
+
+/* Container whose field_38 holds an AllocC40* (Actor_InitTransform's arg0). */
+typedef struct {
+    u8 _pad00[NATIVE_OFS(Actor, u38, 0x38)];
+    /* 0x38 */ AllocC40 *transform;
+} ContC40;
+
+/* Buffer allocated + registered by Task_Alloc (in the Task_List list) and
+ * populated by Task_AllocWithBuffers; only the pointer/count fields it writes are known. */
+typedef struct {
+    /* 0x00 */ u32 id;
+    u8 _pad04[0x20];
+    /* 0x24 */ s32 frameCount;
+    u8 _pad28[0x04];
+    /* 0x2C */ sptr work;
+    /* 0x30 */ s32 childCount;
+    /* 0x34 */ sptr children;
+} ActorAllocView;
+
+/* Task callbacks. Init gets Task_Create's argument; many callbacks are declared with
+   other argument types (s16, none), so rows cast them to these. */
+typedef void (*TaskInitFn)(ActorAllocView *, s32);
+typedef void (*TaskFn)(Actor *);
+
+/* Object type descriptor from the Task_DescTable[id >> 8][id & 0xFF] table
+   (Task_Create, Task_Run): callbacks and the two buffer sizes. */
+typedef struct {
+    /* 0x00 */ TaskInitFn init;
+    /* 0x04 */ TaskFn update;
+    /* 0x08 */ TaskFn destroy;
+    /* 0x0C */ TaskFn draw;
+    /* 0x10 */ s32 workSize;
+    /* 0x14 */ s32 auxSize;
+} TaskDesc;
+
+/* 5-byte slot descriptor walked by Pad_AllocActPower (PadPort field_4). */
+typedef struct {
+    u8 _pad0[2];
+    /* 0x02 */ u8 size;
+    /* 0x03 */ u8 curr;
+    u8 _pad4;
+} PadActSlot;
+
+/* Argument to Pad_CalcInfoBufSize (byte/half fields deep in a large record). */
+typedef struct PadPort {
+    /* 0x00 */ s32 modeTable;
+    /* 0x04 */ PadActSlot *actTable;
+    /* 0x08 */ s32 combTable;
+    /* 0x0C */ struct PadPort *field_C;
+    /* 0x10 */ void *field_10;
+    /* 0x14 */ void (*sendInfoHook)(void *);
+    /* 0x18 */ s32 (*parseInfoHook)(void *);
+    u8 _pad1C[0xC];
+    /* 0x28 */ u8 *actData;
+    /* 0x2C */ u8 *sendParams;
+    /* 0x30 */ u8 *padBuf;
+    /* 0x34 */ u8 actDataLen;
+    /* 0x35 */ u8 rxLen;
+    /* 0x36 */ u8 sendParamCount;
+    /* 0x37 */ u8 sendCmd;
+    /* 0x38 */ u8 field_38;
+    /* 0x39 */ u8 field_39;
+    u8 _pad3A[0x2];
+    /* 0x3C */ volatile u8 *rxBuf;
+    /* 0x40 */ u8 *field_40;
+    /* 0x44 */ volatile u8 rxPos;
+    /* 0x45 */ u8 xferPos;
+    /* 0x46 */ u8 infoStep;
+    /* 0x47 */ u8 infoIndex;
+    u8 _pad48[0x1];
+    /* 0x49 */ u8 state;
+    /* 0x4A */ u8 retryCount;
+    u8 _pad4B[0x1];
+    /* 0x4C */ s32 errorCount;
+    /* 0x50 */ u8 field_50;
+    u8 _pad51[0x6];
+    /* 0x57 */ u8 actEnabled[6];
+    /* 0x5D */ u8 actAlign[6];
+    /* 0x63 */ u8 infoBuf[0x80];
+    /* 0xE3 */ u8 modeCount;
+    /* 0xE4 */ u8 curModeIndex;
+    u8 _padE5[0x1];
+    /* 0xE6 */ u16 field_E6;
+    /* 0xE8 */ u8 padType;
+    /* 0xE9 */ u8 actCount;
+    /* 0xEA */ u8 combCount;
+    /* 0xEB */ u8 field_EB;
+    /* 0xEC */ u16 combInfoSize;
+    /* 0xEE */ u16 field_EE;
+} PadPort;
+
+/* Stride-0x28 array element written by Gfx_SetPartsScale: a flag byte at 0xE plus
+ * two words at 0x10/0x14; field_0 is the loop guard (zero terminates). */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    u8 _pad04[0xE - 0x4];
+    /* 0x0E */ s8 unscaled;
+    u8 _pad0F[0x1];
+    /* 0x10 */ s32 scaleX;
+    /* 0x14 */ s32 scaleY;
+    u8 _pad18[0x28 - 0x18];
+} GfxPartScaleView;
+
+/* Pad_Update source record (stride 0x18): field_0/field_4 feed Pad_GetButtonState
+ * bit tests, field_10 is copied out, field_C is cleared on the disabled path. */
+typedef struct {
+    /* 0x0 */ s32 pressed;
+    /* 0x4 */ s32 held;
+    u8 _pad8[0x4];
+    /* 0xC */ s32 initialized;
+    /* 0x10 */ s32 repeat;
+    u8 _pad14[0x4];
+} Elm678; /* size 0x18 */
+
+/* Pad_Update destination record (stride 0x40): 14 word slots filled from
+ * Pad_GetButtonState, three s16 copies at 0x38/0x3A/0x3C, and a flag at 0x3E. */
+typedef struct {
+    /* 0x00 */ s32 right;
+    /* 0x04 */ s32 left;
+    /* 0x08 */ s32 up;
+    /* 0x0C */ s32 down;
+    /* 0x10 */ s32 circle;
+    /* 0x14 */ s32 cross;
+    /* 0x18 */ s32 square;
+    /* 0x1C */ s32 triangle;
+    /* 0x20 */ s32 r1;
+    /* 0x24 */ s32 r2;
+    /* 0x28 */ s32 l1;
+    /* 0x2C */ s32 l2;
+    /* 0x30 */ s32 select;
+    /* 0x34 */ s32 start;
+    /* 0x38 */ u16 held;
+    /* 0x3A */ u16 pressed;
+    /* 0x3C */ u16 repeat;
+    /* 0x3E */ s16 connected;
+} PadState; /* size 0x40 */
+
+/* Pad_Update control record (stride 0x22): field_0 is an enable flag, the
+ * high nibble of field_1 selects the active mode. */
+typedef struct {
+    /* 0x0 */ u8 status;
+    /* 0x1 */ u8 padType;
+    u8 _pad2[0x20];
+} PadBuf; /* size 0x22 */
+
+/* Command block D_80062C18 handed to SpuSetReverbModeParam: field_0 is the command
+ * id, the remaining fields are its arguments. */
+typedef struct {
+    /* 0x00 */ s32 mask;
+    /* 0x04 */ s32 mode;
+    /* 0x08 */ s16 depthLeft;
+    /* 0x0A */ s16 depthRight;
+    /* 0x0C */ s32 delay;
+    /* 0x10 */ s32 feedback;
+} SpuReverbAttr; /* size 0x14 */
+
+s32 SpuSetReverbModeParam(SpuReverbAttr *cmd);
+
+/* By-value argument block of the SsSepOpen handler table entries
+ * (void handler(s16, s16, s16, HandlerArg)). It starts in $a3 and continues on
+ * the caller's stack, so the callee homes $a3 to keep it contiguous. Only the
+ * fields matched so far are named. */
+typedef struct {
+    /* 0x00 */ u8 prior;
+    /* 0x01 */ u8 mode;
+    u8 _pad02[0x04];
+    /* 0x06 */ u8 min;
+    /* 0x07 */ u8 max;
+    u8 _pad08[0x01];
+    /* 0x09 */ u8 vibT;
+    /* 0x0A */ u8 porW;
+    u8 _pad0B[0x05];
+    /* 0x10 */ u16 adsr1;
+    /* 0x12 */ u16 adsr2;
+    u8 _pad14[0x10];
+    /* 0x24 */ s32 data;
+} HandlerArg;
+
+/* Element of the per-slot arrays Snd_SeqScores[slot] (stride 0xB0), indexed
+ * Snd_SeqScores[a0][a1] by the SsSepOpen handler table and _SsSndStop. */
+typedef struct {
+    u8 *readPos;        /* 0x00 */
+    u8 *volatile seqStart; /* 0x04 */
+    s32 loopPos;        /* 0x08 */
+    u8 *volatile field_C; /* 0x0C */
+    s32 field_10;       /* 0x10 */
+    u8  playMode;       /* 0x14 */
+    u8  inLoop;       /* 0x15 */
+    u8  runningStatus;       /* 0x16 */
+    u8  channel;       /* 0x17 */
+    u8  rpn1;       /* 0x18 */
+    u8  rpn2;       /* 0x19 */
+    u8  nrpn1;       /* 0x1A */
+    u8  nrpn2;       /* 0x1B */
+    u8  loopCountPending;       /* 0x1C */
+    u8  nrpnLoopCount;       /* 0x1D */
+    u8  rpnCount;       /* 0x1E */
+    u8  nrpnCount;       /* 0x1F */
+    u8  loopCount;       /* 0x20 */
+    u8  playCount;       /* 0x21 */
+    s8  nextSeqAccess;       /* 0x22 */
+    u8  nextSepNo;       /* 0x23 */
+    u8  rhythmN;       /* 0x24 */
+    u8  rhythmD;       /* 0x25 */
+    s8  vabId;       /* 0x26 */
+    u8  panpot[0x10]; /* 0x27 */
+    u8  programs[0x10]; /* 0x37 */
+    u8  _p47[0x1];      /* 0x47 */
+    s16 fadeVol;       /* 0x48 */
+    s16 fadeVolDone;       /* 0x4A */
+    s16 field_4C;       /* 0x4C */
+    s16 tempoStep;       /* 0x4E */
+    s16 resolution;       /* 0x50 */
+    s16 field_52;       /* 0x52 */
+    s16 field_54;       /* 0x54 */
+    s16 field_56;       /* 0x56 */
+    u16 volL;       /* 0x58 */
+    u16 volR;       /* 0x5A */
+    s16 curVolL;       /* 0x5C */
+    s16 curVolR;       /* 0x5E */
+    s16 channelVol[0x10]; /* 0x60 */
+    s16 muteMask;       /* 0x80 */
+    u8  _p82[0x2];      /* 0x82 */
+    s32 startDelta;       /* 0x84 */
+    s32 elapsedTicks;       /* 0x88 */
+    s32 tempo;       /* 0x8C */
+    s32 deltaValue;       /* 0x90 */
+    s32 tempoCur;       /* 0x94 */
+    s32 flags;       /* 0x98 */
+    s32 fadeFrames;       /* 0x9C */
+    s32 fadeFrame;       /* 0xA0 */
+    s32 field_A4;       /* 0xA4 */
+    s32 tempoFrames;       /* 0xA8 */
+    s32 tempoTarget;       /* 0xAC -> size 0xB0 */
+} SndSeqScore;
+
+/* Bit-flag block pointed to by D_8004FC68; D_8004FC70[] holds the masks
+ * StartRCnt / StopRCnt set and clear in field_4. */
+typedef struct {
+    /* 0x00 */ s32 stat;
+    /* 0x04 */ s32 mask;
+} IrqRegs;
+
+/* Callback table reached through D_8004FB80; the ResetCallback..80030DF8
+ * wrappers forward their arguments to one slot each. */
+typedef struct {
+    /* 0x00 */ void (*fn_0)();
+    /* 0x04 */ void (*fn_4)();
+    /* 0x08 */ void (*fn_8)();
+    /* 0x0C */ void (*fn_C)();
+    /* 0x10 */ void (*fn_10)();
+    /* 0x14 */ void (*fn_14)();
+    /* 0x18 */ void (*fn_18)();
+} IntrCallbackTable;
+
+/* Status block polled through Pad_SioRegs (Pad_WaitSioRx spins on bit 1 of
+ * field_4). */
+typedef struct {
+    /* 0x00 */ volatile u8 data;
+    u8 _pad01[0x3];
+    /* 0x04 */ volatile u16 stat;
+    u8 _pad06[0x2];
+    /* 0x08 */ u16 mode;
+    /* 0x0A */ u16 ctrl;
+    u8 _pad0C[0x2];
+    /* 0x0E */ u16 baud;
+} SioRegs;
+
+/* Object reached through Menu_Ctx; Menu_SubMenuInit clears field_35C. */
+typedef struct {
+    /* 0x000 */ u32 flags;
+    /* 0x004 */ u32 elapsed;
+    u8 _pad008[0x100];
+    /* 0x108 */ s16 itemId;
+    /* 0x10A */ s16 bagSlot;
+    u8 _pad10C[0x4];
+    /* 0x110 */ u8 *selRecord;
+    /* 0x114 */ u8 *pickedRecords[3];
+    /* 0x120 */ s16 pickCount;
+    /* 0x122 */ s16 pickConfirmed;
+    /* 0x124 */ s16 subMenuCursor;
+    /* 0x126 */ s16 transferDone;
+    /* 0x128 */ s32 transferRecord;
+    u8 _pad12C[0x230];
+    /* 0x35C */ s16 pickResult;
+    /* 0x35E */ s16 confirmed;
+    /* 0x360 */ s16 topMenuResult;
+} MenuCtx;
+
+/* Record initialised by SetDefDispEnv (four halfwords from the arguments, the
+ * rest cleared). */
+typedef struct {
+    /* 0x00 */ s16 dispX;
+    /* 0x02 */ s16 dispY;
+    /* 0x04 */ s16 dispW;
+    /* 0x06 */ s16 dispH;
+    /* 0x08 */ s16 screenX;
+    /* 0x0A */ s16 screenY;
+    /* 0x0C */ s16 screenW;
+    /* 0x0E */ s16 screenH;
+    /* 0x10 */ u8 isinter;
+    /* 0x11 */ u8 isrgb24;
+    /* 0x12 */ u8 pad0;
+    /* 0x13 */ u8 pad1;
+} DispEnvFlat;
+
+/* Element of D_800624E8[] (stride 0x38); vmNoiseOff clears a slot. */
+typedef struct {
+    /* 0x00 */ s16 vagIdx;
+    /* 0x02 */ u16 age;
+    /* 0x04 */ s16 pitch;
+    /* 0x06 */ u16 envx;
+    /* 0x08 */ s16 vol;
+    /* 0x0A */ u8 pan;
+    u8 _pad0B;
+    /* 0x0C */ s16 channel;
+    /* 0x0E */ s16 note;
+    /* 0x10 */ s16 seqSepNo;
+    /* 0x12 */ s16 progIdx;
+    /* 0x14 */ s16 prog;
+    /* 0x16 */ s16 tone;
+    /* 0x18 */ s16 vabId;
+    /* 0x1A */ s16 prior;
+    u8 _pad1C[0x1];
+    /* 0x1D */ s8 keyStat;
+    /* 0x1E */ s16 field_1E;
+    /* 0x20 */ s16 field_20;
+    /* 0x22 */ s16 field_22;
+    /* 0x24 */ s16 field_24;
+    /* 0x26 */ s16 field_26;
+    u8 _pad28[0x2];
+    /* 0x2A */ s16 field_2A;
+    /* 0x2C */ s16 field_2C;
+    /* 0x2E */ s16 field_2E;
+    /* 0x30 */ s16 field_30;
+    /* 0x32 */ s16 field_32;
+    u8 _pad34[0x2];
+    /* 0x36 */ s16 field_36;
+} SndVoice; /* size 0x38 */
+
+/* Hook pair at D_8004FC50; _SsTrapIntrVSync calls the optional fn_4, then fn_0. */
+typedef struct {
+    /* 0x00 */ void (*fn_0)(void);
+    /* 0x04 */ void (*fn_4)(void);
+} SsVSyncHooks;
+
+/* Object passed to the D_80048E30 callback by func_800266D0; field_3C points at
+ * a status byte cleared after the call. */
+typedef struct {
+    u8 _pad00[0xC];
+    /* 0x0C */ struct PadSioSlot *field_C;
+    /* 0x10 */ void *field_10;
+    u8 _pad14[0x1C];
+    /* 0x30 */ u8 *padBuf;
+    u8 _pad34[0x3];
+    /* 0x37 */ u8 sendCmd;
+    /* 0x38 */ u8 field_38;
+    /* 0x39 */ u8 field_39;
+    u8 _pad3A[0x2];
+    /* 0x3C */ u8 *rxBuf;
+    /* 0x40 */ u8 *field_40;
+    /* 0x44 */ u8 rxPos;
+    /* 0x45 */ u8 xferPos;
+} PadPortSio;
+
+/* View of *Dung_StatePtr (main DungState) as this overlay uses it. */
+typedef struct {
+    /* 0x00 */ s16 cols;
+    /* 0x02 */ s16 rows;
+    /* 0x04 */ s16 field_4;
+    u8 _pad06[0x04];
+    /* 0x0A */ s16 wallStyle;
+    /* 0x0C */ u8 hazardLevel;
+    /* 0x0D */ u8 nameLen;      /* count of name bytes (Stg40_ApplyFloorLayout) */
+    /* 0x0E */ u8 name[16];
+    u8 _pad1E[0x02];
+} Stg40FloorHeader;
+
+typedef struct {
+    /* 0x00 */ s16 ids[11];
+    /* 0x16 */ s16 count;       /* count used by Stg40_TurnQueueNext */
+    /* 0x18 */ s16 capacity;
+    /* 0x1A */ s16 cursor;       /* index into ids */
+} Stg40TurnQueue;
+
+/* Map position block inside Stg40Ent48 (at 0x18); the x/y pair is also compared as one word
+ * (Stg40_FindObjAtSameTile). Passed to Stg40_ScrollFollow / Stg40_ScrollToFollow. */
+typedef struct {
+    union {
+        /* 0x00 */ s32 tileXY;
+        /* 0x00 */ Pair54 pair;
+    } u0;
+    /* 0x04 */ Pair54 prevTile;
+    /* 0x08 */ s16 moveFramesLeft;
+    /* 0x0A */ s16 moveFrames;
+    /* 0x0C */ s32 posX;
+    /* 0x10 */ s32 posY;
+    /* 0x14 */ s32 height;
+    /* 0x18 */ s32 fallSpeed;
+    /* 0x1C */ s16 moving;
+    /* 0x1E */ u16 moveFlags;
+} Stg40Loc;
+
+/* Element of DungState.ents (stride 0x48, 41 entries; Stg40_RevealAllEnts). */
+typedef struct {
+    /* 0x00 */ s32 flags;
+    /* 0x04 */ s16 digiId;
+    /* 0x06 */ u8 field_6;
+    /* 0x07 */ u8 turnId;
+    /* 0x08 */ u8 kind;         /* kind, switched on by Stg40_FixtureUpdate */
+    /* 0x09 */ u8 spawnKind;
+    /* 0x0A */ u8 roomId;
+    /* 0x0B */ u8 octant;         /* heading octant (Stg40_ObjStepMove) */
+    /* 0x0C */ s16 heading;        /* current heading, turns toward targetHeading */
+    /* 0x0E */ u16 targetHeading;
+    /* 0x10 */ u8 *params;
+    /* 0x14 */ Actor *actor;
+    /* 0x18 */ Stg40Loc loc;
+    /* 0x38 */ s32 scaleX;
+    /* 0x3C */ s32 scaleY;
+    /* 0x40 */ s32 scaleZ;
+    u8 _pad44[0x04];
+} Stg40Ent48;
+
+/* x, y, value byte triple (DungState.trapCells; Stg40_ApplyTrapCells, Stg40_PickRandomPoint). */
+typedef struct {
+    /* 0x0 */ u8 x;
+    /* 0x1 */ u8 y;
+    /* 0x2 */ u8 kind;
+} Stg40CellPoint;
+
+/* Entries collected by Stg40_CheckEncounter (DungState.encounterList). */
+typedef struct {
+    /* 0x00 */ Stg40Ent48 *ents[8];
+    /* 0x20 */ s16 count;       /* count */
+} Stg40EncounterList;
+
+/* 0x14-byte row of file 0xE20000A (Stg40_InitDungeonEntry). */
+typedef struct {
+    /* 0x00 */ s16 dungFileId;
+    /* 0x02 */ s16 sndSlotContent;
+    /* 0x04 */ s16 bgmId;
+    /* 0x06 */ s16 bgmSet;
+    /* 0x08 */ s16 battleBgmId;      /* sound id (Stg40_BeginTransition) */
+    /* 0x0A */ s16 battleBgmSet;      /* sound arg (Stg40_BeginTransition) */
+    /* 0x0C */ s32 floorTexId0;
+    /* 0x10 */ s32 floorTexId1;
+} Stg40DungEntry;
+
+/* Dungeon status effects of the tamer's party (Stg40_TickStatusEffects walks them through one pointer). */
+typedef struct {
+    /* 0x00 */ s32 statusFlags;     /* bit 0 tested by Stg40_PlayerInput */
+    /* 0x04 */ u8 confusionTurn;
+    /* 0x05 */ u8 bugLevels[3];     /* bit bug, energy bug, return bug level */
+    /* 0x08 */ u8 memBugCount;      /* count of memBugLevels */
+    /* 0x09 */ u8 memBugLevels[12]; /* Bug_CompactMemBugs keeps the nonzero ones in front */
+    /* 0x15 */ u8 bindTurns;
+    u8 _pad16[0x02];
+} DungStatus; /* size 0x18 */
+
+/* Dung_State: the dungeon session (floor, entities, bugs, encounter state), main .bss, reached through
+   Dung_StatePtr. STAG4000 fills it; main menus read the bug levels; STAG3000 reads floorSpecialty/giftLevel. */
+typedef struct {
+    /* 0x000 */ u8 entryMode;
+    /* 0x001 */ u8 transitionReq;
+    /* 0x002 */ u8 freeze;
+    /* 0x003 */ u8 floor;
+    /* 0x004 */ u8 floorLayout;
+    /* 0x005 */ u8 field_5;
+    /* 0x006 */ u8 fromMode32B;
+    /* 0x007 */ u8 beetleDown;
+    /* 0x008 */ s32 dungFileId;
+    /* 0x00C */ s16 entCount;       /* count of live ents entries (Stg40_FindObjAtSameTile) */
+    /* 0x00E */ s16 partyCount;       /* count of parties records (Stg40_AddEntity) */
+    /* 0x010 */ s16 chestCount;      /* count of chests pairs (Stg40_SpawnChests) */
+    /* 0x012 */ s16 hazardCount;      /* count of hazards pairs (Stg40_AddEntity) */
+    /* 0x014 */ s16 trapCount;      /* count of live trapCells entries (Stg40_ApplyTrapCells) */
+    u8 _pad016[0x02];
+    /* 0x018 */ Stg40Ent48 ents[41];
+    /* 0xBA0 */ DungStatus status;
+    /* 0xBB8 */ u8 parties[9][0x1C]; /* per-entry data of kind 1 (Stg40_AddEntity) */
+    u8 _padCB4[0xCCE - 0xCB4];
+    /* 0xCCE */ u8 chests[12][2];
+    u8 _padCE6[0x02];
+    /* 0xCE8 */ u8 hazards[16][2]; /* per-entry data of kinds 5..12 (Stg40_AddEntity) */
+    /* 0xD08 */ Stg40CellPoint trapCells[100];
+    /* 0xE34 */ Stg40FloorHeader defaultFloorHdr;
+    /* 0xE54 */ Stg40FloorHeader *floorHdr;
+    /* 0xE58 */ ActorWork *cells;
+    /* 0xE5C */ s32 revealedRooms[8];
+    /* 0xE7C */ u8 visitedBits[0x180];
+    /* 0xFFC */ Stg40TurnQueue turnQueue;
+    /* 0x1018 */ Stg40EncounterList encounterList;
+    u8 _pad103C[0x01];
+    /* 0x103D */ u8 floorSpecialty;
+    /* 0x103E */ u16 partyPointsPerLevel;
+    /* 0x1040 */ s16 giftLevel;
+    u8 _pad1042[0x02];
+    /* 0x1044 */ Stg40DungEntry dungeon; /* row of file 0xE20000A picked by dungeonIdx */
+    /* 0x1058 */ s16 dungeonIdx;
+    u8 _pad105A[0x02];
+    /* 0x105C */ s32 floorTexId0;
+    /* 0x1060 */ s32 floorTexId1;
+    /* 0x1064 */ Stg40Loc *scrollTarget;
+    /* 0x1068 */ Stg40Loc *playerLoc;
+    u8 _pad106C[0x1080 - 0x106C];
+} DungState; /* size 0x1080: Save_GameState follows, 8-aligned */
+
+/* Sound state block at D_80062D18 (splat splits it into small byte symbols);
+ * note2pitch2 indexes the D_80062D08 table with field_7 * 16 + field_C. */
+typedef struct {
+    /* 0x00 */ s8 tones;
+    /* 0x01 */ s8 vabId;
+    /* 0x02 */ s8 note;
+    /* 0x03 */ s8 field_3;
+    /* 0x04 */ s8 vol;
+    /* 0x05 */ u8 pan;
+    /* 0x06 */ s8 prog;
+    /* 0x07 */ s8 progIdx;
+    u8 _pad8[0x2];
+    /* 0x0A */ s8 mvol;
+    /* 0x0B */ u8 mpan;
+    /* 0x0C */ u8 tone;
+    /* 0x0D */ s8 toneVol;
+    /* 0x0E */ u8 tonePan;
+    /* 0x0F */ u8 tonePrior;
+    /* 0x10 */ u8 toneCenter;
+    /* 0x11 */ u8 toneShift;
+    /* 0x12 */ u8 toneMode;
+    u8 _pad13[0x1];
+    /* 0x14 */ s16 seqSepNo;
+    /* 0x16 */ s16 vagIdx;
+    /* 0x18 */ s16 voice;
+} SndVmCur;
+
+/* 0x20-byte record in the table D_80062D08 points at. */
+typedef struct {
+    /* 0x00 */ u8 prior;
+    /* 0x01 */ u8 mode;
+    /* 0x02 */ u8 vol;
+    /* 0x03 */ u8 pan;
+    /* 0x04 */ u8 center;
+    /* 0x05 */ u8 shift;
+    /* 0x06 */ u8 min;
+    /* 0x07 */ u8 max;
+    /* 0x08 */ u8 vibW;
+    /* 0x09 */ u8 vibT;
+    /* 0x0A */ u8 porW;
+    /* 0x0B */ u8 porT;
+    /* 0x0C */ u8 pbmin;
+    /* 0x0D */ u8 pbmax;
+    u8 _padE[0x2];
+    /* 0x10 */ u16 adsr1;
+    /* 0x12 */ u16 adsr2;
+    /* 0x14 */ u16 prog;
+    /* 0x16 */ u16 vag;
+    u8 _pad18[0x8];
+} VagAtr;
+
+
+/* Two-word state Menu_NameEntryInit copies into the head of an ActorWork. */
+typedef struct {
+    /* 0x0 */ s32 mode;
+    /* 0x4 */ s32 rosterIndex;
+} MenuNameEntryArg;
+
+/* SetDrawMove builds a GPU move-image packet (PsyQ SetDrawMove shape):
+ * RECT is the 16-bit source rectangle, DR_MOVE the tagged packet. The native build has the
+ * Psy-Q ones (psyq/libgpu.h, same layout). */
+#ifndef DW2_NATIVE
+typedef struct {
+    /* 0x0 */ s16 x;
+    /* 0x2 */ s16 y;
+    /* 0x4 */ s16 w;
+    /* 0x6 */ s16 h;
+} RECT;
+typedef struct {
+    /* 0x00 */ u8 _pad00[3];
+    /* 0x03 */ u8 len;
+    /* 0x04 */ u32 code[5];
+} DR_MOVE;
+#endif
+
+/* Status words behind Pad_IntrRegs; Pad_VBlankIrqVerify checks bit 0 of both. */
+typedef struct {
+    /* 0x00 */ s32 iStat;
+    /* 0x04 */ s32 iMask;
+} IntrRegs;
+
+/* State block at D_80062F80 armed by MemCardAccept (field_0 = 2, arg in
+ * field_10) before it pushes Card_AcceptTask as a state handler. */
+typedef struct {
+    /* 0x00 */ s32 cmd;
+    /* 0x04 */ s32 result;
+    /* 0x08 */ s32 done;
+    /* 0x0C */ s32 field_C;
+    /* 0x10 */ s32 chan;
+    /* 0x14 */ s32 fd;
+    /* 0x18 */ s32 offset;
+    /* 0x1C */ s32 size;
+    /* 0x20 */ s32 buf;
+    /* 0x24 */ u8 path[0x20];
+    /* 0x44 */ s32 callback;
+    /* 0x48 */ s32 field_48[2];
+    /* 0x50 */ s32 vsyncCount[2];
+} CardState;
+
+/* Stack command block passed to SpuSetCommonAttr (built by SsSetSerialAttr /
+ * 80035024 / 800356D4): field_0 is a command/flag word. */
+typedef struct {
+    /* 0x00 */ s32 mask;
+    /* 0x04 */ s16 mvolLeft;
+    /* 0x06 */ s16 mvolRight;
+    /* 0x08 */ s16 mvolmodeLeft;
+    /* 0x0A */ s16 mvolmodeRight;
+    u8 _pad0C[0x04];
+    /* 0x10 */ s16 cdVolLeft;
+    /* 0x12 */ s16 cdVolRight;
+    /* 0x14 */ s32 cdReverb;
+    /* 0x18 */ s32 cdMix;
+    /* 0x1C */ s16 extVolLeft;
+    /* 0x1E */ s16 extVolRight;
+    /* 0x20 */ s32 extReverb;
+    /* 0x24 */ s32 extMix;
+} SpuCommonAttr;
+void SpuSetCommonAttr(SpuCommonAttr *);
+
+/* Record handed to DrawPrim: a count byte at 0x3 and the data it counts
+ * from 0x4 (passed to D_80048F08->fn_14). */
+typedef struct {
+    u8 _pad00[0x03];
+    /* 0x03 */ u8 len;
+    /* 0x04 */ u8 data[1];
+} GpuPrim;
+
+/* Two-word header SpuInitMalloc fills and publishes through Spu_MemList. */
+typedef struct {
+    /* 0x0 */ u32 addr;
+    /* 0x4 */ s32 size;
+} SpuMallocRec;
+
+/* (id, arg) pair; Flag_ApplySets walks six of them, -1 id = unused slot. */
+typedef struct {
+    /* 0x0 */ s16 flag;
+    /* 0x2 */ s16 value;
+} FlagSetPair;
+
+/* State blocks reset by func_8002ADE4. */
+typedef struct {
+    /* 0x0 */ s16 field_0;
+    /* 0x2 */ u8 dither;
+    /* 0x3 */ u8 field_3;
+    /* 0x4 */ u8 field_4;
+} St6191C;
+
+typedef struct {
+    /* 0x0 */ s16 xRes;
+    /* 0x2 */ s16 yRes;
+    u8 _pad04[0x08];
+    /* 0xC */ u8 interlace;
+    /* 0xD */ u8 vramMode;
+} GfxScreenMode;
+
+/* Object whose handle array (count at 0x30, array at 0x34) Task_RunChildren
+ * walks through Task_Run. */
+typedef struct {
+    u8 _pad00[NATIVE_OFS(Actor, childCount, 0x30)];
+    /* 0x30 */ s32 childCount;
+    /* 0x34 */ s32 *children;
+} TaskChildrenView;
+
+/* 16-byte slot record in the D_80062CFC array. */
+typedef struct {
+    /* 0x0 */ u8 tones;
+    /* 0x1 */ u8 mvol;
+    /* 0x2 */ u8 prior;
+    /* 0x3 */ u8 mode;
+    /* 0x4 */ u8 mpan;
+    u8 _pad05[0x1];
+    /* 0x6 */ u16 attr;
+    /* 0x8 */ u8 reserved1;
+    u8 _pad09[0x03];
+    /* 0xC */ u16 vagLo;
+    /* 0xE */ u16 vagHi;
+} SndProgAtr;
+
+/* s16 pair at D_80061900 filled by GsInit3D and handed to GsSetDrawBuffOffset. */
+typedef struct {
+    /* 0x0 */ s16 field_0;
+    /* 0x2 */ s16 field_2;
+} Pair61900;
+
+/* 16-bit rectangle get_tw packs into a texture-window command. */
+typedef struct {
+    /* 0x0 */ s16 x;
+    /* 0x2 */ s16 y;
+    /* 0x4 */ s16 w;
+    /* 0x6 */ s16 h;
+} TexWindowRect;
+
+/* Grid menu: cursor at 0x54, dimensions at 0x58, 6-byte cells from 0x72
+   (cell index = Menu_GridIndexColMajor(cursor, dims)). */
+typedef struct {
+    /* 0x00 */ u16 itemId;
+    u8 _pad02[0x04];
+} GridCell;
+
+typedef struct {
+    u8 _pad00[0x54];
+    /* 0x54 */ s16 cursor[2];
+    /* 0x58 */ s16 gridSize[2];
+    u8 _pad5C[0x16];
+    /* 0x72 */ GridCell cells[16];
+} GridMenu;
+
+/* GPU drawing environment (libgpu DRAWENV layout, 0x1C head); filled by
+   SetDefDrawEnv. */
+typedef struct {
+    /* 0x00 */ s16 clip_x;
+    /* 0x02 */ s16 clip_y;
+    /* 0x04 */ s16 clip_w;
+    /* 0x06 */ s16 clip_h;
+    /* 0x08 */ s16 ofs[2];
+    /* 0x0C */ s16 tw_x;
+    /* 0x0E */ s16 tw_y;
+    /* 0x10 */ s16 tw_w;
+    /* 0x12 */ s16 tw_h;
+    /* 0x14 */ u16 tpage;
+    /* 0x16 */ u8 dtd;
+    /* 0x17 */ u8 dfe;
+    /* 0x18 */ u8 isbg;
+    /* 0x19 */ u8 r0;
+    /* 0x1A */ u8 g0;
+    /* 0x1B */ u8 b0;
+    /* 0x1C */ u32 dr_env[16];
+} DrawEnv;
+
+/* Zero-terminated list entry walked by Text_PrintIdList: low 12 bits of `key` pick
+   the 0x1FD resource, bits 12-15 are mode flags; `h` is forwarded by value. */
+typedef struct {
+    /* 0x0 */ s32 key;
+    /* 0x4 */ Halves h;
+} TextIdListEntry;
+
+/* 6-byte map cell record in the Menu_PickItemToUse grid (field_0 = item id). */
+typedef struct {
+    /* 0x0 */ u16 itemId;
+    u8 _pad2[0x2];
+    /* 0x4 */ u16 bagSlot;
+} MenuItemPickCell;
+
+/* Map object walked by Menu_PickItemToUse: cursor (0x54) and size (0x58) s16 pairs
+ * index the cell grid at 0x72. */
+typedef struct {
+    u8 _pad00[0x40];
+    /* 0x40 */ s32 nameText;
+    /* 0x44 */ u8 descText[0x10];
+    /* 0x54 */ s16 cursor[2];
+    /* 0x58 */ s16 gridSize[2];
+    u8 _pad5C[0x8];
+    /* 0x64 */ s16 menuMode;
+    /* 0x66 */ s16 nextTaskIdx;
+    u8 _pad68[0xA];
+    /* 0x72 */ MenuItemPickCell cells[1];
+} MenuItemPickWork;
+
+/* Global D_8004EAF8: one-shot stream state opened by restartIntr. */
+typedef struct {
+    /* 0x00 */ u16 interruptsInitialized;
+    /* 0x02 */ u16 inInterrupt;
+    /* 0x04 */ s32 handlers[11];
+    /* 0x30 */ u16 enabledInterruptsMask;
+    /* 0x32 */ u16 savedMask;
+    /* 0x34 */ s32 savedPcr;
+    /* 0x38 */ s32 buf[12];
+    /* 0x68 */ s32 stack[0x3EC];
+    /* 0x1018 */ s32 stack_top[0x14];
+} IntrEnv;
+
+/* Work block (Actor.work) of the actor state machine Text_PortraitTask:
+ * field_8 = step counter, field_C = pose id, field_10 = delay, field_14 = sub. */
+typedef struct {
+    u8 _pad00[0x8];
+    /* 0x08 */ s32 step;
+    /* 0x0C */ s32 hideMask;
+    /* 0x10 */ s32 delay;
+    /* 0x14 */ s32 palette;
+} Wk116CC;
+
+/* Three status bytes at D_8004E9A4 reset by CD_flush (field_0 = 2,
+ * field_1/field_2 cleared). */
+typedef struct {
+    /* 0x00 */ u8 syncIntr;
+    /* 0x01 */ u8 readyIntr;
+    /* 0x02 */ u8 endIntr;
+    /* 0x03 */ u8 _pad3[6];
+} CdIntrStatus;
+
+/* Word pair at *D_80048DF0: PadStartCom writes -2 to 0x0 and sets bit 0 of 0x4. */
+typedef struct {
+    /* 0x0 */ volatile s32 stat;
+    /* 0x4 */ volatile s32 mask;
+} Reg48DF0;
+
+/* Two-word state D_80060058, cleared by PadStartCom. */
+typedef struct {
+    /* 0x0 */ s32 field_0;
+    /* 0x4 */ s32 field_4;
+} State60058;
+
+/* One selectable entry of the MenuDigiPickWork menu (8 bytes). */
+typedef struct {
+    /* 0x0 */ u8 kind;
+    u8 _pad1[0x1];
+    /* 0x2 */ u8 pickState;
+    u8 _pad3[0x1];
+    /* 0x4 */ s32 record;
+} MenuDigiPickRow;
+
+/* Actor work block while Menu_DigiTransferPickSrc's menu is active: cursor pos/size
+ * pairs at 0x50/0x54 and the entry table at 0x6C. */
+typedef struct {
+    u8 _pad00[0x40];
+    /* 0x40 */ u8 msgText[0x10];
+    /* 0x50 */ s16 cursor[2];
+    /* 0x54 */ s16 gridSize[2];
+    u8 _pad58[0x0A];
+    /* 0x62 */ s16 subTask;
+    u8 _pad64[0x08];
+    /* 0x6C */ MenuDigiPickRow rows[38];
+    /* 0x19C */ s16 pickMax;
+    /* 0x19E */ s16 pickedCount;
+    /* 0x1A0 */ s16 pickedIndices[1];
+} MenuDigiPickWork;
+
+/* 0x10-byte state block at D_8004FDCC cleared by _SpuInit. */
+typedef struct {
+    /* 0x0 */ s32 mode;
+    /* 0x4 */ s16 depthLeft;
+    /* 0x6 */ s16 depthRight;
+    /* 0x8 */ s32 delay;
+    /* 0xC */ s32 feedback;
+} SpuReverbState;
+
+/* 0x38-byte record in the table at D_800624F8 (field_0 = id, matched by
+ * _SsVmSeqKeyOff). */
+typedef struct {
+    /* 0x00 */ s16 field_0;
+    u8 _pad2[0x36];
+} SndVoiceField;
+
+/* 0x28-byte model part record; lists end at field_0 == 0 (Menu_SetPartsGridPos, Gfx_SetPartsPalette). */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    /* 0x04 */ s16 x;
+    /* 0x06 */ s16 y;
+    u8 _pad8[4];
+    /* 0x0C */ u8 palette;
+    /* 0x0D */ u8 frame;
+    u8 _padE[0x1];
+    /* 0x0F */ u8 visible;
+    u8 _pad10[0xC];
+    /* 0x1C */ s32 groupMask;
+    u8 _pad20[8];
+} GfxPart;
+
+/* Static GPU packets at D_80048F9C; the VRAM-to-VRAM move packet (tag, GP0
+ * 0x80 command, source xy, destination xy, size) starts at 0xC. */
+typedef struct {
+    /* 0x00 */ u16 vramH[3][2];
+    /* 0x0C */ u32 move[5];
+} Pkt48F9C;
+
+/* Register block reached through the pointer at D_800506BC. */
+typedef struct {
+    u8 _pad0[0xA];
+    /* 0xA */ s16 ctrl;
+} Reg506BC;
+
+/* GPU display environment (libgpu DISPENV layout) at D_80061968, set up by
+   func_8002ACC8 and applied by PutDispEnv. */
+typedef struct {
+    /* 0x00 */ RECT disp;
+    /* 0x08 */ RECT screen;
+    /* 0x10 */ u8 isinter;
+    /* 0x11 */ u8 isrgb24;
+    /* 0x12 */ u8 pad0;
+    /* 0x13 */ u8 pad1;
+} DispEnv;
+
+/* 16-byte GPU fill-rectangle packets at D_800618D0, one per display buffer
+ * (libgpu BLK_FILL shape): tag, r g b code, x0 y0 w h. */
+typedef struct {
+    /* 0x0 */ u8 tag[3];
+    /* 0x3 */ u8 len;
+    /* 0x4 */ u8 r;
+    /* 0x5 */ u8 g;
+    /* 0x6 */ u8 b;
+    /* 0x7 */ u8 code;
+    /* 0x8 */ u16 x0;
+    /* 0xA */ u16 y0;
+    /* 0xC */ u16 w;
+    /* 0xE */ u16 h;
+} BlkFill618D0;
+
+/* Per-buffer draw context handed to GsSortClear; the ot pointer sits at 0x10. */
+typedef struct {
+    u8 _pad00[0x10];
+    /* 0x10 */ u32 *ot;
+} GsOT;
+
+/* 8-byte copy of an SndProgAtr head filled by SsUtGetProgAtr. */
+typedef struct {
+    /* 0x0 */ u8 tones;
+    /* 0x1 */ u8 mvol;
+    /* 0x2 */ u8 prior;
+    /* 0x3 */ u8 mode;
+    /* 0x4 */ u8 mpan;
+    u8 _pad05[0x1];
+    /* 0x6 */ u16 attr;
+} SlotHead8;
+
+/* State block at D_8005CCF8; field_60 selects the row of the slot tables
+ * read by Gpu_SetLayerOtPtrs. */
+typedef struct {
+    u8 _pad0[0x60];
+    /* 0x60 */ s32 otLayout;
+} Mode5CCF8;
+
+/* 0x1C-byte parameter block copied from Menu_DigiStatusView into MenuDigiStatusInitWork.field_CC. */
+typedef struct {
+    s32 w[7];
+} Prm1C;
+
+/* View of Actor.work set up by Menu_DigiStatusInit (fields 0x7C..0x14C). */
+typedef struct {
+    u8 _pad00[0x7C];
+    /* 0x7C */ s16 field_7C;
+    u8 _pad7E[0x6];
+    /* 0x84 */ PTR32(u8) digimon; /* 32-bit: the other views keep the retail offsets */
+    u8 _pad88[0x28];
+    /* 0xB0 */ s32 pos[3];
+    /* 0xBC */ u16 initRotY;
+    u8 _padBE[0x2];
+    /* 0xC0 */ s32 modelFile;
+    /* 0xC4 */ s32 animFile;
+    /* 0xC8 */ s32 modelPhase;
+    /* 0xCC */ Prm1C view;
+    /* 0xE8 */ s32 coord;
+    u8 _padEC[0x4C];
+    /* 0x138 */ s16 rotX;
+    u8 _pad13A[0x6];
+    /* 0x140 */ s16 rotSpeedX;
+    /* 0x142 */ s16 rotSpeedY;
+    /* 0x144 */ s16 rotSpeedZ;
+    u8 _pad146[0x2];
+    /* 0x148 */ s32 field_148;
+    /* 0x14C */ s32 modelScale;
+} MenuDigiStatusInitWork;
+
+/* Per-channel hook table Snd_MarkCallbacks[ch][16] run by _SsContNrpn1. */
+typedef void (*Hook33424)(s16, s16, u8);
+
+/* DR_ENV packet built by func_800282CC: tag word (length byte at 3) then
+   up to 15 GPU command words, addressed as one word array. */
+typedef union {
+    /* 0x00 */ u32 w[16];
+    struct {
+        u8 _pad0[3];
+        /* 0x03 */ u8 len;
+    } h;
+} DrEnv282CC;
+
+/* Clip rect copied as two words into the DR_ENV fill command. */
+typedef union {
+    struct {
+        s16 x;
+        s16 y;
+        s16 w;
+        s16 h;
+    } r;
+    u32 w[2];
+} GpuFillRect;
+
+/* One 6-byte icon grid cell: item id, count, sound/effect arg. */
+typedef struct {
+    /* 0x0 */ u16 itemId;
+    /* 0x2 */ s16 count;
+    /* 0x4 */ s16 bagSlot;
+} MenuItemCell;
+
+/* 12-byte menu grid layout (the menu layout files 0x513xxxx / 0xD28xxxx hold arrays of these): grid
+   size, screen origin of cell 0 and the step per cell (Menu_SetPartsGridPos: x = origin + cursor * step). */
+typedef struct {
+    /* 0x0 */ s16 gridSize[2];
+    /* 0x4 */ s16 origin[2];
+    /* 0x8 */ s16 cellStep[2];
+} MenuGridLayout;
+
+/* Icon grid page: 16 sprite slots, item count/page at 0x6C/0x6E, 6-byte
+   cells from 0x72 (id, count) and 4-byte count text buffers at 0x702. */
+typedef struct {
+    /* 0x000 */ s32 cellTextSlots[16];
+    /* 0x040 */ s32 msgTextSlot;
+    /* 0x044 */ s32 descText;
+    u8 _pad48[0x4];
+    /* 0x04C */ s32 labelTexts;
+    u8 _pad50[0x4];
+    /* 0x054 */ s16 cursor[2];
+    /* 0x058 */ MenuGridLayout gridLayout;
+    /* 0x064 */ s16 menuMode;
+    /* 0x066 */ s16 nextTaskIdx;
+    /* 0x068 */ s32 fade;
+    /* 0x06C */ s16 itemCount;
+    /* 0x06E */ s16 scrollRow;
+    /* 0x070 */ s16 hasItems;
+    /* 0x072 */ MenuItemCell cells[280];
+    /* 0x702 */ u8 countText[16][4];
+} MenuItemWork;
+
+/* TextDesc view with the position pair stored as one Halves. */
+typedef struct {
+    /* 0x00 */ s32 text;
+    /* 0x04 */ s32 strArg0;
+    /* 0x08 */ PTR32(u8) strArg1; /* TextDesc.strArg1 (s32) */
+    /* 0x0C */ Halves pos;
+    /* 0x10 */ u8 packedStyle;
+    /* 0x11 */ u8 color;
+} TextDescHalves;
+
+/* 0x64-stride zero-terminated table (Cd_GetFileOrNull(0xC6F)) searched by
+ * Enemy_FindSetById for the record whose leading id byte matches. */
+typedef struct {
+    /* 0x00 */ u8 id;
+    u8 _pad01[0x63];
+} Rec1DB18;
+
+/* Status word pair behind the D_800506C0 pointer (func_8003D850). */
+typedef struct {
+    /* 0x00 */ s32 stat;
+    /* 0x04 */ s32 mask;
+} Flags506C0;
+
+
+/* Three sprite slots cleared together by Menu_StatusTask. */
+typedef struct {
+    /* 0x0 */ s32 a;
+    /* 0x4 */ s32 b;
+    /* 0x8 */ s32 c;
+} Trip14984;
+
+/* Actor work block read by Menu_StatusDraw. */
+typedef struct {
+    /* 0x00 */ s32 labelTexts[7];
+    /* 0x1C */ Trip14984 digiTexts[3];
+    /* 0x40 */ s32 listTexts[6];
+    /* 0x58 */ s32 bugTexts[4];
+    u8 _pad68[0x08];
+    /* 0x70 */ s32 scale;
+    /* 0x74 */ s32 textArgs[11];
+    /* 0xA0 */ DigiRosterEntry *digiList[3];
+    /* 0xAC */ s16 digiCount;
+} MenuStatusWork;
+
+/* Record behind MenuDigiListRow.field_4: an id byte at 0x01, a name at 0x4C. */
+typedef struct {
+    u8 _pad00[0x01];
+    /* 0x01 */ u8 digiId;
+    u8 _pad02[0x4A];
+    /* 0x4C */ u8 name[4];
+} Sub17D84;
+
+/* 8-byte row of the list page Menu_DigiListDrawRows draws. */
+typedef struct {
+    /* 0x00 */ u8 kind;
+    /* 0x01 */ u8 memBugLevel;
+    u8 _pad02[0x02];
+    /* 0x04 */ PTR32(Sub17D84) digi; /* 8-byte rows in every view */
+} MenuDigiListRow;
+
+/* List page: 16 sprite slots, first visible row at 0x68, rows from 0x6C. */
+typedef struct {
+    /* 0x00 */ s32 textBoxes[16];
+    u8 _pad40[0x28];
+    /* 0x68 */ s16 scrollTop;
+    u8 _pad6A[0x02];
+    /* 0x6C */ MenuDigiListRow entries[1];
+} MenuDigiListRowsView;
+
+/* 12-byte record in the Menu_SkillListDraw work view (s16 at +2 compared against field_94). */
+typedef struct {
+    /* 0x0 */ s16 cols;
+    /* 0x2 */ s16 rows;
+    u8 _pad4[0x8];
+} Rec19BF4;
+
+/* 0x1A-byte record in the Menu_SkillListDraw work view; only the leading s16 is read. */
+typedef struct {
+    /* 0x00 */ s16 count;
+    u8 _pad2[0x18];
+} Slot19BF4;
+
+/* View of Actor.work used by Menu_SkillListDraw (four slots indexed by field_114). */
+typedef struct {
+    u8 _pad00[0x54];
+    /* 0x54 */ Pair54 cursors[4];
+    /* 0x64 */ Rec19BF4 grids[4];
+    /* 0x94 */ s32 scroll[4];
+    u8 _padA4[0x4];
+    /* 0xA8 */ s32 ramp;
+    /* 0xAC */ Slot19BF4 records[4];
+    /* 0x114 */ s32 activePane;
+} Wk19BF4;
+
+/* One 0x1E-byte row of the Enemy_FindSetById table as Enemy_InitRosterEntry reads it
+   (rows start 8 bytes into the table; field_12 is a 4x3 byte matrix). */
+typedef struct {
+    /* 0x00 */ u16 digiId;
+    /* 0x02 */ u16 hp;
+    /* 0x04 */ u16 mp;
+    /* 0x06 */ s16 exp;
+    /* 0x08 */ u16 bits;
+    /* 0x0A */ u8 level;
+    /* 0x0B */ u8 attack;
+    /* 0x0C */ u16 defense;
+    /* 0x0E */ u8 speed;
+    /* 0x0F */ u8 attr0;
+    /* 0x10 */ u8 attr1;
+    /* 0x11 */ u8 attr2;
+    /* 0x12 */ u8 aiRules[4][3];
+} EnemySetDigiRow; /* 0x1E */
+
+typedef struct {
+    u8 _pad00[0x8];
+    /* 0x08 */ EnemySetDigiRow rows[1];
+} Tbl1DDA8;
+
+/* Second output record of Enemy_InitRosterEntry. */
+typedef struct {
+    /* 0x00 */ u16 bits;
+    /* 0x02 */ u8 skill0;
+    /* 0x03 */ u8 skill1;
+    /* 0x04 */ u8 skill2;
+    /* 0x05 */ u8 conditions[4];
+    /* 0x09 */ u8 actionKinds[4];
+    /* 0x0D */ u8 targetModes[4];
+} Out1DDA8;
+
+/* Gfx_DrawPartSprites: sprite-list record (arg0), its 0x10-stride part list, the
+ * Gfx_TexSlots texture slot view and the SPRT + DR_TPAGE packets it emits. */
+typedef struct {
+    /* 0x0 */ u8 r;
+    /* 0x1 */ u8 g;
+    /* 0x2 */ u8 b;
+    /* 0x3 */ u8 code;
+} Col1CE9C;
+
+typedef struct {
+    /* 0x0 */ s32 fileId;
+    /* 0x4 */ u16 x;
+    /* 0x6 */ u16 y;
+    /* 0x8 */ Col1CE9C color;
+    /* 0xC */ u8 clutRow;
+    /* 0xD */ u8 partGroup;
+    u8 _padE[2];
+    /* 0x10 */ s32 scaleX;
+    /* 0x14 */ s32 scaleY;
+} GfxPartSprite;
+
+typedef struct {
+    /* 0x0 */ u8 u;
+    /* 0x1 */ u8 v;
+    /* 0x2 */ u16 x;
+    /* 0x4 */ u16 y;
+    /* 0x6 */ u8 clutX;
+    /* 0x7 */ u8 clutY;
+    /* 0x8 */ u8 w;
+    /* 0x9 */ u8 h;
+    /* 0xA */ u8 clutRow;
+    /* 0xB */ u8 blend;
+    /* 0xC */ u8 frame;
+    u8 _padD[3];
+} GfxPartCell;
+
+typedef struct {
+    u8 _pad0[8];
+    /* 0x08 */ s32 is8bit;
+    /* 0x0C */ u8 u;
+    u8 _padD[3];
+    /* 0x10 */ u16 tpage;
+    u8 _pad12[2];
+    /* 0x14 */ u16 index;
+    u8 _pad16[2];
+    /* 0x18 */ s32 clutX;
+    /* 0x1C */ u16 clutY;
+} GfxPartTexSlot;
+
+typedef struct {
+    u32 addr : 24;
+    u32 len : 8;
+} GfxPartOTag;
+
+typedef struct {
+    /* 0x00 */ GfxPartOTag tag;
+    /* 0x04 */ Col1CE9C c;
+    /* 0x08 */ s16 x0;
+    /* 0x0A */ s16 y0;
+    /* 0x0C */ u8 u0;
+    /* 0x0D */ u8 v0;
+    /* 0x0E */ u16 clut;
+    /* 0x10 */ s16 w;
+    /* 0x12 */ s16 h;
+} Sprt1CE9C;
+
+typedef struct {
+    /* 0x0 */ GfxPartOTag tag;
+    /* 0x4 */ u32 code;
+} GfxPartDrTpage;
+
+typedef union {
+    Sprt1CE9C s;
+    GfxPartDrTpage t;
+} GfxPartPkt;
+
+/* Rectangle _drs clips and sends as two command words. */
+typedef union {
+    struct {
+        s16 x;
+        s16 y;
+        s16 w;
+        s16 h;
+    } r;
+    s32 w[2];
+} RectWords;
+
+/* Primitive tag: next-pointer (24 bits) + word count (8 bits), PsyQ P_TAG shape. */
+typedef struct {
+    u32 addr : 24;
+    u32 len : 8;
+} Tag1F668;
+
+/* Byte colour + GPU code, copied as a 4-byte unaligned struct. */
+typedef struct {
+    u8 r;
+    u8 g;
+    u8 b;
+    u8 code;
+} GfxQuadColor;
+
+typedef struct {
+    s16 x;
+    s16 y;
+} XY1F668;
+
+/* Flat quad packet (PsyQ POLY_F4 shape). */
+typedef struct {
+    /* 0x00 */ Tag1F668 tag;
+    /* 0x04 */ GfxQuadColor c;
+    /* 0x08 */ XY1F668 xy[4];
+} PolyF4_1F668; /* size 0x18 */
+
+/* Draw-mode packet (PsyQ DR_MODE shape). */
+typedef struct {
+    /* 0x00 */ Tag1F668 tag;
+    /* 0x04 */ u32 code[2];
+} DrMode1F668; /* size 0xC */
+
+/* Model-space vertex (PsyQ SVECTOR shape). */
+typedef struct {
+    s16 vx;
+    s16 vy;
+    s16 vz;
+    s16 pad;
+} GfxQuadVert; /* size 0x8 */
+
+/* 3x3 rotation + translation (PsyQ MATRIX shape). */
+typedef struct {
+    s16 m[3][3];
+    s32 t[3];
+} Mat1F668; /* size 0x20 */
+
+/* Coordinate system GsInitCoordinate2 initialises (PsyQ GsCOORDINATE2 shape). */
+typedef struct Coord1F668 {
+    /* 0x00 */ s32 flg;
+    /* 0x04 */ Mat1F668 coord;
+    /* 0x24 */ Mat1F668 workm;
+    /* 0x44 */ sptr param; /* GsCOORDINATE2.param (pointer) */
+    /* 0x48 */ struct Coord1F668 *super;
+    /* 0x4C */ struct Coord1F668 *sub;
+} Coord1F668; /* size 0x50 */
+
+/* Actor work view used by Menu_TopMenuDraw (part list animation). */
+typedef struct {
+    u8 _pad00[0x20];
+    /* 0x20 */ s32 cursor;
+    /* 0x24 */ s16 gridSize;
+    u8 _pad26[0xE];
+    /* 0x34 */ s32 ramp;
+} MenuTopDrawWork;
+
+
+/* 12-byte heap block header (Mem_InitHeap): prev, next, in-use flag. */
+typedef struct MemBlock {
+    /* 0x0 */ struct MemBlock *prev;
+    /* 0x4 */ struct MemBlock *next;
+    /* 0x8 */ s32 tag;
+} MemBlock;
+
+/* 6-byte rank table at Digi_StateSortRank, indexed by DigiRosterEntry.field_0 (Digi_SortRoster). */
+typedef struct {
+    u8 sortRank[6];
+} DigiSortRank;
+
+/* Sys_State: the global frame/display state (Sys_Main, Sys_VSyncHandler,
+ * Gpu_InitDoubleBuffer, Gpu_SetLayerOtPtrs, Gfx_DrawFade). Double-buffered draw and
+ * display environments, frame counters, the game-mode request, the primitive packet
+ * cursor (Gpu_PrimBufs[bufIndex]) and the eight ordering-table layers of the current
+ * buffer. Unions keep each access at the C type the code reads it with. */
+typedef struct {
+    /* 0x000 */ s32 frameCount;
+    /* 0x004 */ s32 vsyncWait;
+    /* 0x008 */ s32 frameDelta;           /* vsyncs since the last frame, capped at 6 */
+    /* 0x00C */ s32 field_C;
+    /* 0x010 */ s32 fadeLevel;            /* Gfx_DrawFade quad intensity 0..0xFF */
+    /* 0x014 */ s32 drawPass;             /* 0/1: which Task_TryRun pass of the frame */
+    /* 0x018 */ s32 gameMode;
+    /* 0x01C */ s32 nextGameMode;
+    /* 0x020 */ s32 prevGameMode;
+    /* 0x024 */ s32 modeArg;
+    /* 0x028 */ s32 bufIndex;             /* double-buffer index (0/1) */
+    /* 0x02C */ union {
+        ActorWork *work;
+        sptr addr;
+        DR_MOVE *drMove;
+    } packet;                            /* primitive packet cursor */
+    /* 0x030 */ DrawEnv draw[2];          /* isbg/r0/g0/b0 set by Gpu_SetBgClearColor */
+    /* 0x0E8 */ DispEnv disp[2];
+    /* 0x110 */ union {
+        s32 s;
+        u16 lo;
+    } centerX;                           /* half screen width */
+    /* 0x114 */ union {
+        s32 s;
+        u16 lo;
+    } centerY;                           /* half screen height */
+    /* 0x118 */ s32 otLayerLen[8];        /* Gpu_OtLayerLens[mode][i] */
+    /* 0x138 */ union {
+        s32 *s[8];
+        u32 *u[8];
+        sptr addr[8];
+    } otLayers;                          /* &Gpu_OtBufs[bufIndex] + Gpu_OtLayerOffsets[mode][i] */
+} SysState; /* size 0x158 */
+/* Clear rectangle for ClearImage. */
+typedef struct {
+    s16 x;
+    s16 y;
+    s16 w;
+    s16 h;
+} SysClearRect;
+
+/* Menu work block behind Actor.work for the item-use menu (Menu_UseItemDirect..func_80015914). */
+typedef struct {
+    /* 0x00 */ s32 itemTexts[20];
+    /* 0x50 */ s32 msgText;
+    /* 0x54 */ s32 brokenText;
+    /* 0x58 */ s32 labelText;
+    /* 0x5C */ s32 itemNameText;
+    u8 _pad60[0x10];
+    /* 0x70 */ s32 listTexts;
+    u8 _pad74[0x14];
+    /* 0x88 */ s16 cursor[2];
+    /* 0x8C */ s16 gridSize[2];
+    u8 _pad90[0x8];
+    /* 0x98 */ s16 useMode;
+    u8 _pad9A[0x2];
+    /* 0x9C */ s32 ramp;
+} MenuItemUseWork;
+
+
+/* Ordering-table entry (PsyQ P_TAG shape): 24-bit next address + length. */
+typedef struct {
+    u32 addr : 24;
+    u32 len : 8;
+} OTag;
+
+/* Title/main menu work block behind Actor.work (Menu_TopMenuTask). */
+typedef struct {
+    /* 0x00 */ s32 option0Text;
+    /* 0x04 */ s32 option1Text;
+    /* 0x08 */ s32 option2Text;
+    /* 0x0C */ s32 option3Text;
+    /* 0x10 */ s32 option4Text;
+    /* 0x14 */ s32 option5Text;
+    /* 0x18 */ s32 option6Text;
+    u8 _pad1C[0x4];
+    /* 0x20 */ s16 cursor[2];
+    /* 0x24 */ s16 gridSize[2];
+    u8 _pad28[0xA];
+    /* 0x32 */ s16 selection;
+    /* 0x34 */ s32 ramp;
+} MenuTopWork;
+
+typedef struct {
+    /* 0x00 */ u8 useType;
+    /* 0x01 */ u8 effectType;
+    /* 0x02 */ s16 amount;
+} ItemStatEffect;
+
+typedef struct {
+    u8 _pad00[0xE];
+    /* 0x0E */ u8 dp;
+    u8 _pad0F;
+    /* 0x10 */ s32 exp;
+    /* 0x14 */ s16 maxHp;
+    /* 0x16 */ s16 hp;
+    /* 0x18 */ s16 maxMp;
+    /* 0x1A */ s16 mp;
+    /* 0x1C */ s16 attack;
+    /* 0x1E */ s16 defense;
+    /* 0x20 */ s16 speed;
+} DigiRosterBoostView;
+
+/* Icon sheet layout (0x20 bytes) copied out by Gfx_FindOrLoadImageSlot; 0x18/0x1C are the
+ * VRAM base of the icon page. */
+typedef struct {
+    u8 _pad00[0xC];
+    /* 0x0C */ s32 uBase;
+    /* 0x10 */ s32 tpage;
+    u8 _pad14[0x4];
+    /* 0x18 */ s32 vramX;
+    /* 0x1C */ s32 vramY;
+} GfxImageInfo;
+
+/* One cached icon slot: resource id and last-use stamp. */
+typedef struct {
+    /* 0x0 */ s32 id;
+    /* 0x4 */ s32 t;
+} GfxImageCacheSlot;
+
+/* Icon cache (work of the type-10 actor): layout plus 18 VRAM slots. */
+typedef struct {
+    /* 0x00 */ PTR32(GfxImageInfo) sheet; /* written as ActorWork.field_0 (s32) */
+    /* 0x04 */ GfxImageCacheSlot slot[18];
+} GfxImageCache;
+
+/* TIM block: byte length, VRAM rectangle, pixel data. */
+typedef struct {
+    /* 0x0 */ s32 bnum;
+    /* 0x4 */ s16 x;
+    /* 0x6 */ s16 y;
+    /* 0x8 */ s16 w;
+    /* 0xA */ s16 h;
+    /* 0xC */ u32 data[1];
+} TimBlkData;
+
+/* s16 coordinate pair written back by Gfx_FindOrLoadImageSlot. */
+typedef struct {
+    /* 0x0 */ s16 x;
+    /* 0x2 */ s16 y;
+} GfxVramPos;
+
+void Gfx_FindOrLoadImageSlot(s32 id, GfxImageInfo *out, GfxVramPos *pos, GfxVramPos *clut);
+
+/* Sound-bank record in the Snd_BankDescs pointer table (high halves of field_0 /
+ * field_4 are resource ids, field_8 is a zero-ended list). */
+typedef struct {
+    /* 0x00 */ u32 vbFile;
+    /* 0x04 */ u32 vhFile;
+    /* 0x08 */ s32 sepOffsets[1];
+} SndBankDesc;
+
+/* One 32-bit TIM header word read as two halves. */
+typedef struct {
+    u16 lo;
+    u16 hi;
+} TimHalves;
+/* TIM info filled by GsGetTimInfo: pixel rect/data then CLUT rect/data. The native build keeps
+ * this view (field names prect, paddr ...) under another name; GsIMAGE is psyq/libgs.h's. */
+#ifdef DW2_NATIVE
+#define GsIMAGE GameGsImage
+#endif
+typedef struct {
+    /* 0x00 */ u32 mode;
+    /* 0x04 */ SysClearRect prect;
+    /* 0x0C */ u32 *paddr;
+    /* 0x10 */ SysClearRect crect;
+    /* 0x18 */ u32 *caddr;
+} GsIMAGE;
+
+
+/* Section header inside a Gfx_AttachModel model: a count then 20-byte entries. */
+typedef struct {
+    /* 0x00 */ s32 v[5];
+} Ent1FDBC20;
+
+typedef struct ModelQuadSection {
+    /* 0x00 */ s32 n;
+    /* 0x04 */ Ent1FDBC20 e[1];
+} ModelQuadSection;
+
+typedef struct {
+    /* 0x00 */ s32 v[4];
+} GfxModelTri;
+
+typedef struct {
+    /* 0x00 */ s32 n;
+    /* 0x04 */ GfxModelTri e[1];
+} GfxModelTriSec;
+
+/* Model file Gfx_AttachModel binds: field_4 is set once the offset tables are
+ * relocated; field_C starts three count-long offset tables (then a fourth). */
+typedef struct GfxModelFile {
+    u8 _pad00[0x04];
+    /* 0x04 */ s32 relocated;
+    /* 0x08 */ s32 count;
+    /* 0x0C */ s32 tables[1];
+} GfxModelFile;
+
+/* VRAM rectangle _dws uploads: four halfwords, sent to the GPU as two words. */
+typedef union {
+    struct {
+        /* 0x0 */ s16 x;
+        /* 0x2 */ s16 y;
+        /* 0x4 */ s16 w;
+        /* 0x6 */ s16 h;
+    } r;
+    /* 0x0 */ s32 word[2];
+} Rect28C48;
+
+
+/* Gfx_DrawPartQuadsRot: POLY_FT4 packet (four 8-byte x/y/u/v/clut-or-tpage vertices)
+ * and the SVECTOR/DVECTOR pair it feeds ApplyMatrixSV. */
+typedef struct {
+    /* 0x0 */ u16 x;
+    /* 0x2 */ u16 y;
+    /* 0x4 */ u8 u;
+    /* 0x5 */ u8 v;
+    /* 0x6 */ u16 extra;
+} PolyFT4Vert;
+
+typedef struct {
+    /* 0x00 */ GfxPartOTag tag;
+    /* 0x04 */ Col1CE9C c;
+    /* 0x08 */ PolyFT4Vert v[4];
+} GfxPartPolyFT4;
+
+typedef struct {
+    s16 vx;
+    s16 vy;
+    s16 vz;
+    s16 pad;
+} SVec1D104;
+
+typedef struct {
+    s16 vx;
+    s16 vy;
+} GfxPartRotXY;
+
+
+
+/* Menu_SubMenuTask view of Actor.work: cursor/dims pairs at 0x28/0x2C (the dims
+ * pair heads the 12-byte block), selection state at 0x38..0x40. */
+typedef struct {
+    u8 _pad00[0x04];
+    /* 0x04 */ u8 optionTexts[0x24];
+    /* 0x28 */ s16 cursor[2];
+    union {
+        /* 0x2C */ s16 gridSize[2];
+        MenuGridLayout blk;
+    } u2C;
+    /* 0x38 */ s16 menuId;
+    /* 0x3A */ s16 selection;
+    /* 0x3C */ s16 optionsHidden;
+    u8 _pad3E[0x02];
+    /* 0x40 */ s32 ramp;
+} MenuSubMenuWork;
+
+
+
+/* Partner record reached through MenuDigiStatusWork.field_84 (Menu_Ctx->field_110). */
+typedef struct {
+    u8 _pad00[0x1];
+    /* 0x01 */ u8 speciesId;
+    u8 _pad02[0x45];
+    /* 0x47 */ u8 parentIds[2];
+    u8 _pad49[0x3];
+    /* 0x4C */ u8 name[4];
+} MenuDigiStatusEntry;
+
+/* Menu_DigiStatusTask view of Actor.work (fields 0x50..0x14C). */
+typedef struct {
+    u8 _pad00[0x50];
+    /* 0x50 */ s32 nameText;
+    /* 0x54 */ s32 infoTexts;
+    u8 _pad58[0x18];
+    /* 0x70 */ MenuGridLayout blk;
+    u8 _pad7C[0x4];
+    /* 0x80 */ s32 ramp;
+    /* 32-bit words (P1.25): Text_PrintList reads speciesName.. as a list of 32-bit words and
+     * Menu_DigiStatusDraw's view keeps the retail offsets */
+    /* 0x84 */ PTR32(MenuDigiStatusEntry) digimon;
+    /* 0x88 */ PTR32(u8) speciesName;
+    /* 0x8C */ PTR32(void) typeName;
+    /* 0x90 */ PTR32(void) rankName;
+    /* 0x94 */ PTR32(void) specialtyName;
+    /* 0x98 */ PTR32(u8) parentNames[3];
+    u8 _padA4[0x24];
+    /* 0xC8 */ s32 modelPhase;
+    u8 _padCC[0x6C];
+    /* 0x138 */ s16 rot[2];
+    u8 _pad13C[0x4];
+    /* 0x140 */ s16 rotSpeed[2];
+    u8 _pad144[0x8];
+    /* 0x14C */ s32 modelScale;
+} MenuDigiStatusWork;
+
+/* One list row of the Menu_BuildDigiList page (8 bytes). */
+typedef struct {
+    /* 0x0 */ u8 kind;
+    /* 0x1 */ u8 bugLevel;
+    /* 0x2 */ u8 pickState;
+    u8 _pad3;
+    /* 0x4 */ PTR32(void) entry;
+} MenuDigiListBuildRow;
+
+/* Work block of the list page built by Menu_BuildDigiList. */
+typedef struct {
+    u8 _pad00[0x52];
+    /* 0x052 */ s16 cursorRow;
+    /* 0x054 */ s16 gridCols;
+    /* 0x056 */ s16 rowCount;
+    u8 _pad58[0x8];
+    /* 0x060 */ s16 mode;
+    u8 _pad62[0xA];
+    /* 0x06C */ MenuDigiListBuildRow rows[0x26];
+    /* 0x19C */ s16 pickMax;
+    /* 0x19E */ s16 pickCount;
+    /* 0x1A0 */ s16 pick0;
+    /* 0x1A2 */ s16 pick1;
+    /* 0x1A4 */ s16 pick2;
+    /* 0x1A6 */ s16 parity;
+} MenuDigiListBuildWork;
+
+
+/* Sound master block reached through D_80062D04 (field_18 = master volume). */
+typedef struct {
+    u8 _pad00[0x12];
+    /* 0x12 */ u16 ps;
+    u8 _pad14[0x4];
+    /* 0x18 */ u8 mvol;
+} SndVabHdrView;
+
+
+/* libspu reverb register image (0x44 bytes): SpuSetReverbModeParam copies a preset
+ * from D_800503E8[] and patches it, _spu_setReverbAttr writes it out. */
+typedef struct {
+    /* 0x00 */ u32 mask;
+    /* 0x04 */ u16 dApf1;
+    /* 0x06 */ u16 dApf2;
+    /* 0x08 */ u16 vIir;
+    /* 0x0A */ u16 vComb1;
+    /* 0x0C */ u16 vComb2;
+    /* 0x0E */ u16 vComb3;
+    /* 0x10 */ u16 vComb4;
+    /* 0x12 */ u16 vWall;
+    /* 0x14 */ u16 vApf1;
+    /* 0x16 */ u16 vApf2;
+    /* 0x18 */ u16 mLSame;
+    /* 0x1A */ u16 mRSame;
+    /* 0x1C */ u16 mLComb1;
+    /* 0x1E */ u16 mRComb1;
+    /* 0x20 */ u16 mLComb2;
+    /* 0x22 */ u16 mRComb2;
+    /* 0x24 */ u16 dLSame;
+    /* 0x26 */ u16 dRSame;
+    /* 0x28 */ u16 mLDiff;
+    /* 0x2A */ u16 mRDiff;
+    /* 0x2C */ u16 mLComb3;
+    /* 0x2E */ u16 mRComb3;
+    /* 0x30 */ u16 mLComb4;
+    /* 0x32 */ u16 mRComb4;
+    /* 0x34 */ u16 dLDiff;
+    /* 0x36 */ u16 dRDiff;
+    /* 0x38 */ u16 mLApf1;
+    /* 0x3A */ u16 mRApf1;
+    /* 0x3C */ u16 mLApf2;
+    /* 0x3E */ u16 mRApf2;
+    /* 0x40 */ u16 vLIn;
+    /* 0x42 */ u16 vRIn;
+} SpuReverbRegs; /* size 0x44 */
+
+
+/* Work block of the page Menu_DigiListDraw redraws (same page as MenuDigiListBuildWork: rows at
+ * 0x6C, mode at 0x60, flag at 0x1A6); field_50 is the (col, row) cursor pair. */
+typedef struct {
+    /* 0x0 */ u8 kind;
+    /* 0x1 */ u8 memBugLevel;
+    /* 0x2 */ u8 pickState;
+    u8 _pad3;
+    /* 0x4 */ PTR32(void) digi;
+} MenuDigiListDrawRow;
+
+typedef struct {
+    u8 _pad00[0x50];
+    /* 0x050 */ Pair54 cursor;
+    /* 0x054 */ s16 gridCols;
+    /* 0x056 */ s16 rowCount;
+    u8 _pad58[0x8];
+    /* 0x060 */ u16 mode;
+    u8 _pad62[0x2];
+    /* 0x064 */ s32 scale;
+    /* 0x068 */ s16 scrollTop;
+    /* 0x06A */ s16 showCursor;
+    /* 0x06C */ MenuDigiListDrawRow rows[0x26];
+    u8 _pad19C[0xA];
+    /* 0x1A6 */ s16 parity;
+} MenuDigiListDrawView;
+
+/* Record a Menu_DigiListDraw row points at; four stat halfwords at 0x14. */
+typedef struct {
+    u8 _pad00[0x14];
+    /* 0x14 */ s16 maxHp;
+    /* 0x16 */ s16 hp;
+    /* 0x18 */ s16 maxMp;
+    /* 0x1A */ s16 mp;
+} DigiRosterListView;
+
+
+/* SPU voice attribute block (libspu SpuVoiceAttr layout) _SsVmInit fills
+ * and hands to SpuSetVoiceAttr. */
+typedef struct {
+    /* 0x00 */ u32 voice;
+    /* 0x04 */ u32 mask;
+    /* 0x08 */ s16 vol_l;
+    /* 0x0A */ s16 vol_r;
+    /* 0x0C */ s16 volmode_l;
+    /* 0x0E */ s16 volmode_r;
+    /* 0x10 */ s16 volx_l;
+    /* 0x12 */ s16 volx_r;
+    /* 0x14 */ u16 pitch;
+    /* 0x16 */ u16 note;
+    /* 0x18 */ u16 sample_note;
+    /* 0x1A */ s16 envx;
+    /* 0x1C */ u32 addr;
+    /* 0x20 */ u32 loop_addr;
+    /* 0x24 */ s32 a_mode;
+    /* 0x28 */ s32 s_mode;
+    /* 0x2C */ s32 r_mode;
+    /* 0x30 */ u16 ar;
+    /* 0x32 */ u16 dr;
+    /* 0x34 */ u16 sr;
+    /* 0x36 */ u16 rr;
+    /* 0x38 */ u16 sl;
+    /* 0x3A */ u16 adsr1;
+    /* 0x3C */ u16 adsr2;
+    u8 _pad3E[0x2];
+} VAttr36C54; /* size 0x40 */
+
+/* One DMA channel register block (MADR, BCR, CHCR) at D_8004FBF4[ch]. */
+typedef struct {
+    /* 0x0 */ u32 madr;
+    /* 0x4 */ u32 bcr;
+    /* 0x8 */ u32 chcr;
+    u8 _padC[0x4];
+} DmaChanRegs;
+
+
+/* Horizontal display range pair per video standard and width class,
+ * D_80048FE4[pad0][k] (PutDispEnv). */
+typedef struct {
+    /* 0x0 */ u16 lo;
+    /* 0x2 */ u16 hi;
+} DispHRange;
+
+/* Graphics-debug state at D_80048F10 (SetGraphDebug / DrawSyncCallback): debug
+ * type 0x0, level 0x2, reverse 0x3, and the saved word at 0xC. */
+typedef struct {
+    /* 0x00 */ u8 type;
+    /* 0x01 */ u8 queMode;
+    /* 0x02 */ u8 level;
+    /* 0x03 */ u8 reverse;
+    /* 0x04 */ s16 vramW;
+    /* 0x06 */ s16 vramH;
+    /* 0x08 */ s32 syncPending;
+    /* 0x0C */ s32 drawSyncCb;
+    /* 0x10 */ u8 draw[0x5C];
+    /* 0x6C */ volatile DispEnv disp; /* cached display environment */
+} GpuEnv;
+
+
+/* SPU voice shadow at D_80062A28: per-voice dirty flags, then 0x10-byte
+ * register images (volume L/R at 0x0/0x2, pitch at 0x4). */
+typedef struct {
+    /* 0x0 */ u16 vol_l;
+    /* 0x2 */ u16 vol_r;
+    /* 0x4 */ u16 pitch;
+    u8 _pad6[0xA];
+} SpuVoiceRegs; /* size 0x10 */
+
+typedef struct {
+    /* 0x00 */ u8 flags[0x20];
+    /* 0x20 */ SpuVoiceRegs regs[24];
+} SpuVoiceShadow;
+
+/* 0x28-stride zero-terminated list Gfx_HidePartsByMask walks (Menu_SubMenuDraw passes it
+ * the Cd_GetFileEntry lookups); field_F is set to 0 or 1 from field_1C & mask. */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    u8 _pad04[0xB];
+    /* 0x0F */ u8 visible;
+    u8 _pad10[0xC];
+    /* 0x1C */ s32 partMask;
+    u8 _pad20[0x8];
+} GfxPartMaskView;
+
+
+/* Variable-size entry list returned by Cd_GetFileOrNull for Task_SpawnListFromFile: ends
+ * at field_0 == -1, field_C is the byte size of the entry. */
+typedef struct {
+    /* 0x00 */ s32 taskId;
+    u8 _pad4[8];
+    /* 0x0C */ s32 size;
+    /* 0x10 */ s32 args;
+} TaskSpawnEntry;
+
+
+
+
+
+/* BIOS device control block (0x50 bytes), table at 0x150 / byte size at 0x154, scanned by func_8003F760. */
+typedef struct {
+    /* 0x00 */ s8 *name;
+    u8 _pad04[0x30];
+    /* 0x34 */ void (*firstfile)(s32 *, s32, s32);
+    u8 _pad38[0x18];
+} BiosDcb;
+
+
+/* 4-byte unaligned tag and the 0x20-byte records at D_80061B38 (func_8002DF74). */
+typedef struct {
+    u8 b[4];
+} StRingLocBytes;
+typedef struct {
+    /* 0x00 */ s16 id;
+    u8 _pad02[0x4];
+    /* 0x06 */ u16 nSectors;
+    /* 0x08 */ s32 frameCount;
+    u8 _pad0C[0x10];
+    /* 0x1C */ StRingLocBytes loc;
+} StRingSlotRec;
+extern s32 D_80061B40;
+extern s32 D_80061B44;
+typedef struct { s32 v; } W1_2DF74;
+typedef struct { void (*f)(void); } F1_2DF74;
+typedef struct { StRingLocBytes tag; s32 val; } T40_2DF74;
+
+
+/* 0xF0-byte slots at PadPortSio.field_C; Pad_SioStepRecvId hands slots 2 and 3 to the D_80048E30 callback. */
+typedef struct PadSioSlot {
+    /* 0x00 */ PadPortSio e;
+    u8 _pad48[0xA0];
+    /* 0xE8 */ u8 padType;
+    u8 _padE9[0x7];
+} PadSioSlot; /* size 0xF0 */
+
+
+/* Stat-regen config returned by Item_GetEffectRec, read by Item_UseRecoverAll. */
+typedef struct {
+    /* 0x00 */ u8 useType;
+    /* 0x01 */ u8 effectType;
+    /* 0x02 */ s16 amount;
+} ItemRecoverEffect;
+
+
+/* By-value struct arg spanning a3 + stack (0x28 bytes); only three fields
+   are touched here. SsUtGetVagAtr/SsUtSetVagAtr receive its address. */
+typedef struct {
+    u8 pad0[0x10];
+    /* 0x10 */ u16 adsr1;
+    /* 0x12 */ u16 adsr2;
+    u8 pad1[0x24 - 0x14];
+    /* 0x24 */ u8 value;
+    u8 pad2[0x28 - 0x25];
+} Arg33;
+
+/* One text-command handler slot in the dialogue op table. */
+typedef void (*TextOp)();
+
+void _SsNoteOn(s32 a0, s32 a1, s32 a2, s32 a3);
+void _SsSetProgramChange(s16 arg0, s16 arg1, s16 arg2);
+void _SsGetMetaEvent(s16 a0, s16 a1);
+void _SsSetPitchBend(s16 a0, s16 a1);
+void _SsSetControlChange(s16 a0, s16 a1, s32 a2);
+void _SsContBankChange(s16 arg0, s16 arg1, s16 arg2);
+void _SsContMainVol(s16 a0, s16 a1, u8 a2);
+void _SsContPanpot(s16 a0, s16 a1, s32 a2);
+void _SsContExpression(s16 a0, s16 a1, s32 a2);
+void _SsContDamper(s16 a0, s16 a1, u8 a2);
+void _SsContNrpn1(s16 a0, s16 a1, u8 a2);
+void _SsContNrpn2();
+void _SsContRpn1(s16 arg0, s16 arg1, s16 arg2);
+void _SsContRpn2(s16 arg0, s16 arg1, s16 arg2);
+void _SsContExternal(s16 a0, s16 a1, u8 a2);
+void _SsContResetAll(s16 a0, s16 a1);
+void _SsContDataEntry(s16 a0, s16 a1, s16 a2);
+void _SsSetNrpnVabAttr0(s16 a0, s16 a1, s16 a2, HandlerArg arg);
+void _SsSetNrpnVabAttr1(s16 a0, s16 a1, s16 a2, HandlerArg arg);
+void _SsSetNrpnVabAttr2(s16 a0, s16 a1, s16 a2, HandlerArg d);
+void _SsSetNrpnVabAttr3(s16 a0, s16 a1, s16 a2, HandlerArg d);
+void _SsSetNrpnVabAttr4(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr5(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr6(s16 a0, s16 a1, s16 a2, HandlerArg d);
+void _SsSetNrpnVabAttr7(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr8(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr9(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr10(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr11(s16 a0, s16 a1, s16 a2, Arg33 d);
+void _SsSetNrpnVabAttr12(s16 a0, s16 a1, s16 a2, HandlerArg d);
+void _SsSetNrpnVabAttr13(s16 a0, s16 a1, s16 a2, HandlerArg d);
+void _SsSetNrpnVabAttr14(s16 a0, s16 a1, s16 a2, HandlerArg arg);
+void _SsSetNrpnVabAttr15(s16 arg0, s16 arg1, s16 arg2, HandlerArg arg);
+void _SsSetNrpnVabAttr16(s16 arg0, s16 arg1, s16 arg2, HandlerArg arg);
+void _SsSetNrpnVabAttr17(s16 arg0, s16 arg1, s16 arg2, HandlerArg arg);
+void _SsSetNrpnVabAttr18(s16 arg0, s16 arg1, s16 arg2, HandlerArg arg);
+void _SsSetNrpnVabAttr19(s16 arg0, s16 arg1, s16 arg2, HandlerArg arg);
+
+
+/* Card_MakeDevName: 6-byte text template (byte aligned) copied into the output
+ * before the two hex-ish digit bytes 2 and 3 are patched in. */
+typedef struct {
+    u8 b[6];
+} CardDevNameTmpl;
+
+
+static inline u32 gpu_draw_mode(u32 base, u32 dither, s32 tpage) {
+    return (base | (dither << 10)) | (tpage & 0x7FF);
+}
+
+
+/* Stream sector ring (StSetRing sets base D_80061B38 and count D_80061B3C):
+   `count` 0x20-byte slot headers, then `count` 0x7E0-byte sector payloads. */
+typedef struct {
+    /* 0x00 */ u16 status;
+    u8 _pad02[0x1E];
+} StRingSlotStatus;
+typedef struct {
+    /* 0x000 */ u8 data[0x7E0];
+} StSectorData;
+extern s32 D_80061B2C;
+
+
+/* TransposeMatrix (PsyQ TransposeMatrix shape): the 3x3 s16 matrix viewed as
+ * packed word pairs, so the transpose moves whole words then patches halves. */
+typedef union {
+    s32 w;
+    s16 h;
+} MatWordHalf;
+
+typedef struct {
+    /* 0x00 */ MatWordHalf f0;
+    /* 0x04 */ MatWordHalf f4;
+    /* 0x08 */ MatWordHalf f8;
+    /* 0x0C */ MatWordHalf fC;
+    /* 0x10 */ s16 f10;
+} MatrixWords;
+
+/* TIM file block header (CLUT or pixel block): byte length incl. this header,
+   then the VRAM rectangle; the block's data follows. */
+typedef struct {
+    /* 0x0 */ u32 bnum;
+    /* 0x4 */ RECT rect;
+} TimBlk;
+
+
+/* libsnd VabHdr (0x20) and ProgAtr (0x10) as parsed by _SsVabOpenHeadWithMode. */
+typedef struct {
+    /* 0x00 */ s32 form;
+    /* 0x04 */ s32 ver;
+    /* 0x08 */ s32 id;
+    /* 0x0C */ u32 fsize;
+    /* 0x10 */ u16 reserved0;
+    /* 0x12 */ u16 ps;
+    /* 0x14 */ u16 ts;
+    /* 0x16 */ u16 vs;
+    /* 0x18 */ u8 mvol;
+    /* 0x19 */ u8 pan;
+    /* 0x1A */ u8 attr1;
+    /* 0x1B */ u8 attr2;
+    /* 0x1C */ u32 reserved1;
+} VabHdr39B54;
+
+typedef struct {
+    /* 0x00 */ u8 tones;
+    u8 _pad01[0x7];
+    /* 0x08 */ s32 reserved1;
+    /* 0x0C */ u16 vagLo;
+    /* 0x0E */ u16 vagHi;
+} Prog39B54;
+
+/* Menu_OpenBugTexts view of an actor work block: four hud slot words at 0x60 (overlaps ActorWork fields 0x64..0x6C). */
+typedef struct {
+    u8 _pad00[0x60];
+    /* 0x60 */ s32 slot[4];
+} HudSlots153F4;
+
+/* 4-byte record returned (as s32 *) by the Item_GetEffectRec id lookup. */
+typedef struct {
+    /* 0x00 */ u8 useType;
+    /* 0x01 */ u8 effectType;
+    /* 0x02 */ s16 amount;
+} ItemEffect;
+
+/* Object stepped by Item_ApplyToDigi: two value/limit s16 pairs at 0x14..0x1A. */
+typedef struct {
+    u8 _pad00[0x1];
+    /* 0x01 */ u8 digiId;
+    u8 _pad02[0x12];
+    /* 0x14 */ s16 maxHp;
+    /* 0x16 */ s16 hp;
+    /* 0x18 */ s16 maxMp;
+    /* 0x1A */ s16 mp;
+} DigiRosterItemView;
+
+typedef struct { s32 x[8]; s32 y[8]; } XY2CC64;
+
+/* Menu_SetDigiListMode view of an actor work block: mode at 0x60, s16 flag at 0x6A, parity at 0x1A6. */
+typedef struct {
+    u8 _pad00[0x60];
+    /* 0x60 */ s16 mode;
+    u8 _pad62[0x08];
+    /* 0x6A */ s16 flag6A;
+    u8 _pad6C[0x13A];
+    /* 0x1A6 */ s16 parity;
+} MenuDigiListModeWork;
+
+/* GPU command queue entry at D_800600B0 (stride 0x60, 64 entries). */
+typedef struct {
+    /* 0x00 */ void (*func)(s32 *, s32);
+    /* 0x04 */ s32 *ptr;
+    /* 0x08 */ s32 x;
+    /* 0x0C */ s32 param[21];
+} GpuQueueEntry; /* size 0x60 */
+
+
+/* Stream state block at D_8004FC48 (mode, busy flag, two hooks, three flag bytes), read by _SsStart. */
+typedef struct {
+    /* 0x00 */ s32 mode;
+    /* 0x04 */ s32 flag;
+    /* 0x08 */ void (*fn_0)(void);
+    /* 0x0C */ void (*fn_4)(void);
+    /* 0x10 */ s8 b0;
+    /* 0x11 */ s8 b1;
+    /* 0x12 */ s8 b2;
+} Cd4FC48;
+
+/* Screen fade packet Gfx_DrawFade writes at Sys_State.packet: a flat
+ * semi-transparent quad (POLY_F4 layout) followed by a draw-mode word pair. */
+typedef struct {
+    /* 0x00 */ GfxPartOTag t;
+    /* 0x04 */ u32 mode;
+} GfxFadeMode;
+
+typedef struct {
+    /* 0x00 */ GfxPartOTag t;
+    /* 0x04 */ u8 r;
+    /* 0x05 */ u8 g;
+    /* 0x06 */ u8 b;
+    /* 0x07 */ u8 code;
+    /* 0x08 */ s16 x0;
+    /* 0x0A */ s16 y0;
+    /* 0x0C */ s16 x1;
+    /* 0x0E */ s16 y1;
+    /* 0x10 */ s16 x2;
+    /* 0x12 */ s16 y2;
+    /* 0x14 */ s16 x3;
+    /* 0x16 */ s16 y3;
+    /* 0x18 */ GfxFadeMode m;
+} GfxFadePkt;
+
+
+/* Cd_StartDma: DMA control byte view (the byte at +2 holds one enable bit
+ * per channel; the word is read back to flush the write). */
+typedef union {
+    s32 w;
+    u8 b[4];
+} DmaCtrlReg;
+
+
+s32 _SsVmPitchBend(s16 a0, s16 a1, s16 a2, s32 a3);
+
+
+/* Gfx_AnimateModelTex: 10-byte fixed part (field_1C list of ActorModel, 0xFF/0xFE ended),
+ * 0x2A-byte animated part that follows a 0xFE marker, the position block at
+ * ActorModel 0x44 and the Sys_State fields it reads. */
+typedef struct {
+    /* 0x0 */ u8 dstX;
+    /* 0x1 */ u8 dstY;
+    /* 0x2 */ u8 w;
+    /* 0x3 */ u8 h;
+    /* 0x4 */ u8 uv[6];
+} GfxTexAnimPart;
+
+typedef struct {
+    /* 0x0 */ u8 dstX;
+    /* 0x1 */ u8 dstY;
+    /* 0x2 */ u8 w;
+    /* 0x3 */ u8 h;
+    /* 0x4 */ u8 dstX2;
+    /* 0x5 */ u8 dstY2;
+    /* 0x6 */ u8 w2;
+    /* 0x7 */ u8 h2;
+    /* 0x8 */ u8 period;
+    /* 0x9 */ u8 timer;
+    /* 0xA */ u8 uv[32];
+} GfxModelTexAnim;
+
+typedef struct GfxModelTexSlot {
+    u8 _pad00[0x18];
+    /* 0x18 */ s32 vramX;
+    /* 0x1C */ s32 vramY;
+} GfxModelTexSlot;
+
+
+
+/* Pad_ParseTableReply 5-byte directory entry (field_4 table). */
+typedef struct {
+    /* 0x0 */ u8 func;
+    /* 0x1 */ u8 subFunc;
+    /* 0x2 */ u8 size;
+    /* 0x3 */ u8 curr;
+    /* 0x4 */ u8 sign;
+} PadActInfo;
+
+/* Pad_ParseTableReply stride-8 block record (field_8 table): length byte + data pointer. */
+typedef struct {
+    /* 0x0 */ u8 size;
+    u8 _pad1[0x3];
+    /* 0x4 */ u8 *data;
+} PadCombEntry;
+
+
+typedef struct {
+    /* 0x00 */ s32 field_0[10];
+} DirEntry;
+
+
+/* CD command tables at 0x8004E80C: per-command result flag, then parameter byte count; read by CD_cw. */
+typedef struct {
+    /* 0x000 */ s32 clearsReadyIntr[64];
+    /* 0x100 */ s32 nParams[64];
+} CdComTables;
+
+
+/* GTE color / light matrix (Gfx_GetLightColorMatrix reads, Gfx_SetLightColorMatrix sets the color one). */
+typedef Mat1F668 S32;
+
+/* Latched copy of CardState.field_0/4 handed to its field_44 callback. */
+typedef struct {
+    /* 0x00 */ s32 cmd;
+    /* 0x04 */ s32 result;
+} CardCmdResult;
+
+/* Pending voice attribute values at D_80062A48 (stride 0x10). */
+typedef struct {
+    /* 0x00 */ u16 volLeft;
+    /* 0x02 */ u16 volRight;
+    /* 0x04 */ u16 pitch;
+    /* 0x06 */ u16 addr;
+    /* 0x08 */ u16 adsr1;
+    /* 0x0A */ u16 adsr2;
+    u8 _pad0C[0x4];
+} SndVoiceRegs;
+
+/* One u16 field of a 16-byte record, for per-field stride pointers. */
+typedef struct {
+    u16 v;
+    u8 _pad02[0xE];
+} Stride16;
+
+/* 0x28-stride part record in resource 0x3120002 (zero field_0 ends the list). */
+typedef struct {
+    /* 0x00 */ s32 fileId;
+    u8 _pad04[0x8];
+    /* 0x0C */ u8 palette;
+    u8 _pad0D[0x1];
+    /* 0x0E */ u8 unscaled;
+    /* 0x0F */ u8 visible;
+    /* 0x10 */ s32 scaleX;
+    u8 _pad14[0x8];
+    /* 0x1C */ s32 partMask;
+    u8 _pad20[0x8];
+} Part11854;
+
+/* libgpu primitive tag: next-packet address and word count. */
+typedef struct {
+    u32 addr : 24;
+    u32 len : 8;
+} PTag11854;
+
+typedef struct {
+    u8 r;
+    u8 g;
+    u8 b;
+    u8 code;
+} Col1A9C8;
+
+/* Textured quad packet (libgpu POLY_FT4 layout). */
+typedef struct {
+    /* 0x00 */ PTag11854 tag;
+    /* 0x04 */ Col1A9C8 c;
+    /* 0x08 */ s16 x0;
+    /* 0x0A */ s16 y0;
+    /* 0x0C */ u8 u0;
+    /* 0x0D */ u8 v0;
+    /* 0x0E */ u16 clut;
+    /* 0x10 */ s16 x1;
+    /* 0x12 */ s16 y1;
+    /* 0x14 */ u8 u1;
+    /* 0x15 */ u8 v1;
+    /* 0x16 */ u16 tpage;
+    /* 0x18 */ s16 x2;
+    /* 0x1A */ s16 y2;
+    /* 0x1C */ u8 u2;
+    /* 0x1D */ u8 v2;
+    /* 0x1E */ u16 pad1;
+    /* 0x20 */ s16 x3;
+    /* 0x22 */ s16 y3;
+    /* 0x24 */ u8 u3;
+    /* 0x25 */ u8 v3;
+    /* 0x26 */ u16 pad2;
+} Ft4_11854;
+
+/* memory card directory frame entry (0x20) written by Card_Format */
+typedef struct {
+    /* 0x00 */ s32 allocState;
+    /* 0x04 */ s32 fileSize;
+    /* 0x08 */ u16 nextBlock;
+    /* 0x0A */ s8 name[0x16];
+} CardDirFrame;
+
+/* byte-aligned views used for the frame copies in Card_Format */
+typedef struct { u8 b[0x20]; } McBlk20;
+typedef struct { u8 b[0x4]; } McBlk4;
+
+typedef struct {
+    /* 0x0 */ u8 b[4];
+} CdSectorHdr;
+
+/* 0x20-byte stream sector header (StHEADER-like) in the D_80061B38 ring. */
+typedef struct {
+    /* 0x00 */ volatile u16 id;
+    /* 0x02 */ u16 type;
+    /* 0x04 */ u16 secCount;
+    /* 0x06 */ u16 nSectors;
+    /* 0x08 */ u16 frameCount;
+    u8 _pad0A[0x12];
+    /* 0x1C */ CdSectorHdr loc;
+} CdStHeader;
+
+
+#define VA_ARG(ap, T) (((T *)((ap) += sizeof(T)))[-1])
+
+extern Mat1F668 D_800619C8;
+
+/* Primitive tag: next-pointer (24 bits) + word count (8 bits), PsyQ P_TAG shape. */
+typedef struct {
+    u32 addr : 24;
+    u32 len : 8;
+} GfxModelOTag;
+
+/* Byte colour + GPU code, copied as a 4-byte unaligned struct. The native build keeps this view
+ * (fourth byte named code) under another name; CVECTOR is psyq/libgte.h's (cd). */
+#ifdef DW2_NATIVE
+#define CVECTOR GameCVector
+#endif
+typedef struct {
+    u8 r;
+    u8 g;
+    u8 b;
+    u8 code;
+} CVECTOR;
+
+/* Four-point poly line packet (code 0x4E) closed by the 0x55555555 terminator. */
+typedef struct {
+    /* 0x00 */ GfxModelOTag tag;
+    /* 0x04 */ CVECTOR c;
+    /* 0x08 */ s32 xy[4];
+    /* 0x18 */ s32 end;
+} LINE_F4; /* size 0x1C */
+
+/* Two-point line packet (code 0x42). */
+typedef struct {
+    /* 0x00 */ GfxModelOTag tag;
+    /* 0x04 */ CVECTOR c;
+    /* 0x08 */ s32 xy[2];
+} LINE_F2; /* size 0x10 */
+
+/* One-word draw-mode packet. */
+typedef struct {
+    /* 0x00 */ GfxModelOTag tag;
+    /* 0x04 */ u32 code;
+} Tpage21ABC; /* size 0x8 */
+
+/* Quad record Gfx_DrawWireQuads walks: four vertex indices, stride 0x14. */
+typedef struct {
+    /* 0x00 */ u8 v[4];
+    u8 _pad04[0x10];
+} GfxModelQuad; /* size 0x14 */
+
+/* Model view Gfx_DrawWireQuads reads: OT slot at 0x3C, projected xy / z tables at 0x6C / 0x70. */
+typedef struct {
+    u8 _pad00[NATIVE_OFS(ActorModel, clutRow, 0x34)];
+    /* 0x34 */ s16 clutRow;
+    u8 _pad36[0x02];
+    /* 0x38 */ CVECTOR flatColor;
+    /* 0x3C */ s32 otIndex;
+    /* 0x40 */ s32 otzShift;
+    u8 _pad44[NATIVE_OFS(ActorModel, screenXY, 0x6C) - NATIVE_OFS(ActorModel, otzShift, 0x40) - 4];
+    /* 0x6C */ s32 *screenXY;
+    /* 0x70 */ s32 *vertOtz;
+    /* 0x74 */ CVECTOR *vertColors;
+} ModelProjView;
+
+
+/* Triangle record Gfx_DrawWireTris walks: three vertex indices, stride 0x10. */
+typedef struct {
+    /* 0x00 */ u8 v[3];
+    u8 _pad03[0xD];
+} ModelWireTri; /* size 0x10 */
+
+/* 0x5C-byte record swapped between the menu slots and Menu_Ctx->field_128 (Menu_DigiTransferPlace). */
+typedef struct {
+    /* 0x00 */ u8 state;
+    u8 _pad1[0x3];
+    s32 _pad4[0x16];
+} DigiRosterSwapRec;
+/* Non-small views of Menu_Ctx / Pad_State[0].cross for Menu_DigiTransferPlace. */
+typedef struct {
+    MenuCtx *p;
+    s32 _r[3];
+} View50768;
+typedef struct {
+    s32 n;
+    s32 _r[3];
+} View5F704;
+
+
+/* Actor work block of the Menu_DigiListTask menu (list page like MenuDigiListRowsView). */
+typedef struct {
+    /* 0x000 */ s32 texts[16];
+    /* 0x040 */ s32 promptText;
+    /* 0x044 */ s32 titleText;
+    /* 0x048 */ s32 cursorText;
+    u8 _pad4C[0x4];
+    /* 0x050 */ s16 cursor[2];
+    /* 0x054 */ MenuGridLayout grid;
+    /* 0x060 */ s16 mode;
+    /* 0x062 */ s16 subTask;
+    /* 0x064 */ s32 scale;
+    /* 0x068 */ s16 scrollTop;
+    /* 0x06A */ s16 showCursor;
+    u8 _pad6C[0x132];
+    /* 0x19E */ s16 pickCount;
+    u8 _pad1A0[0x6];
+    /* 0x1A6 */ s16 parity;
+} MenuDigiListWork;
+
+/* frame stamp bumped once per frame; a coordinate's cached world matrix is valid while its flg equals it */
+typedef struct {
+    /* 0x0 */ s32 stamp;
+} GsCoordStamp;
+
+
+/* Text_UpdateAllBoxes (text renderer): the actor work block is 50 TextBox text boxes
+ * followed by three counters; Sys_State viewed through the fields it reads. */
+typedef struct {
+    /* 0x000 */ TextBox rec[50];
+    /* 0xA28 */ s32 blinkTimer;
+    /* 0xA2C */ void *moveActor;
+    /* 0xA30 */ s32 waitTimer;
+} TextBoxWork;
+
+/* Text_UpdateAllBoxes's child task slots (Actor u34.children). */
+typedef struct {
+    /* 0x00 */ PTR32(Actor) _pad0;
+    /* 0x04 */ PTR32(Actor) box[0x32];  /* one per text box row (32-bit task slots) */
+    /* 0xCC */ PTR32(Actor) num[2];     /* number display tasks */
+    /* 0xD4 */ PTR32(Actor) task;
+} TextBoxKids;
+
+
+/* POLY_FT4 packet; the colour word is copied with lwl/lwr. */
+typedef struct {
+    /* 0x00 */ union {
+        u32 word;
+        struct {
+            u8 addr[3];
+            u8 len;
+        } b;
+    } tag;
+    /* 0x04 */ Col1A9C8 c;
+    /* 0x08 */ u16 x0;
+    /* 0x0A */ u16 y0;
+    /* 0x0C */ u8 u0;
+    /* 0x0D */ u8 v0;
+    /* 0x0E */ u16 clut;
+    /* 0x10 */ u16 x1;
+    /* 0x12 */ u16 y1;
+    /* 0x14 */ u8 u1;
+    /* 0x15 */ u8 v1;
+    /* 0x16 */ u16 tpage;
+    /* 0x18 */ u16 x2;
+    /* 0x1A */ u16 y2;
+    /* 0x1C */ u8 u2;
+    /* 0x1D */ u8 v2;
+    u16 _pad1E;
+    /* 0x20 */ u16 x3;
+    /* 0x22 */ u16 y3;
+    /* 0x24 */ u8 u3;
+    /* 0x25 */ u8 v3;
+    u16 _pad26;
+} TextGlyphPoly;
+
+typedef struct {
+    u8 _pad0[0x42];
+    /* 0x42 */ s16 rotY;
+} Sub6A8C0;
+
+typedef struct {
+    u8 _pad0[NATIVE_OFS(Actor, u38, 0x38)];
+    /* 0x38 */ Sub6A8C0 *transform;
+} Obj6A8C0;
+
+#include "gte.h"
+/* Screen coordinate pair (PsyQ DVECTOR shape). */
+typedef struct {
+    s16 vx;
+    s16 vy;
+} SxyIso;
+
+#include "gte.h"
+/* Packed model vertex (6 bytes, PsyQ SVECTOR without pad). */
+typedef struct {
+    s16 vx;
+    s16 vy;
+    s16 vz;
+} Vert6Pmv; /* size 0x6 */
+
+
+/* Projected screen xy (PsyQ DVECTOR shape). */
+typedef struct {
+    s16 vx;
+    s16 vy;
+} SxyPmv; /* size 0x4 */
+
+
+#include "gte.h"
+/* Scratchpad bone node (0x1F800000, stride 0x44): local matrix, world matrix
+ * (parent world * local, also copied out as words) and the parent node. */
+typedef struct GfxBoneScratchNode {
+    /* 0x00 */ Blk20 local;
+    /* 0x20 */ union {
+        Blk20 m;
+        s32 w[8];
+    } world;
+    /* 0x40 */ struct GfxBoneScratchNode *parent;
+} GfxBoneScratchNode; /* size 0x44 */
+
+
+/* Textured triangle record Gfx_AddTrisGT3 walks: vertex, colour, uv indices, clut, tpage. */
+typedef struct {
+    /* 0x00 */ u8 v[3];
+    /* 0x03 */ u8 c[3];
+    /* 0x06 */ u8 u0, v0, u1, v1, u2, v2;
+    /* 0x0C */ u16 clut;
+    /* 0x0E */ u16 tpage;
+} GfxModelTriGT3; /* size 0x10 */
+
+/* Textured quad record Gfx_AddQuadsGT4 walks. */
+typedef struct {
+    /* 0x00 */ u8 v[4];
+    /* 0x04 */ u8 c[4];
+    /* 0x08 */ u8 u0, v0, u1, v1, u2, v2, u3, v3;
+    /* 0x10 */ u16 clut;
+    /* 0x12 */ u16 tpage;
+} ModelQuadGT4; /* size 0x14 */
+
+/* PsyQ POLY_GT3 packet. */
+typedef struct {
+    /* 0x00 */ GfxModelOTag tag;
+    /* 0x04 */ CVECTOR c0;
+    /* 0x08 */ s32 xy0;
+    /* 0x0C */ u8 u0, v0;
+    /* 0x0E */ u16 clut;
+    /* 0x10 */ CVECTOR c1;
+    /* 0x14 */ s32 xy1;
+    /* 0x18 */ u8 u1, v1;
+    /* 0x1A */ u16 tpage;
+    /* 0x1C */ CVECTOR c2;
+    /* 0x20 */ s32 xy2;
+    /* 0x24 */ u8 u2, v2;
+    /* 0x26 */ u16 pad2;
+} PolyGT3_20FD0; /* size 0x28 */
+
+/* PsyQ POLY_GT4 packet. */
+typedef struct {
+    /* 0x00 */ GfxModelOTag tag;
+    /* 0x04 */ CVECTOR c0;
+    /* 0x08 */ s32 xy0;
+    /* 0x0C */ u8 u0, v0;
+    /* 0x0E */ u16 clut;
+    /* 0x10 */ CVECTOR c1;
+    /* 0x14 */ s32 xy1;
+    /* 0x18 */ u8 u1, v1;
+    /* 0x1A */ u16 tpage;
+    /* 0x1C */ CVECTOR c2;
+    /* 0x20 */ s32 xy2;
+    /* 0x24 */ u8 u2, v2;
+    /* 0x26 */ u16 pad2;
+    /* 0x28 */ CVECTOR c3;
+    /* 0x2C */ s32 xy3;
+    /* 0x30 */ u8 u3, v3;
+    /* 0x32 */ u16 pad3;
+} PolyGT4_2130C; /* size 0x34 */
+
+#endif /* MAIN_156C_H */

@@ -1,0 +1,177 @@
+Digimon World 2 PC port (DW2-PC)
+================================
+
+A native PC port of Digimon World 2 (PS1, USA, SLUS-01193), built from the decompiled game
+code. Project page: https://github.com/Wyrelade/DW2-PC
+
+You need your own copy of the game. This download has no game data in it. The port builds its
+data pack from your own disc image on the first start.
+
+
+Getting started
+---------------
+
+1. Unpack this zip anywhere.
+2. Put your disc image in the same folder as the program. It must be a raw dump with
+   2352-byte sectors: .bin + .cue, a CloneCD .img, or a raw .iso. A 2048-byte .iso does not
+   work (it has lost the audio and movie sectors); the game tells you if you have one.
+3. Start dw2.exe (Windows) or ./dw2 (Linux). On the first start the game checks your image,
+   writes its data pack dw2.pak next to the program (a few seconds) and starts. If it finds
+   no image, it asks for one. After that the image is not needed any more.
+
+You can also drop the image onto dw2.exe, or start the game with --disc PATH.
+
+Spanish (Espanol): the game also runs with Alemito's Spanish fan translation. Put the
+Spanish-patched image (the USA disc with the translation applied) next to the program instead
+of the English one. To switch languages, delete dw2.pak and start the game with the other
+image. Saves work with both. Some text in the program itself stays English.
+Translation by Alemito, used with permission.
+
+
+Keys
+----
+
+Arrow keys = D-pad, Z = Cross, X = Circle, A = Square, S = Triangle, Q / W = L1 / R1,
+E / R = L2 / R2, Enter = Start, Backspace = Select. Gamepads work out of the box.
+Hold Select (Backspace, or Back / Select on a gamepad) for 1 second to open the settings (F1);
+Start or Select on a gamepad closes them.
+
+F1   settings (render scale, 16:9, no wobble, sharpening, smooth frames, window mode, key and gamepad
+     remap, speed-up multiplier, update check, volume)
+F3   speed-up on / off (battles, domains and menus 2x to 8x faster; movies stay at
+     normal speed)
+F5   render scale 1x .. 8x
+F6   no wobble on / off
+F7   16:9 on / off
+F8   sharpening on / off
+F9   smooth frames on / off (picture at the monitor's refresh rate, game
+     logic unchanged; GPU renderer, on by default)
+F11  windowed / fullscreen
+F12  screenshot
+Esc  quit (asks first)
+
+dw2 --help lists the command line options.
+
+
+Updates
+-------
+
+At start the game checks GitHub for a new version. If there is one, you can update now, open the
+download page, or skip it. Saves and settings stay. Off in F1 > Game or with --no-update-check.
+
+
+Files and folders
+-----------------
+
+Screenshots: F12 saves a PNG in the "screenshots" folder next to the program.
+
+Saves (memory cards card1.mcd and card2.mcd) and settings.ini are in the user data folder:
+  Windows: %APPDATA%\DW2-Online\
+  Linux:   ~/.local/share/DW2-Online/
+Saves are in its "saves" folder. A raw memory card file from DuckStation, PCSX-Redux or
+ePSXe works: copy it there as card1.mcd.
+
+
+Linux
+-----
+
+The Linux build needs SDL3 3.4 or newer from your distribution (package libsdl3-0 on
+Debian / Ubuntu, SDL3 on Fedora and Arch) and glibc 2.43 or newer (built on Ubuntu 26.04).
+A libSDL3.so.0 placed next to dw2 is used before the system one. On older systems, build
+from source (see the project page).
+
+
+Problems and reports
+--------------------
+
+Please report crashes, glitches and anything that plays differently from the PS1 version:
+https://github.com/Wyrelade/DW2-PC/issues
+
+Say what you did, what happened and what you expected. A screenshot (F12) helps, and so does
+the save (card1.mcd) from just before the problem.
+
+
+Version history
+---------------
+
+v1.0.0-beta  English and Spanish: a disc image with Alemito's Spanish translation builds a
+        Spanish game (see Getting started).
+v0.2.2  Dungeon floor tiles no longer turn black after looking at the enemies in a
+        room (Square).
+v0.2.1  Hold Select for 1 second (Backspace, or Back / Select on a gamepad) to open the
+        settings window, instead of Start. The game uses a held Start in dungeons (the
+        automap look), so holding Start works as on the PS1 again. A short Select press
+        still goes to the game. Start or Select on a gamepad closes the window.
+v0.2.0  Hold Start for 1 second (Enter, or Start on a gamepad) to open the settings
+        window; Start on a gamepad closes it. A short Start press still goes to the game.
+        Can be turned off in F1 > Controls. The window and the program now show the name
+        DW2-PC.
+v0.1.9  Fixes a crash with smooth frames on after a longer play session (new in v0.1.8).
+v0.1.8  The game no longer runs slower with smooth frames on some PCs (worse with the
+        speed-up); smooth frames pause while the speed-up is on.
+v0.1.7  Smooth frames: the city, the domains and the battles are drawn at the monitor's
+        refresh rate, blended between game frames (F9, F1; on by default).
+v0.1.6  No stray "Attack" labels in the top left corner of the battle screen during the
+        interrupt prompt (issue #4).
+v0.1.5  Healing items and skills heal in battle again (they counted as attacks on PC).
+v0.1.4  The game can update itself.
+v0.1.3  Update check at start.
+v0.1.2  Fixed a crash in the item server and important items menus.
+v0.1.1  Speed-up (F3), program icon, no console window, Discord button.
+v0.1.0  First release.
+
+
+Licenses
+--------
+
+The port is released under CC0 1.0 (LICENSE.txt). It uses SDL3 (zlib license),
+Dear ImGui and miniz (MIT license, notices below) and Monocypher (CC0).
+Digimon World 2 and its data belong to their owners.
+
+Dear ImGui:
+
+Copyright (c) 2014-2026 Omar Cornut
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+miniz:
+
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+
+All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

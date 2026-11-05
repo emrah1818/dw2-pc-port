@@ -1,0 +1,72 @@
+name: Stage overlay STAG1000.PRO
+sha1: ba428a84fbe2b2084ca6e12fd88067790e43fd7f
+options:
+  basename: stag1000
+  target_path: dumps/disc/AAA/3.PRO/STAG1000.PRO
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/USA/stag1000
+  src_path: src/stag1000
+  build_path: build/USA
+  ld_script_path: linkers/USA/stag1000.ld
+  elf_path: build/USA/stag1000.elf
+  ld_dependencies: False
+
+  find_file_boundaries: True
+  migrate_rodata_to_functions: False
+  pair_rodata_to_text: False
+  gp_value: 0x800506F8
+
+  o_as_suffix: False
+  use_legacy_include_asm: False
+
+  asm_function_macro: glabel
+  asm_jtbl_label_macro: jlabel
+  asm_data_macro: dlabel
+  generate_asm_macros_files: False
+
+  section_order: [".rodata", ".text", ".data", ".sdata", ".sbss", ".bss"]
+
+  symbol_addrs_path:
+    - configs/USA/sym.main.txt
+    - configs/USA/sym.stag1000.txt
+
+  undefined_funcs_auto_path: linkers/USA/undefined_funcs_auto.stag1000.txt
+  undefined_syms_auto_path: linkers/USA/undefined_syms_auto.stag1000.txt
+
+  subalign: 4
+
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+  ld_bss_is_noload: False
+
+# Stage overlay: loaded by Ovl_Load (main exe) to 0x80063360, over the main exe's
+# .data there. Text range found by scanning for the first prologue / last `jr ra`.
+segments:
+  - name: stag1000
+    type: code
+    start: 0x0
+    vram: 0x80063360
+    align: 4
+    subalign: 4
+    subsegments:
+      - [0x0, rodata, stag1000_rodata]
+      - [0x50, c, stag1000]
+      - [0x244, c, title]
+      - [0x9D4, c, endscreen]
+      - [0xB28, c, movie]
+      - [0x1360, c, stag1000_libpress]   # PsyQ libpress 4.6 (DecDCT/MDEC), asm only, not counted
+      - [0x1D70, c, stag1000_tail]
+      - [0x1E54, .data, stag1000]
+      - [0x1E8C, .data, title]
+      - [0x1EA8, .data, endscreen]
+      - [0x1EC0, .data, movie]
+      - [0x1EF8, data, stag1000_libpress]   # PsyQ libpress .data, asm
+      - [0x2078, .data, stag1000_tail]
+      - [0x2E88, .bss, movie]
+  - [0x2EE4]

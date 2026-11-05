@@ -1,0 +1,15 @@
+splat64[mips]==0.50.0
+spimdisasm==1.42.4
+pycparser
+pyelftools
+ninja
+ninja_syntax
+pycparser~=2.21
+numpy
+colorama
+watchdog
+levenshtein
+cxxfilt
+toml
+pillow
+cryptography  # tools/package_release.py: signs the release zips

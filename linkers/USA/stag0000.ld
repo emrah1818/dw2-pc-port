@@ -1,0 +1,104 @@
+SECTIONS
+{
+    HIDDEN(__romPos = 0);
+    _gp = 0x800506F8;
+    stag0000_ROM_START = __romPos;
+    stag0000_VRAM = ADDR(.stag0000);
+    .stag0000 0x80063360 : AT(stag0000_ROM_START) SUBALIGN(4)
+    {
+        FILL(0x00000000);
+        stag0000_RODATA_START = .;
+        build/USA/asm/USA/stag0000/data/stag0000_rodata.rodata.s.o(.rodata);
+        build/USA/src/stag0000/stag0000.c.o(.rodata);
+        build/USA/src/stag0000/scrollview.c.o(.rodata);
+        build/USA/src/stag0000/dungsel.c.o(.rodata);
+        build/USA/src/stag0000/font.c.o(.rodata);
+        build/USA/src/stag0000/fightbg.c.o(.rodata);
+        build/USA/src/stag0000/digiview.c.o(.rodata);
+        build/USA/src/stag0000/lineup.c.o(.rodata);
+        build/USA/src/stag0000/videomode.c.o(.rodata);
+        build/USA/src/stag0000/groupview.c.o(.rodata);
+        build/USA/src/stag0000/digimodel.c.o(.rodata);
+        build/USA/src/stag0000/popup.c.o(.rodata);
+        build/USA/src/stag0000/xaplay.c.o(.rodata);
+        build/USA/src/stag0000/soundlist.c.o(.rodata);
+        build/USA/src/stag0000/windowtest.c.o(.rodata);
+        build/USA/src/stag0000/soundtest.c.o(.rodata);
+        build/USA/src/stag0000/camera.c.o(.rodata);
+        . = ALIGN(., 4);
+        stag0000_RODATA_END = .;
+        stag0000_RODATA_SIZE = ABSOLUTE(stag0000_RODATA_END - stag0000_RODATA_START);
+        stag0000_TEXT_START = .;
+        build/USA/src/stag0000/stag0000.c.o(.text);
+        build/USA/src/stag0000/scrollview.c.o(.text);
+        build/USA/src/stag0000/dungsel.c.o(.text);
+        build/USA/src/stag0000/font.c.o(.text);
+        build/USA/src/stag0000/fightbg.c.o(.text);
+        build/USA/src/stag0000/digiview.c.o(.text);
+        build/USA/src/stag0000/lineup.c.o(.text);
+        build/USA/src/stag0000/videomode.c.o(.text);
+        build/USA/src/stag0000/groupview.c.o(.text);
+        build/USA/src/stag0000/digimodel.c.o(.text);
+        build/USA/src/stag0000/popup.c.o(.text);
+        build/USA/src/stag0000/xaplay.c.o(.text);
+        build/USA/src/stag0000/soundlist.c.o(.text);
+        build/USA/src/stag0000/windowtest.c.o(.text);
+        build/USA/src/stag0000/soundtest.c.o(.text);
+        build/USA/src/stag0000/camera.c.o(.text);
+        . = ALIGN(., 4);
+        stag0000_TEXT_END = .;
+        stag0000_TEXT_SIZE = ABSOLUTE(stag0000_TEXT_END - stag0000_TEXT_START);
+        stag0000_DATA_START = .;
+        build/USA/asm/USA/stag0000/data/stag0000_rodata.rodata.s.o(.data);
+        build/USA/src/stag0000/stag0000.c.o(.data);
+        build/USA/src/stag0000/scrollview.c.o(.data);
+        build/USA/src/stag0000/dungsel.c.o(.data);
+        build/USA/src/stag0000/font.c.o(.data);
+        build/USA/src/stag0000/fightbg.c.o(.data);
+        build/USA/src/stag0000/digiview.c.o(.data);
+        build/USA/src/stag0000/lineup.c.o(.data);
+        build/USA/src/stag0000/videomode.c.o(.data);
+        build/USA/src/stag0000/groupview.c.o(.data);
+        build/USA/src/stag0000/digimodel.c.o(.data);
+        build/USA/src/stag0000/popup.c.o(.data);
+        build/USA/src/stag0000/xaplay.c.o(.data);
+        build/USA/src/stag0000/soundlist.c.o(.data);
+        build/USA/src/stag0000/windowtest.c.o(.data);
+        build/USA/src/stag0000/soundtest.c.o(.data);
+        build/USA/src/stag0000/camera.c.o(.data);
+        . = ALIGN(., 4);
+        stag0000_DATA_END = .;
+        stag0000_DATA_SIZE = ABSOLUTE(stag0000_DATA_END - stag0000_DATA_START);
+        stag0000_BSS_START = .;
+        build/USA/asm/USA/stag0000/data/stag0000_rodata.rodata.s.o(.bss);
+        build/USA/src/stag0000/stag0000.c.o(.bss);
+        build/USA/src/stag0000/scrollview.c.o(.bss);
+        build/USA/src/stag0000/dungsel.c.o(.bss);
+        build/USA/src/stag0000/font.c.o(.bss);
+        build/USA/src/stag0000/fightbg.c.o(.bss);
+        build/USA/src/stag0000/digiview.c.o(.bss);
+        build/USA/src/stag0000/lineup.c.o(.bss);
+        build/USA/src/stag0000/videomode.c.o(.bss);
+        build/USA/src/stag0000/groupview.c.o(.bss);
+        build/USA/src/stag0000/digimodel.c.o(.bss);
+        build/USA/src/stag0000/popup.c.o(.bss);
+        build/USA/src/stag0000/xaplay.c.o(.bss);
+        build/USA/src/stag0000/soundlist.c.o(.bss);
+        build/USA/src/stag0000/windowtest.c.o(.bss);
+        build/USA/src/stag0000/soundtest.c.o(.bss);
+        build/USA/src/stag0000/camera.c.o(.bss);
+        . = ALIGN(., 4);
+        stag0000_BSS_END = .;
+        stag0000_BSS_SIZE = ABSOLUTE(stag0000_BSS_END - stag0000_BSS_START);
+    }
+    __romPos += SIZEOF(.stag0000);
+    __romPos = ALIGN(__romPos, 4);
+    . = ALIGN(., 4);
+    stag0000_ROM_END = __romPos;
+    stag0000_VRAM_END = .;
+
+    /DISCARD/ :
+    {
+        *(*);
+    }
+}

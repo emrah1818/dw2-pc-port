@@ -84,7 +84,7 @@ int TextScript_Valid(const uint8_t *s, int len) {
 }
 
 int TextScript_FlagTable(const uint8_t *d, int size, uint32_t *slots, int max, int *nslots) {
-    uint32_t base, r;
+    uint32_t base, r, lim;
     int entries = 0, n = 0;
 
     *nslots = 0;
@@ -96,6 +96,10 @@ int TextScript_FlagTable(const uint8_t *d, int size, uint32_t *slots, int max, i
         rd32(d + 4) >= (uint32_t)size || rd32(d + 8) >= (uint32_t)size) {
         return 0;
     }
+    /* the texts lie between the 3-word header and the first block (checked on the disc) */
+    lim = base;
+    lim = rd32(d + 4) < lim ? rd32(d + 4) : lim;
+    lim = rd32(d + 8) < lim ? rd32(d + 8) : lim;
     for (r = base; ; r += TS_FLAG_STRIDE) {
         if (r + 2 > (uint32_t)size) {
             return 0; /* the game needs the terminating entry */
@@ -115,7 +119,7 @@ int TextScript_FlagTable(const uint8_t *d, int size, uint32_t *slots, int max, i
             if (o == 0) {
                 continue;
             }
-            if (o < base || o >= (uint32_t)size || (len = TextScript_Len(d, size, o)) < 2) {
+            if (o < TS_FLAG_HEADER || o >= lim || (len = TextScript_Len(d, size, o)) < 2) {
                 return 0;
             }
             if (n >= max) {
@@ -291,6 +295,123 @@ int TextScript_Repack(uint8_t *d, int size, const uint32_t *slots, int n, uint32
     }
     memcpy(d, out, (size_t)size);
     free(out); free(str); free(len); free(orig_len); free(pos);
+    *placed = used;
+    return fell;
+}
+
+/* ---- event tables: verified layout and a re-layout that moves the blocks behind the texts ---- */
+
+int TextScript_FlagLayout(const uint8_t *d, int size, const uint32_t *slots, int n, TextScriptFlagLayout *L) {
+    uint32_t h0, h1, h2, r, start, end, tail;
+
+    if (size < 16) return 0;
+    h0 = rd32(d);
+    h1 = rd32(d + 4);
+    h2 = rd32(d + 8);
+    if (!(TS_FLAG_HEADER < h1 && h1 <= h2 && h2 <= h0) || (h1 & 3) || (h2 & 3) || (h0 & 3)) {
+        return 0; /* the order texts, positions, conditions, entries seen on the disc */
+    }
+    if (!TextScript_Area(d, size, slots, n, 3, &start, &end, &tail) || start != TS_FLAG_HEADER) {
+        return 0;
+    }
+    /* only padding between the last text and the first block */
+    if (end > h1 || h1 - end > 3) return 0;
+    for (uint32_t k = end; k < h1; k++) {
+        if (d[k] != 0 && d[k] != 0xFF) return 0;
+    }
+    for (r = h0; r + 2 <= (uint32_t)size && (d[r] | d[r + 1] << 8) != 0; r += TS_FLAG_STRIDE) {
+    }
+    if (r + 2 > (uint32_t)size) return 0;
+    r = r + TS_FLAG_STRIDE <= (uint32_t)size ? r + TS_FLAG_STRIDE : (uint32_t)size; /* with the end entry */
+    for (uint32_t k = r; k < (uint32_t)size; k++) {
+        if (d[k] != 0) return 0; /* unknown data behind the entries */
+    }
+    L->text_end = h1;
+    L->chunk_start = h1;
+    L->chunk_end = r;
+    return 1;
+}
+
+static uint32_t al4(uint32_t v) {
+    return (v + 3) & ~3u;
+}
+
+int TextScript_RepackFlag(uint8_t *d, int size, const uint32_t *slots, int n, const TextScriptFlagLayout *L,
+                          uint8_t *const *trans, const int *tlen, int *placed) {
+    uint32_t chunk = L->chunk_end - L->chunk_start, cap, at = TS_FLAG_HEADER, rest = 0, shift;
+    uint8_t *out;
+    uint32_t *pos;
+    int *orig_len, fell = 0, used = 0;
+
+    *placed = 0;
+    if (n <= 0 || chunk > (uint32_t)size) return -1;
+    cap = ((uint32_t)size - chunk) & ~3u; /* texts end here at the latest */
+    out = calloc(1, (size_t)size);
+    pos = calloc((size_t)n, sizeof(*pos));
+    orig_len = calloc((size_t)n, sizeof(*orig_len));
+    if (out == NULL || pos == NULL || orig_len == NULL) {
+        free(out); free(pos); free(orig_len);
+        return -1;
+    }
+    for (int i = 0; i < n; i++) {
+        orig_len[i] = TextScript_Len(d, size, rd32(d + slots[i]));
+        if (orig_len[i] == 0) {
+            free(out); free(pos); free(orig_len);
+            return -1;
+        }
+    }
+    /* room kept for the originals still to come: each original string once (at its last use) */
+    for (int i = 0; i < n; i++) {
+        int later = 0;
+        for (int j = i + 1; j < n && !later; j++) later = rd32(d + slots[j]) == rd32(d + slots[i]);
+        if (!later) rest += al4((uint32_t)orig_len[i]);
+    }
+    for (int i = 0; i < n; i++) {
+        const uint8_t *orig = d + rd32(d + slots[i]);
+        const uint8_t *s = orig;
+        int l = orig_len[i], dup = -1, later = 0;
+
+        for (int j = i + 1; j < n && !later; j++) later = rd32(d + slots[j]) == rd32(d + slots[i]);
+        if (!later) rest -= al4((uint32_t)orig_len[i]);
+        if (trans[i] != NULL) {
+            if (TextScript_Valid(trans[i], tlen[i]) && at + al4((uint32_t)tlen[i]) + rest <= cap) {
+                s = trans[i];
+                l = tlen[i];
+                used++;
+            } else {
+                fell++;
+            }
+        }
+        for (int k = 0; k < i && dup < 0; k++) { /* the same bytes: one copy */
+            if (orig_len[k] >= 0 && memcmp(out + pos[k], s, (size_t)l) == 0 && out[pos[k] + (uint32_t)l - 1] == 0xFF &&
+                TextScript_Len(out, size, pos[k]) == l) {
+                dup = k;
+            }
+        }
+        if (dup >= 0) {
+            pos[i] = pos[dup];
+            continue;
+        }
+        if (at + al4((uint32_t)l) > cap) { /* cannot happen with the reservation above */
+            free(out); free(pos); free(orig_len);
+            return -1;
+        }
+        memcpy(out + at, s, (size_t)l);
+        pos[i] = at;
+        at += al4((uint32_t)l);
+    }
+    /* the blocks behind the texts, moved by a multiple of 4 (their alignment stays) */
+    shift = at - L->chunk_start;
+    memcpy(out, d, TS_FLAG_HEADER);
+    memcpy(out + at, d + L->chunk_start, chunk);
+    for (int h = 0; h < 3; h++) {
+        wr32(out + h * 4, rd32(d + h * 4) + shift);
+    }
+    for (int i = 0; i < n; i++) {
+        wr32(out + slots[i] + shift, pos[i]); /* the branch offsets live in the moved entries */
+    }
+    memcpy(d, out, (size_t)size);
+    free(out); free(pos); free(orig_len);
     *placed = used;
     return fell;
 }

@@ -40,115 +40,123 @@ static void test_lengths(void) {
     }
 }
 
-/* a made-up event file: header (3 offsets), 2 entries + terminator, pos/cond blocks, strings */
-static int make_table(uint8_t *f, int size, int strings_last) {
-    const uint32_t ent = 0x10, pos = ent + 3 * TS_FLAG_STRIDE, cond = pos + 0x18;
-    uint32_t txt = strings_last ? cond + 0x30 : 0x100, after = 0x180;
-    static const uint8_t s0[] = { 0x0A, 0x0B, 0xFE, 0xF6, 0, 1, 2, 0, 0, 5, 0, 0, 7, 0xFB, 0xFF };
-    static const uint8_t s1[] = { 0x0C, 0xF4, 0x20, 0xF3, 0xFF, 0x01, 0xFF };
-    static const uint8_t s2[] = { 0x0D, 0xF8, 0x00, 0xFF };
+/* a made-up event file in the disc's layout: header (entries, positions, conditions), texts from
+ * 12 (4-byte aligned, zero padding), position block, condition block, entries + end entry, zeros */
+static const uint8_t s0[] = { 0x0A, 0x0B, 0xFE, 0xF6, 0, 1, 2, 0, 0, 5, 0, 0, 7, 0xFB, 0xFF };      /* 15 */
+static const uint8_t s1[] = { 0x0C, 0xF4, 0x20, 0xF3, 0xFF, 0x01, 0xFF };                           /* 7 */
+static const uint8_t s2[] = { 0x0D, 0xF8, 0x00, 0xFF };                                             /* 4 */
+#define T0 12
+#define T1 (T0 + 16)
+#define T2 (T1 + 8)
+#define POS (T2 + 4)
+#define COND (POS + 12)
+#define ENT (COND + 0x18)
 
+static void make_table(uint8_t *f, int size) {
     memset(f, 0, (size_t)size);
-    w32(f, ent);
-    w32(f + 4, pos);
-    w32(f + 8, strings_last ? cond : after);
-    f[ent] = 5;                                 /* entry 0: digiId 5, branches 0 and 2 */
-    w32(f + ent + TS_FLAG_BRANCHES, txt);
-    w32(f + ent + TS_FLAG_BRANCHES + 8, txt + sizeof(s0));
-    f[ent + TS_FLAG_STRIDE] = 6;                /* entry 1: branch 0 shares s0, branch 1 = s2 */
-    w32(f + ent + TS_FLAG_STRIDE + TS_FLAG_BRANCHES, txt);
-    w32(f + ent + TS_FLAG_STRIDE + TS_FLAG_BRANCHES + 4, txt + sizeof(s0) + sizeof(s1) + 1);
-    memcpy(f + txt, s0, sizeof(s0));
-    memcpy(f + txt + sizeof(s0), s1, sizeof(s1));
-    f[txt + sizeof(s0) + sizeof(s1)] = 0xFF;    /* 1 byte padding */
-    memcpy(f + txt + sizeof(s0) + sizeof(s1) + 1, s2, sizeof(s2));
-    if (!strings_last) {
-        memset(f + after, 0x77, 0x20);          /* other data after the strings */
-    }
-    return (int)txt;
+    w32(f, ENT);
+    w32(f + 4, POS);
+    w32(f + 8, COND);
+    memcpy(f + T0, s0, sizeof(s0));
+    memcpy(f + T1, s1, sizeof(s1));
+    memcpy(f + T2, s2, sizeof(s2));
+    memset(f + POS, 0x11, 12);
+    memset(f + COND, 0x22, 0x18);
+    f[ENT] = 5;                                         /* entry 0: branches 0 and 2 */
+    f[ENT + 5] = 0x33;
+    w32(f + ENT + TS_FLAG_BRANCHES, T0);
+    w32(f + ENT + TS_FLAG_BRANCHES + 8, T1);
+    f[ENT + TS_FLAG_STRIDE] = 6;                        /* entry 1: branch 0 shares s0, branch 1 = s2 */
+    w32(f + ENT + TS_FLAG_STRIDE + TS_FLAG_BRANCHES, T0);
+    w32(f + ENT + TS_FLAG_STRIDE + TS_FLAG_BRANCHES + 4, T2);
+    /* end entry (digiId 0) at ENT + 2*0x2C, zeros after it */
 }
 
 static void test_table(void) {
     uint8_t f[0x200], g[0x200];
-    uint32_t slots[16], start, end, tail;
-    int n, txt = make_table(f, sizeof(f), 1);
+    uint32_t slots[16];
+    int n;
+    TextScriptFlagLayout L;
 
+    make_table(f, sizeof(f));
     CHECK(TextScript_FlagTable(f, sizeof(f), slots, 16, &n) == 2);
     CHECK(n == 4);
-    CHECK(TextScript_Area(f, sizeof(f), slots, n, 3, &start, &end, &tail));
-    CHECK(start == (uint32_t)txt);
-    CHECK(end == (uint32_t)txt + 15 + 7 + 1 + 4);
-    CHECK(tail >= end && tail <= end + 3);
+    CHECK(TextScript_FlagLayout(f, sizeof(f), slots, n, &L));
+    CHECK(L.text_end == POS && L.chunk_start == POS && L.chunk_end == ENT + 3 * TS_FLAG_STRIDE);
 
     /* not a table: a branch offset that is no text */
     memcpy(g, f, sizeof(f));
-    w32(g + 0x10 + TS_FLAG_BRANCHES + 8, 0x1F0);
-    memset(g + 0x1F0, 0xF4, 0x10); /* never terminated */
+    w32(g + ENT + TS_FLAG_BRANCHES + 8, POS); /* points into the position block */
     CHECK(TextScript_FlagTable(g, sizeof(g), slots, 16, &n) == 0);
-    /* not a table: no terminating entry */
+    /* not a table: no end entry */
     memcpy(g, f, sizeof(f));
     w32(g, sizeof(g) - TS_FLAG_STRIDE);
     memset(g + sizeof(g) - TS_FLAG_STRIDE, 1, TS_FLAG_STRIDE);
     CHECK(TextScript_FlagTable(g, sizeof(g), slots, 16, &n) == 0);
-
-    /* area with unknown bytes inside: refused */
+    /* layout refused: unknown bytes between the texts, or data behind the entries */
     memcpy(g, f, sizeof(f));
     TextScript_FlagTable(g, sizeof(g), slots, 16, &n);
-    g[txt + 15 + 7] = 0x42; /* the padding byte becomes data */
-    CHECK(!TextScript_Area(g, sizeof(g), slots, n, 3, &start, &end, &tail));
+    g[T0 + 15] = 0x42;
+    CHECK(!TextScript_FlagLayout(g, sizeof(g), slots, n, &L));
+    memcpy(g, f, sizeof(f));
+    g[sizeof(g) - 1] = 1;
+    CHECK(!TextScript_FlagLayout(g, sizeof(g), slots, n, &L));
+    /* layout refused: blocks in another order */
+    memcpy(g, f, sizeof(f));
+    w32(g + 4, COND);
+    w32(g + 8, POS);
+    CHECK(!TextScript_FlagLayout(g, sizeof(g), slots, n, &L));
+}
 
-    /* strings followed by other data: area ok, but no tail */
-    make_table(g, sizeof(g), 0);
-    TextScript_FlagTable(g, sizeof(g), slots, 16, &n);
-    CHECK(TextScript_Area(g, sizeof(g), slots, n, 3, &start, &end, &tail));
-    CHECK(tail == sizeof(g));
+static void check_file(const uint8_t *f, int size, const uint8_t *keep, int ents) {
+    uint32_t h0 = r32(f), h1 = r32(f + 4), h2 = r32(f + 8), slots[16];
+    int n;
+    /* blocks moved intact, header follows them, every branch reaches a valid string */
+    CHECK(h1 % 4 == 0 && h2 - h1 == COND - POS && h0 - h2 == ENT - COND);
+    CHECK(memcmp(f + h1, keep + POS, COND - POS) == 0);
+    CHECK(memcmp(f + h2, keep + COND, ENT - COND) == 0);
+    CHECK(f[h0] == 5 && f[h0 + 5] == 0x33 && f[h0 + TS_FLAG_STRIDE] == 6);
+    CHECK(TextScript_FlagTable(f, size, slots, 16, &n) == ents);
+    for (int i = 0; i < n; i++) CHECK(TextScript_Len(f, size, r32(f + slots[i])) > 0);
 }
 
 static void test_repack(void) {
     uint8_t f[0x200], keep[0x200];
-    uint32_t slots[16], start, end, tail;
+    uint32_t slots[16];
     uint8_t *tr[16] = { 0 };
     int tl[16] = { 0 }, n, placed, r;
-    /* longer German for branch 0 of entry 0 (same commands), a broken one for entry 1 branch 1 */
-    static uint8_t de0[] = { 0x0A, 0x0B, 0x0C, 0x0D, 0xFE, 0xF6, 0, 1, 2, 0, 0, 5, 0, 0, 7, 0xFB, 0x0E, 0xFF };
+    TextScriptFlagLayout L;
+    /* German for entry 0 branch 0 (longer, same commands); a broken one for entry 1 branch 1 */
+    static uint8_t de0[] = { 0x0A, 0x0B, 0x0C, 0x0D, 0xFE, 0xF6, 0, 1, 2, 0, 0, 5, 0, 0, 7, 0xFB, 0x0E, 0x0F, 0x10, 0x11, 0xFF };
     static uint8_t bad[] = { 0x0D, 0xF6, 0, 1, 0xFF }; /* F6 cut off */
+    static uint8_t big[0x1F0];
 
-    make_table(f, sizeof(f), 1);
+    make_table(f, sizeof(f));
     memcpy(keep, f, sizeof(f));
     TextScript_FlagTable(f, sizeof(f), slots, 16, &n);
-    TextScript_Area(f, sizeof(f), slots, n, 3, &start, &end, &tail);
+    TextScript_FlagLayout(f, sizeof(f), slots, n, &L);
     tr[0] = de0; tl[0] = sizeof(de0);
     tr[3] = bad; tl[3] = sizeof(bad);
-    r = TextScript_Repack(f, sizeof(f), slots, n, start, end, tail, tr, tl, &placed);
+    r = TextScript_RepackFlag(f, sizeof(f), slots, n, &L, tr, tl, &placed);
     CHECK(r == 1 && placed == 1);
-    /* every pointer reaches a valid string; slot 0 the German, slot 3 the old original */
-    for (int i = 0; i < n; i++) {
-        uint32_t o = r32(f + slots[i]);
-        CHECK(TextScript_Len(f, sizeof(f), o) > 0);
-    }
-    CHECK(memcmp(f + r32(f + slots[0]), de0, sizeof(de0)) == 0);
-    CHECK(memcmp(f + r32(f + slots[3]), keep + r32(keep + slots[3]), 4) == 0);
-    /* entry 1 branch 0 kept the English s0 (no translation for that slot) */
-    CHECK(memcmp(f + r32(f + slots[2]), keep + r32(keep + slots[2]), 15) == 0);
-    /* header and entries outside the area untouched (except the pointers) */
-    CHECK(memcmp(f, keep, 0x10) == 0);
-    CHECK(f[0x10] == 5 && f[0x10 + TS_FLAG_STRIDE] == 6);
+    check_file(f, sizeof(f), keep, 2);
+    CHECK(memcmp(f + r32(f + ENT + (r32(f) - ENT) + TS_FLAG_BRANCHES), de0, sizeof(de0)) == 0);
+    /* entry 1 branch 0 still English s0, entry 1 branch 1 still s2 (bad translation refused) */
+    CHECK(memcmp(f + r32(f + r32(f) + TS_FLAG_STRIDE + TS_FLAG_BRANCHES), s0, sizeof(s0)) == 0);
+    CHECK(memcmp(f + r32(f + r32(f) + TS_FLAG_STRIDE + TS_FLAG_BRANCHES + 4), s2, sizeof(s2)) == 0);
+    CHECK(r32(f) > ENT); /* the blocks moved back: the longer text needed room */
 
-    /* no room at all (strings followed by data, translation longer): falls back, file valid */
-    make_table(f, sizeof(f), 0);
-    memcpy(keep, f, sizeof(f));
+    /* a translation larger than the whole file: falls back, file still valid and unchanged */
+    make_table(f, sizeof(f));
     TextScript_FlagTable(f, sizeof(f), slots, 16, &n);
-    TextScript_Area(f, sizeof(f), slots, n, 3, &start, &end, &tail);
+    TextScript_FlagLayout(f, sizeof(f), slots, n, &L);
+    memset(big, 0x0A, sizeof(big));
+    big[sizeof(big) - 1] = 0xFF;
     memset(tr, 0, sizeof(tr));
-    tr[0] = de0; tl[0] = sizeof(de0);
-    r = TextScript_Repack(f, sizeof(f), slots, n, start, end, tail, tr, tl, &placed);
-    /* German does not fit the area: the original stays, every pointer still valid */
-    CHECK(r >= 0);
-    for (int i = 0; i < n; i++) {
-        CHECK(TextScript_Len(f, sizeof(f), r32(f + slots[i])) > 0);
-        CHECK(r32(f + slots[i]) >= start && r32(f + slots[i]) < end);
-    }
-    CHECK(memcmp(f + 0x180, keep + 0x180, 0x20) == 0); /* data after the area untouched */
+    tr[1] = big; tl[1] = sizeof(big);
+    r = TextScript_RepackFlag(f, sizeof(f), slots, n, &L, tr, tl, &placed);
+    CHECK(r == 1 && placed == 0);
+    CHECK(memcmp(f, keep, sizeof(f)) == 0); /* the same layout again, byte for byte */
 }
 
 int main(void) {

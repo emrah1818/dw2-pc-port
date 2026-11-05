@@ -721,7 +721,7 @@ int Lang_ExportTexts(const char *dir) {
         return 1;
     }
     fprintf(x.f, "key\tcategory\tkind\tenglish\n");
-    fprintf(ff, "file\tentries\ttexts\tarea\tarea_bytes\tfree_tail_bytes\n");
+    fprintf(ff, "file\tentries\ttexts\tlayout\ttext_bytes\tfree_bytes\n");
     for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
         int size = 0;
         uint8_t *d = Host_PakReadFile(k_tables[t].file, &size);
@@ -737,7 +737,7 @@ int Lang_ExportTexts(const char *dir) {
     for (int id = 0; Host_PakFileInfo(id, &lba, &sectors, &form2, &fsize); id++) {
         int size = 0, n = 0, entries, area;
         uint8_t *d;
-        uint32_t start = 0, end = 0, tail = 0;
+        TextScriptFlagLayout L;
 
         if (form2 || fsize < 16 || is_known_table(id) || (d = Host_PakReadFile(id, &size)) == NULL) {
             continue;
@@ -745,9 +745,9 @@ int Lang_ExportTexts(const char *dir) {
         entries = TextScript_FlagTable(d, size, slots, MAX_DIALOG_SLOTS, &n);
         if (entries > 0) {
             int before = x.n;
-            area = TextScript_Area(d, size, slots, n, (int)(rd32(d) / 4), &start, &end, &tail);
+            area = TextScript_FlagLayout(d, size, slots, n, &L);
             x.file = id;
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < n && area; i++) { /* a file with another layout: no dialog (checked) */
                 uint32_t rel = slots[i] - rd32(d);
                 char cat[64];
                 snprintf(cat, sizeof(cat), "dialog e%u b%u digi%d", rel / TS_FLAG_STRIDE,
@@ -756,9 +756,10 @@ int Lang_ExportTexts(const char *dir) {
                 export_one(&x, d, size, slots[i], cat);
             }
             fprintf(ff, "%04X\t%d\t%d\t%s\t%u\t%u\n", id, entries, x.n - before,
-                    area ? "ok" : "NOT UNDERSTOOD (texts of this file cannot be replaced)",
-                    area ? end - start : 0, area && tail < (uint32_t)size ? (uint32_t)size - tail : 0);
-            tables++;
+                    area ? "ok" : "rejected (not the event table layout: no texts exported, file never changed)",
+                    area ? L.text_end - TS_FLAG_HEADER : 0,
+                    area ? (((uint32_t)size - (L.chunk_end - L.chunk_start)) & ~3u) - L.text_end : 0);
+            tables += area;
             dialogs += x.n - before;
             unclear += !area;
         }
@@ -766,8 +767,8 @@ int Lang_ExportTexts(const char *dir) {
     }
     fclose(x.f);
     fclose(ff);
-    printf("[lang] %d texts (%d with script commands; %d dialog texts in %d event tables, %d tables "
-           "with an unclear string area) -> %s/texts_en.tsv, dialog_files.tsv\n",
+    printf("[lang] %d texts (%d with script commands; %d dialog texts in %d event tables, %d files "
+           "rejected) -> %s/texts_en.tsv, dialog_files.tsv\n",
            x.n, x.script, dialogs, tables, unclear, dir);
     return 0;
 }
@@ -818,8 +819,7 @@ static int file_area(int id, const uint8_t *d, int size, uint32_t *slots, int ma
             return *n > 0 && *start < *end && *tail >= *end;
         }
     }
-    return TextScript_FlagTable(d, size, slots, max, n) > 0 &&
-           TextScript_Area(d, size, slots, *n, (int)(rd32(d) / 4), start, end, tail);
+    return 0; /* event tables: TextScript_FlagLayout */
 }
 
 /* texts.tsv: key<TAB>German (lines starting with # are comments). Every file named by a key is
@@ -894,7 +894,11 @@ static void patch_texts(const char *dir, int umlauts) {
         }
         SDL_free(copy);
         if (count > 0) {
-            if (!file_area(id, d, size, slots, MAX_DIALOG_SLOTS, &n, &start, &end, &tail)) {
+            int flag = !is_known_table(id);
+            TextScriptFlagLayout L;
+            if (flag ? !(TextScript_FlagTable(d, size, slots, MAX_DIALOG_SLOTS, &n) > 0 &&
+                         TextScript_FlagLayout(d, size, slots, n, &L))
+                     : !file_area(id, d, size, slots, MAX_DIALOG_SLOTS, &n, &start, &end, &tail)) {
                 bad += count;
                 if (rep) fprintf(rep, "%04X: string area not understood, %d texts left English\n", id, count);
             } else {
@@ -906,7 +910,8 @@ static void patch_texts(const char *dir, int umlauts) {
                     tl[i] = tlen[slots[i]];
                     unknown -= tr[i] != NULL;
                 }
-                fell = TextScript_Repack(d, size, slots, n, start, end, tail, tr, tl, &placed);
+                fell = flag ? TextScript_RepackFlag(d, size, slots, n, &L, tr, tl, &placed)
+                            : TextScript_Repack(d, size, slots, n, start, end, tail, tr, tl, &placed);
                 if (fell < 0) {
                     bad += count;
                     if (rep) fprintf(rep, "%04X: could not lay out the strings, %d texts left English\n", id, count);

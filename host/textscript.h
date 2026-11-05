@@ -19,9 +19,10 @@ int TextScript_Valid(const uint8_t *s, int len);
 
 /* Event (flag) table, Flag_SelectBranch: file header u32 offsets; entries of 0x2C bytes at
  * header[0], ending with digiId 0; each entry has 6 text offsets (relative to the file start)
- * at +0x14. Writes the positions of all non-zero text offsets into slots. Returns the number of
+ * at +0x14, pointing between the 3-word header and the first block. Writes the positions of all non-zero text offsets into slots. Returns the number of
  * entries, or 0 when the file is not such a table (every offset must hold a valid text). */
 #define TS_FLAG_STRIDE 0x2C
+#define TS_FLAG_HEADER 12 /* 3 words: entries, positions, conditions */
 #define TS_FLAG_BRANCHES 0x14
 int TextScript_FlagTable(const uint8_t *d, int size, uint32_t *slots, int max, int *nslots);
 
@@ -40,5 +41,19 @@ int TextScript_Area(const uint8_t *d, int size, const uint32_t *slots, int n, in
  * returned (*placed = translations used). */
 int TextScript_Repack(uint8_t *d, int size, const uint32_t *slots, int n, uint32_t start, uint32_t end,
                       uint32_t tail, uint8_t *const *trans, const int *tlen, int *placed);
+
+/* Layout of an event table as found on the disc: header (3 words) | texts [12, h1) | positions h1 |
+ * conditions h2 | entries h0 up to the end entry | zeros. Returns 1 when the file is exactly that. */
+typedef struct {
+    uint32_t text_end, chunk_start, chunk_end; /* chunk = positions + conditions + entries */
+} TextScriptFlagLayout;
+int TextScript_FlagLayout(const uint8_t *d, int size, const uint32_t *slots, int n, TextScriptFlagLayout *L);
+
+/* Re-layout of an event table: texts (translation, or the original when it does not fit or is
+ * invalid; 4-byte aligned, equal strings shared) from offset 12, the blocks right behind them
+ * (moved by a multiple of 4), header and branch offsets updated, zeros to the end. The file size
+ * stays. Returns the number of translations that fell back, -1 = nothing changed. */
+int TextScript_RepackFlag(uint8_t *d, int size, const uint32_t *slots, int n, const TextScriptFlagLayout *L,
+                          uint8_t *const *trans, const int *tlen, int *placed);
 
 #endif

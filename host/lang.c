@@ -675,7 +675,7 @@ typedef struct { FILE *f; int file, n, script; } ExportCtx;
 
 static void export_one(void *vctx, const uint8_t *d, int size, uint32_t at, const char *cat) {
     ExportCtx *x = vctx;
-    char text[4096];
+    static char text[65536]; /* the longest dialogs are over 4 KB as tokens */
     uint32_t o = rd32(d + at);
     int k;
 
@@ -822,6 +822,101 @@ static int file_area(int id, const uint8_t *d, int size, uint32_t *slots, int ma
     return 0; /* event tables: TextScript_FlagLayout */
 }
 
+/* ---- German word dictionary (F0 k, k = 73..255): text.c Text_BuiltinStrings[67..249] ---- */
+
+extern uint8_t *Text_BuiltinStrings[];
+#define DICT_GAME 67   /* the game's own words (English, k = 6..72) */
+#define DICT_MAX 250
+static uint8_t dict_word[DICT_MAX][48];
+static int dict_len[DICT_MAX], dict_count;
+
+/* Languages/German/dictionary.txt: one word (or word with a trailing space, written "_") per
+ * line; they become dictionary entries 67.. for this run. Texts in the event tables are then
+ * stored with F0 k instead of these letters (2 bytes for a word), like the game does in English. */
+static void load_dict(const char *dir, int umlauts) {
+    char path[1024];
+    size_t sz = 0;
+    char *data, *line, *next;
+    int n = 0;
+
+    for (int i = 0; i < DICT_GAME; i++) { /* the game's words count for compression too */
+        int l = TextScript_Len(Text_BuiltinStrings[i], 48, 0);
+        dict_len[i] = l > 1 ? l - 1 : 0;
+        if (dict_len[i]) memcpy(dict_word[i], Text_BuiltinStrings[i], (size_t)dict_len[i]);
+    }
+    dict_count = DICT_GAME;
+    snprintf(path, sizeof(path), "%sdictionary.txt", dir);
+    data = SDL_LoadFile(path, &sz);
+    if (data == NULL) {
+        note("no %s: dialogs stored without German word dictionary%s", path, "");
+        return;
+    }
+    for (line = data; line != NULL && *line && dict_count < DICT_MAX; line = next) {
+        char w[64];
+        uint8_t enc[64];
+        int len;
+        next = strchr(line, '\n');
+        if (next != NULL) *next++ = 0;
+        if (line[0] == '#' || line[0] == 0 || line[0] == '\r') continue;
+        SDL_strlcpy(w, line, sizeof(w));
+        for (char *c = w; *c; c++) {
+            if (*c == '\r') *c = 0;
+            else if (*c == '_') *c = ' ';
+        }
+        len = encode(w, enc, sizeof(enc), umlauts);
+        if (len < 4 || len > 47) continue; /* at least 3 letters, or it saves nothing */
+        memcpy(dict_word[dict_count], enc, (size_t)len); /* with its 0xFF end */
+        dict_len[dict_count] = len - 1;
+        Text_BuiltinStrings[dict_count] = dict_word[dict_count];
+        dict_count++;
+        n++;
+    }
+    SDL_free(data);
+    {
+        char a[32];
+        snprintf(a, sizeof(a), "%d", n);
+        note("dictionary.txt: %s German words%s", a, "");
+    }
+}
+
+/* the words in the runs of glyphs (and spaces) of s become F0 k (longest match first);
+ * commands and their arguments are never touched. Returns the new length. */
+static int compress(uint8_t *s, int len) {
+    static uint8_t out[16384];
+    int i = 0, o = 0;
+
+    if (dict_count == 0 || len > (int)sizeof(out)) return len;
+    while (i < len) {
+        int k = TextScript_ElemLen(s + i, len - i), best = -1, bl = 0;
+        int glyph = k == 1 && (s[i] < 0xEF || s[i] == 0xFD);
+
+        if (glyph) {
+            for (int w = 0; w < dict_count; w++) {
+                int l = dict_len[w], ok = l > 2 && l > bl && i + l <= len;
+                for (int j = 0; ok && j < l; j++) {
+                    ok = s[i + j] == dict_word[w][j] && (s[i + j] < 0xEF || s[i + j] == 0xFD);
+                }
+                if (ok) {
+                    best = w;
+                    bl = l;
+                }
+            }
+        }
+        if (best >= 0) {
+            out[o++] = 0xF0;
+            out[o++] = (uint8_t)(best + 6);
+            i += bl;
+        } else {
+            if (k <= 0) k = 1;
+            memcpy(out + o, s + i, (size_t)k);
+            o += k;
+            i += k;
+        }
+    }
+    memcpy(s, out, (size_t)o);
+    return o;
+}
+
 /* texts.tsv: key<TAB>German (lines starting with # are comments). Every file named by a key is
  * laid out again (textscript.c): a text that does not fit keeps its English string, and a file
  * whose layout is not understood is not touched at all. */
@@ -869,7 +964,7 @@ static void patch_texts(const char *dir, int umlauts) {
         for (line = copy; line != NULL && *line; line = next) {
             unsigned file = 0, at = 0;
             char *tab, *de;
-            uint8_t enc[1024];
+            static uint8_t enc[16384];
             int len;
 
             next = strchr(line, '\n');
@@ -881,6 +976,9 @@ static void patch_texts(const char *dir, int umlauts) {
             de = tab + 1;
             for (char *e = de + strlen(de); e > de && e[-1] == '\r'; e--) e[-1] = 0;
             len = encode(de, enc, sizeof(enc), umlauts);
+            if (len > 0 && !is_known_table(id)) {
+                len = compress(enc, len); /* event tables (dialogs) only: tables keep plain text */
+            }
             if (len < 0) {
                 bad++;
                 if (rep) fprintf(rep, "%04X:%06X FAILED (a character without glyph or a bad token): %s\n", file, at, de);
@@ -1004,6 +1102,7 @@ void Lang_Apply(void) {
         Host_PakSetLayer(F_SYSTEXT, d, size);
         free(d);
     }
+    load_dict(dir, umlauts);
     patch_texts(dir, umlauts); /* after the types: texts.tsv may not touch the type entries */
     if (rep) {
         fclose(rep);

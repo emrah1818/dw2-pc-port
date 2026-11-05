@@ -93,7 +93,13 @@ u8 Text_Word_Blue[] = { 0x0B, 0x2F, 0x38, 0x28, 0xFF }; /* "Blue" */
 u8 Text_Word_time[] = { 0x37, 0x2C, 0x30, 0x28, 0xFF }; /* "time" */
 /* Sound effect per text sfx code. */
 s16 Text_SfxIds[] = { 0x19, 0x1A, 0x21, 0x2B, 0x20, 0x2A, 0x1F, 0x17, 0x08 };
+#ifdef DW2_NATIVE
+/* dw2-pc-port: room for the German layer's words after the game's 67 (host/lang.c fills
+ * entries 67.. only with language = de; English texts never use them) */
+u8 *Text_BuiltinStrings[250] = {
+#else
 u8 *Text_BuiltinStrings[] = {
+#endif
     Text_Word_Digimon, Text_Word_you, Text_Word_the, Text_Word_DigiBeetle, Text_Word_Domain, Text_Word_Guard,
     Text_Word_Tamer, Text_Word_here, Text_Word_have, Text_Word_Knights, Text_Word_and, Text_Word_thing,
     Text_Word_Security, Text_Word_that, Text_Word_Bertran, Text_Word_Tournament, Text_Word_Crimson, Text_Word_Vendor,
@@ -646,6 +652,13 @@ void Text_UpdateAllBoxes(Actor *a0) {
                         }
                         break;
                     default:
+#ifdef DW2_NATIVE
+                        if (k - 6 >= 250 || Text_BuiltinStrings[k - 6] == 0) { /* no such word: nothing */
+                            static u8 empty[1] = { 0xFF };
+                            s = empty - 1;
+                            break;
+                        }
+#endif
                         s = Text_BuiltinStrings[k - 6] - 1;
                         break;
                     }

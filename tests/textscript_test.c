@@ -146,6 +146,21 @@ static void test_repack(void) {
     CHECK(memcmp(f + r32(f + r32(f) + TS_FLAG_STRIDE + TS_FLAG_BRANCHES + 4), s2, sizeof(s2)) == 0);
     CHECK(r32(f) > ENT); /* the blocks moved back: the longer text needed room */
 
+    /* shorter German: the blocks move forward (a "negative" shift) */
+    {
+        static uint8_t de_short[] = { 0x0A, 0xF6, 0, 1, 2, 0, 0, 5, 0, 0, 7, 0xFF }; /* 12 bytes, s0 needs 16 */
+        make_table(f, sizeof(f));
+        TextScript_FlagTable(f, sizeof(f), slots, 16, &n);
+        TextScript_FlagLayout(f, sizeof(f), slots, n, &L);
+        memset(tr, 0, sizeof(tr));
+        tr[0] = de_short; tl[0] = sizeof(de_short);
+        tr[2] = de_short; tl[2] = sizeof(de_short);
+        r = TextScript_RepackFlag(f, sizeof(f), slots, n, &L, tr, tl, &placed);
+        CHECK(r == 0 && placed == 2);
+        CHECK(r32(f) < ENT && r32(f + 4) < POS);
+        check_file(f, sizeof(f), keep, 2);
+    }
+
     /* a translation larger than the whole file: falls back, file still valid and unchanged */
     make_table(f, sizeof(f));
     TextScript_FlagTable(f, sizeof(f), slots, 16, &n);

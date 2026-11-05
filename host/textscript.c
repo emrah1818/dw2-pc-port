@@ -408,7 +408,7 @@ int TextScript_RepackFlag(uint8_t *d, int size, const uint32_t *slots, int n, co
         wr32(out + h * 4, rd32(d + h * 4) + shift);
     }
     for (int i = 0; i < n; i++) {
-        wr32(out + slots[i] + shift, pos[i]); /* the branch offsets live in the moved entries */
+        wr32(out + (uint32_t)(slots[i] + shift), pos[i]); /* in the moved entries (shift may be "negative") */
     }
     memcpy(d, out, (size_t)size);
     free(out); free(pos); free(orig_len);

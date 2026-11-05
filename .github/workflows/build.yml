@@ -7,6 +7,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths-ignore: ["**.md", "doc/**"]
   workflow_dispatch:
 
@@ -122,6 +123,7 @@ jobs:
           }
           Copy-Item LICENSE "$pkg/LICENSE.txt"
           Copy-Item README_PORT.md "$pkg/README_PORT.md"
+          Copy-Item TESTBERICHT.md "$pkg/TESTBERICHT.md"
           # Windows test run for the player's PC (tools/wintest): renderer test + reference hashes
           New-Item -ItemType Directory -Force "$pkg/tests" | Out-Null
           Copy-Item "$b/hd_test.exe" "$pkg/tests/"
@@ -178,7 +180,7 @@ jobs:
           cp $b/dw2 DW2-PC-Port/DW2-PC/
           cp -L sdl3inst/lib/libSDL3.so.0 DW2-PC-Port/DW2-PC/
           cp LICENSE DW2-PC-Port/DW2-PC/LICENSE.txt
-          cp README_PORT.md DW2-PC-Port/DW2-PC/
+          cp README_PORT.md TESTBERICHT.md DW2-PC-Port/DW2-PC/
           (cd DW2-PC-Port && zip -r ../DW2-PC-Port-linux-x64.zip DW2-PC)
 
       - uses: actions/upload-artifact@v4
@@ -193,12 +195,19 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-      - name: Publish test build
+      - name: Publish test build (main) or the release (tag v*)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release delete test-build --yes --cleanup-tag || true
-          gh release create test-build DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
-            --prerelease --target "${{ github.sha }}" --title "Test-Build (${GITHUB_SHA::7})" \
-            --notes "Automatischer Test-Build ohne Spieldaten. Beim ersten Start braucht das Programm dein eigenes Digimon World 2 (USA) Image (.cue/.bin). Siehe README_PORT.md."
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            gh release delete "${GITHUB_REF_NAME}" --yes || true
+            gh release create "${GITHUB_REF_NAME}" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
+              --prerelease --verify-tag --title "DW2 PC-Port ${GITHUB_REF_NAME}" \
+              --notes "Windows- und Linux-Version ohne Spieldaten: beim ersten Start wird dein eigenes Digimon World 2 (USA) Image importiert. Anleitung: README_PORT.md, Testbericht: TESTBERICHT.md (was getestet ist und was nicht). Vorabversion, weil Grafik, Ton und Controller auf echter Windows-Hardware noch nicht geprüft sind."
+          else
+            gh release delete test-build --yes --cleanup-tag || true
+            gh release create test-build DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
+              --prerelease --target "${{ github.sha }}" --title "Test-Build (${GITHUB_SHA::7})" \
+              --notes "Automatischer Test-Build ohne Spieldaten. Beim ersten Start braucht das Programm dein eigenes Digimon World 2 (USA) Image (.cue/.bin). Siehe README_PORT.md."
+          fi

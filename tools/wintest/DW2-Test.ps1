@@ -78,9 +78,38 @@ if ($null -eq $pak) {
     $glog = Get-Content (Join-Path $out "gpu_fenster.log") -Raw
     Result ($glog -match "\[audio\] driver") "Audiogeraet geoeffnet"
     if ($glog -match "\[gpu\]") { Log "INFO GPU-Zeilen siehe oben" }
+    if ($glog -match "\[input\] gamepad \d+ on port") { Log "INFO Controller erkannt: $([regex]::Match($glog, '\[input\] gamepad \d+ on port \d+: [^\r\n]*').Value)" }
+    else { Log "INFO kein Controller erkannt (nur Tastatur). Mit angeschlossenem Controller erneut testen." }
+
+    # 6. Asset-Export und Textur-Rundlauf (nur lokal, nichts wird weitergegeben)
+    $exp = Join-Path $out "GameData"
+    & .\dw2.exe --pak $pak --no-window --no-update-check --export-assets $exp > (Join-Path $out "export.log") 2>&1
+    $n = @(Get-ChildItem (Join-Path $exp "Original\files") -Filter "*.bin" -ErrorAction SilentlyContinue).Count
+    $d = @(Get-ChildItem (Join-Path $exp "Digimon") -Directory -ErrorAction SilentlyContinue).Count
+    Result ($LASTEXITCODE -eq 0 -and $n -ge 3600 -and $d -ge 190) "Asset-Export: $n Dateien, $d Digimon-Ordner (Linux: 3641 / 194)"
+    $png = Get-ChildItem (Join-Path $exp "Digimon") -Recurse -Filter "*_p*.png" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $png) {
+        $mods = Join-Path $here "Mods\files"
+        $had = Test-Path $mods
+        $r = & .\dw2.exe --pak $pak --no-window --no-update-check --import-texture $png.FullName 2>&1 | Out-String
+        Result ($r -match "0 pixels changed") "Textur-Rundlauf ohne Aenderung: 0 Pixel geaendert ($($png.Name))"
+        # the round trip wrote an identical copy into Mods/files: remove it again
+        $id = $png.Name.Substring(0, 4)
+        Remove-Item (Join-Path $mods "$id.bin") -ErrorAction SilentlyContinue
+        if (-not $had) { Remove-Item -Recurse (Join-Path $here "Mods") -ErrorAction SilentlyContinue }
+    } else { Result $false "Asset-Export: keine Digimon-Textur gefunden" }
+
+    # 7. Deutsche Menues und Cheat-Reiter (Bilder ohne Fenster)
+    foreach ($tab in @("Start", "Display", "Sound", "Modding", "Cheats")) {
+        $sd = Join-Path $out "ui_$tab"
+        & .\dw2.exe --pak $pak --no-window --fast --no-update-check --lang de --settings-ui --settings-tab $tab --ui-shots `
+            --save-dir (Join-Path $out "saves3") --shot-dir $sd --shot-vb 400 --vblanks 420 > (Join-Path $out "ui_$tab.log") 2>&1
+        Result (Test-Path (Join-Path $sd "vb400_ui.png")) "Menue-Bild Reiter $tab (Deutsch): $sd\vb400_ui.png"
+    }
 }
 
 Log ""
-Log "Manuell (bitte selbst pruefen und hier notieren): Controller (Xbox/PlayStation), Ton, Vollbild 4K (F11), F1-Menue"
+Log "Manuell (bitte selbst pruefen und hier notieren): Controller (Xbox/PlayStation) im Spiel, Ton (Musik/Effekte/Ton aus),"
+Log "  Vollbild (F11) in deiner Aufloesung, F1-Menue (Sprache Deutsch, Cheats einschalten -> Sicherung), laengere Spielsitzung"
 if ($fails -eq 0) { Log "ERGEBNIS: alle automatischen Pruefungen bestanden" } else { Log "ERGEBNIS: $fails Pruefung(en) fehlgeschlagen" }
 Log "Bitte schicke test_out\testbericht.txt (und gern die Logs in test_out) zurueck."

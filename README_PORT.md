@@ -1,74 +1,151 @@
-# DW2 PC-Port (dw2-pc-port)
+# DW2 PC-Port (Version 1.1.0-port)
 
-Native PC-Fassung von **Digimon World 2 (USA, SLUS-01193)** für Windows x64 und Linux x64.
+Dies ist eine native PC-Fassung von **Digimon World 2 (USA, SLUS-01193)** für Windows x64 und Linux x64. Sie bietet:
 
-Der Port ist ein Fork von [Wyrelade/DW2-PC](https://github.com/Wyrelade/DW2-PC), Stand
-Upstream-Commit `1dbb32a0332a78d5e9afbe4d26c62d86cc5e3f76` (v1.0.0-beta, Lizenz CC0, siehe `LICENSE`).
-DW2-PC ist eine vollständige Dekompilierung des Spiels in C mit eigener PC-Laufzeit (SDL3).
+- 4K und Ultrawide
+- Profile Classic und Remastered
+- deutsche und englische PC-Menüs
+- Asset-Export und Mod-Ebene für Texturen
+- ein Cheat-Menü mit Sicherung
 
-## Keine Spieldaten im Repository oder im Programm
+Was getestet ist und was nicht, steht in **[TESTBERICHT.md](TESTBERICHT.md)**.
 
-Dieses Repository und die hier gebauten Programme enthalten **keine Daten aus dem Spiel**.
-Du brauchst dein eigenes, rechtmäßig erworbenes Image von *Digimon World 2 (USA)*: ein Roh-Abbild,
-also `.bin` + `.cue`, `.img` oder ein rohes `.iso`.
+Der Port ist ein Fork von [Wyrelade/DW2-PC](https://github.com/Wyrelade/DW2-PC), Upstream-Commit `1dbb32a` (Lizenz CC0). Er beruht auf einer vollständigen Dekompilierung des Spiels.
 
-- **Upstream** baut 13 Tabellen aus der Disc direkt in das Programm ein (`INCLUDE_BIN`, etwa 0,5 MB),
-  zum Beispiel die Dateitabelle, die Sound-Daten und den Overlay-Bereich.
-- **In diesem Fork** baut `tools/build_native.py --no-disc` das Programm mit genullten Platzhaltern.
-- **Beim Start** füllt `host/discassets.c` die Tabellen mit den echten Bytes aus deiner Disc. Dabei
-  werden geprüft:
-  - die Programmdatei `SLUS_011.93` (als `dw2.pak.slus` neben dem Datenpaket, SHA-256 aus
-    `configs/USA/pack_manifest.txt`)
-  - die Stage-Overlays im geprüften `dw2.pak`
+**Spieldaten:** Programm und Repository enthalten keine Spieldaten. Du brauchst dein eigenes, rechtmäßig erworbenes Image. Alles, was der Export erzeugt, stammt aus deiner Disc: Gib es nicht weiter.
 
-## Erster Start
+## 1. Installation und Import deines Spiels
 
-1. Zip entpacken: Windows `DW2-PC-Port-windows-x64.zip`, Linux `DW2-PC-Port-linux-x64.zip`.
-2. Das Disc-Image (`.cue` + `.bin`) in den Ordner `DW2-PC` legen. Alternativ startest du mit
-   `--disc <pfad zur .cue>` oder wählst das Image im Dateidialog.
-3. `dw2.exe` (Linux: `./dw2`) starten. Beim ersten Start entstehen aus deinem Image:
-   - `dw2.pak` (etwa 406 MB)
-   - `dw2.pak.slus`
+1. **Entpacken:** `DW2-PC-Port-windows-x64.zip` von der Release-Seite laden und entpacken.
+2. **Image dazulegen:** Dein Image (`Digimon World 2 (USA).cue` + `.bin`, oder `.img` / rohes `.iso`) in den Ordner `DW2-PC` legen.
+3. **Starten:** `dw2.exe` starten. Beim ersten Start entstehen `dw2.pak` (etwa 406 MB) und `dw2.pak.slus`. Jede der 3675 Dateien wird gegen die SHA-256-Liste geprüft, ein falsches Image wird abgelehnt.
+4. **Danach:** Ab dann startet das Spiel ohne Image. Spielstände und Einstellungen liegen in `%APPDATA%\DW2-Online\`.
 
-   Jede der 3675 Dateien wird gegen die SHA-256-Liste geprüft. Ein falsches oder verändertes Image
-   wird abgelehnt.
-4. Ab dann reicht der Start ohne Image. Spielstände und Einstellungen liegen im Benutzerordner
-   (`%APPDATA%\DW2-Online\` bzw. `~/.local/share/DW2-Online/`).
+Ein anderes Image importierst du so: `dw2.pak` und `dw2.pak.slus` löschen, dann neu starten.
 
-Ein `dw2.pak` von einer älteren Version ohne `dw2.pak.slus` wird einmal aus dem Image neu gebaut.
+**Optionaler Selbsttest:** `DW2-Test.bat` doppelklicken. Den Bericht findest du in `test_out\testbericht.txt`.
 
-## Änderungen gegenüber Upstream
+## 2. Bedienung
 
-| Datei | Änderung |
+- **F1:** Einstellungen. Die Reiter sind Start, Grafik, Steuerung, Spiel, Audio, Modding und Cheats. Am Controller öffnet „Select 1 Sekunde halten“ das Fenster.
+- **Funktionstasten:**
+
+  | Taste | Funktion |
+  |---|---|
+  | F3 | Tempo |
+  | F4 | Texturfilter |
+  | F5 | Auflösung |
+  | F6 | kein Wackeln |
+  | F7 | Seitenverhältnis |
+  | F8 | Schärfen |
+  | F9 | flüssige Bilder |
+  | F11 | Vollbild |
+  | F12 | Screenshot |
+  | Esc | Beenden (mit Rückfrage) |
+
+- **Tastatur (Standard):**
+
+  | Taste | PS1-Taste |
+  |---|---|
+  | Pfeiltasten | Steuerkreuz |
+  | Z | Cross |
+  | X | Circle |
+  | A | Square |
+  | S | Triangle |
+  | Q / W / E / R | L1 / R1 / L2 / R2 |
+  | Enter | Start |
+  | Rücktaste | Select |
+
+  Die Belegung ist frei änderbar unter F1 → Steuerung.
+
+## 3. Sprache
+
+Die Sprache stellst du unter **F1 → Start → Sprache** (oder F1 → Grafik) auf Deutsch oder English. Sie wird gespeichert. Beim ersten Start folgt sie der Systemsprache.
+
+Übersetzt sind die PC-Menüs. Die Texte des Spiels selbst (Dialoge, Items, Attacken) bleiben englisch, wie auf der USA-Disc. Der Grund steht im Testbericht.
+
+## 4. Grafik
+
+- **Profile:** Classic ist das Originalbild. Remastered bietet 3D in Fensterauflösung, 16:9, kein Wackeln, gefilterte Texturen, geglätteten Text und flüssige Bilder.
+- **Auflösung:** Automatisch nach Fensterhöhe (Full HD 5×, WQHD 6×, 4K 9×) oder fest 1× bis 12×. Fenstergrößen-Voreinstellungen reichen von 720p bis 4K, dazu 2560×1080 und 3440×1440.
+- **Seitenverhältnis:** 4:3, 16:9 oder 21:9. Breitbild zeigt mehr von der 3D-Welt und streckt nichts. Menüs und 2D-Bilder bleiben 4:3.
+- **Bildrate:** Die Spiellogik läuft immer im Originaltempo. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung.
+
+## 5. Spieldateien, Texturen und 3D-Modelle
+
+**F1 → Modding → „Jetzt exportieren“** schreibt `GameData` neben das Programm. Alternativ geht das per Befehlszeile:
+
+```
+dw2.exe --export-assets GameData
+```
+
+Die Struktur:
+
+```text
+GameData/
+├── README.txt
+├── Original/
+│   ├── index.csv            Datei-ID, LBA, Größe, Anzahl Texturen, was die Datei ist (oder "unknown")
+│   └── files/<ID>.bin       alle Disc-Dateien unverändert (ID = Datei-ID hexadezimal)
+├── Textures/<ID>/<ID>_<OFFSET>[_p<N>].png   alle TIM-Bilder als PNG (N = Palette)
+├── Digimon/<Name>_<id>/
+│   ├── Metadata/info.json   Typ, Stufe, Spezialgebiet, gelernte Attacke, Wachstum, Modelldatei
+│   ├── Models/<ID>.bin      die Modelldatei der Art (aus der Spieltabelle)
+│   └── Textures/            die Textur mit jeder Palette, die das Modell benutzt
+└── GameDatabase/
+    ├── digimon.json
+    ├── items.json
+    └── skills.json
+```
+
+**Textur ersetzen:**
+
+1. Die PNG mit einem Bildprogramm bearbeiten. Größe nicht ändern, Dateinamen nicht ändern.
+2. Importieren:
+   ```
+   dw2.exe --import-texture GameData\Digimon\Agumon_003\Textures\005C_00347C_p56.png
+   ```
+   Das schreibt `Mods\files\005C.bin`. Farben werden auf die Originalpalette dieser Textur abgebildet.
+3. Spiel neu starten. Der Reiter Modding zeigt die Zahl aktiver Mod-Dateien.
+
+**Andere Dateien ersetzen:** Als `Mods\files\<ID>.bin` ablegen. Die Datei darf nicht größer sein als das Original.
+
+**Original wiederherstellen:** Die Datei in `Mods\files` löschen oder mit `--no-mods` starten. Das Datenpaket selbst wird nie verändert.
+
+**3D-Modelle als glTF mit Animationen:** Dafür gibt es den DW2 3D Viewer:
+
+```
+tools/viewer_bridge/export_assets.py --viewer <viewer>/app/src/main/python --disc <image.cue> OUT
+```
+
+## 6. Cheat-Menü
+
+1. **F1 → Cheats → „Cheats einschalten“.**
+   - Deine Memory Cards werden vorher nach `saves\cheat_backup_<Datum>\` kopiert.
+   - Der Spielstand direkt vor der ersten Änderung wird für „Rückgängig“ gemerkt.
+2. **Ändern:**
+   - Bits setzen
+   - Werte jedes Digimon in Team und Server ändern: Level, EXP, HP, MP, Angriff, Verteidigung, Tempo
+   - alle heilen, Digi-Beetle heilen
+   - Items in die Tasche legen
+
+   Werte werden gegen die Grenzen des Spiels geprüft. Ungültige Werte werden abgelehnt, das Ergebnis steht unter „Letzte Ergebnisse“.
+3. **Rückgängig:** „Alle Cheat-Änderungen rückgängig“ stellt den gemerkten Stand wieder her. Im Kampf oder im Kartenbildschirm wartet es, bis der vorbei ist.
+4. **Wichtig:**
+   - Cheats sind bei jedem Programmstart aus.
+   - Gespeichert wird nur, wenn du im Spiel speicherst.
+   - Für einen sauberen Spielstand nach Cheats die Sicherung zurückkopieren.
+
+## 7. Änderungen gegenüber Upstream
+
+| Bereich | Dateien |
 |---|---|
-| `host/discassets.c` (neu) | Füllt die 13 Disc-Tabellen zur Laufzeit; meldet im Log `[disc] … loaded (k already identical)` |
-| `host/pak.c` | Lädt und prüft `dw2.pak.slus`, ruft die Füllfunktionen vor allen Index-Prüfungen auf |
-| `host/pakbuild.c` | Schreibt beim Paketbau die geprüfte `SLUS_011.93` als `dw2.pak.slus` |
-| `tools/build_native.py` | Option `--no-disc` (eigenes Build-Verzeichnis `*_nodisc`, weigert sich bei vorhandenem `dumps/disc`) |
-| `host/update.c`, `host/update.h` | Update-Prüfung abgeschaltet: Upstream-Releases würden diesen Fork sonst ersetzen |
-| `.github/workflows/build.yml` (neu) | Baut Windows x64 (MSYS2 MinGW + SDL3) und Linux x64 ohne Spieldaten, veröffentlicht `test-build` |
-
-## Getestet
-
-Getestet am 05.11.2026 unter Linux x64 mit gcc 13 und SDL 3.4.8. Gestartet wurde headless unter
-Xvfb mit Software-Renderer und einem verifizierten USA-Image (alle 3675 Dateien passen zum Manifest).
-
-- **Selbsttest mit Disc-Daten im Build:** Die Laufzeit-Tabellen sind bytegleich mit den eingebauten
-  (`7 exe tables … (7 already identical)`, `6 overlay tables … (6 already identical)`).
-- **Build mit `--no-disc` in frischem Build-Verzeichnis:**
-  - Stichproben aus allen Disc-Tabellen: 0 von 109 Treffern im Programm
-  - Stichproben aus den STAG-Overlays: 0 von 135 Treffern
-  - Beim Start werden alle 13 Tabellen geladen (`0 already identical`).
-- **Bildvergleich:** Die Bildschirmfotos bei Boot, VBlank 300 und VBlank 700 sind MD5-gleich mit
-  dem Build, der die Disc-Daten eingebaut hat.
-- **Ohne `dw2.pak.slus`:** Das Programm will das Paket aus dem Image neu bauen.
-
-## Noch nicht getestet
-
-- Der Windows-Build wird nur von GitHub Actions gebaut. Ein Start unter Windows mit echtem
-  Fenster, GPU-Renderer, Ton oder Controller ist hier nicht geprüft.
-- Der vollständige Spielablauf über das Titelmenü hinaus ist nicht geprüft. Der Spielcode ist
-  unverändert Upstream; geändert ist nur, woher die 13 Tabellen kommen.
-
-Die weiteren Ausbaustufen stehen im Entwicklungsplan: 4K/Profile, HD-Texturen, Audio,
-Steuerung, UI.
+| Disc-Tabellen zur Laufzeit statt im Programm | `host/discassets.c`, `host/pak.c`, `host/pakbuild.c`, `tools/build_native.py --no-disc` |
+| Grafik: 4K/Auto, 21:9, Profile, Texturfilter, 2D-Glättung, FPS-Begrenzung | `backend/`, `host/sdl.c`, `host/settings.c` |
+| PC-Menüs Deutsch/Englisch, Start-, Modding- und Cheat-Reiter | `host/settingsui.cpp` |
+| Mod-Ebene, Asset-Export, Textur-Import | `host/pak.c`, `host/assets.c` |
+| Cheat-Backend (Upstream-Editor, im Release standardmäßig aus) | `host/cheat.c`, `host/devedit.c`, `host/devdata.c` |
+| Audio: getrennte Lautstärken, Ton aus | `host/audio.c` |
+| Update-Prüfung abgeschaltet (Upstream-Updates würden den Fork ersetzen) | `host/update.c` |
+| Test-Bot, Speicher-, Cheat- und Domaintests | `host/bot.c`, `tools/autoplay/` |
+| Windows-Tests | `tools/wintest/`, `tests/hd_test.c`, `.github/workflows/build.yml` |

@@ -161,6 +161,18 @@ class Game:
         return {"cols": cols, "rows": rows, "x": x, "y": y, "floor": floor,
                 "grid": [cells[i * cols:(i + 1) * cols] for i in range(rows)], "ents": ents}
 
+    def town(self):
+        """A city walking scene, or None: dict grid (grid[x][y] chars '.', '#', 'n', 'P'), x, y
+        (player cell), exits [(x, y, mode, arg)]."""
+        try:
+            r = self._call("town").split()
+        except GameError:
+            return None
+        cells = r[1]
+        exits = [] if r[4] == "-" else [tuple(int(v, 0) for v in e.split(",")) for e in r[4].split(";") if e]
+        return {"grid": [cells[i * 24:(i + 1) * 24] for i in range(24)], "x": int(r[2]), "y": int(r[3]),
+                "exits": exits}
+
     def nav(self):
         """The open city / area map pick, or None: (index, [(id, mode, arg, x, y), ...])."""
         r = self._call("nav").split()

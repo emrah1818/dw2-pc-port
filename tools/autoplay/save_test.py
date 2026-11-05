@@ -57,11 +57,11 @@ def save_menu(g):
     for _ in range(40):
         g.tap("Cross", 3, 30)
     g.shot("card_saved")
-    # back out of the card scene
+    # back out of the card scene: Triangle is "back" in the card menus (stag1100 cardmenu.c)
     for _ in range(40):
         if g.mode() != 0x601:
             break
-        g.tap("Circle", 3, 30)
+        g.tap("Triangle", 3, 30)
     g.run(120)
     return g.mode()
 

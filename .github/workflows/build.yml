@@ -68,7 +68,12 @@ jobs:
 
       - name: Windows renderer test (software vs GPU/Vulkan, synthetic scene)
         shell: pwsh
+        env:
+          VK_LOADER_DEBUG: error,warn,info
+          SDL_LOGGING: "gpu=debug"
         run: |
+          Get-Content $env:VK_DRIVER_FILES
+          Get-ChildItem (Split-Path $env:VK_DRIVER_FILES) | Select-Object -First 20 Name
           New-Item -ItemType Directory -Force hd_test_win | Out-Null
           & build/native64_rel_nodisc/hd_test.exe --out hd_test_win --require-gpu
           if ($LASTEXITCODE -ne 0) { throw "hd_test failed ($LASTEXITCODE)" }

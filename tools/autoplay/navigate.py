@@ -29,8 +29,12 @@ def step_target(recs, cur, d):
     return found
 
 
-def goto_index(g, target, max_presses=24):
-    """Move the cursor to recs[target]; True when it is there (verified by nav)."""
+_learned = {}  # (map key, index, dir) -> index the game moved to (verified by nav)
+
+
+def goto_index(g, target, max_presses=40):
+    """Move the cursor to recs[target]; True when it is there (verified by nav). Moves the game
+    made are learned per map; unknown moves use the Stg20_AreaSelectFindDir prediction first."""
     for _ in range(max_presses):
         n = g.nav()
         if n is None:
@@ -38,24 +42,47 @@ def goto_index(g, target, max_presses=24):
         cur, recs = n
         if cur == target:
             return True
-        # BFS over the predicted moves; the first press is verified by the next nav
-        prev = {cur: None}
-        q = collections.deque([cur])
-        while q:
-            p = q.popleft()
+        key = (g.mode(), tuple(r[1:] for r in recs))
+
+        def moves(p):
+            for d in range(4):
+                k = (key, p, d)
+                if k in _learned:
+                    if _learned[k] != p:
+                        yield d, _learned[k], 1
+                else:
+                    t = step_target(recs, p, d)
+                    yield d, (t if t >= 0 else None), 3
+        # cheapest path over learned moves (cost 1) and predicted / untried ones (cost 3)
+        import heapq
+        dist = {cur: 0}
+        first = {cur: None}
+        heap = [(0, cur)]
+        while heap:
+            c, p = heapq.heappop(heap)
             if p == target:
                 break
-            for d in range(4):
-                t = step_target(recs, p, d)
-                if t >= 0 and t not in prev:
-                    prev[t] = (p, d)
-                    q.append(t)
-        if target not in prev:
+            if c > dist.get(p, 1e9):
+                continue
+            for d, t, w in moves(p):
+                if t is None:
+                    continue
+                if c + w < dist.get(t, 1e9):
+                    dist[t] = c + w
+                    first[t] = d if p == cur else first[p]
+                    heapq.heappush(heap, (c + w, t))
+        d = first.get(target)
+        if d is None:
+            # nothing predicted: try a direction not learned yet from here
+            untried = [d for d in range(4) if (key, cur, d) not in _learned]
+            if not untried:
+                return False
+            d = untried[0]
+        g.tap(DIRS[d], 3, 12)
+        n2 = g.nav()
+        if n2 is None:
             return False
-        p, first = target, None
-        while prev[p] is not None:
-            p, first = prev[p][0], prev[p][1]
-        g.tap(DIRS[first], 3, 12)
+        _learned[(key, cur, d)] = n2[0]
     n = g.nav()
     return n is not None and n[0] == target
 

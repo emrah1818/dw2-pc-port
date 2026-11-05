@@ -49,6 +49,11 @@ typedef struct {
     u8 wallBits;
 } BotCell;
 
+/* include/stag2000/stag2000.h Stg20MapFile (the fields the town command reads) */
+typedef struct {
+    s32 loaded, bgFileId, startRecs, exits;
+} Stg20MapFileView;
+
 static FILE *in, *out;
 static unsigned int budget;     /* waits left before the next stop */
 static unsigned short bits;     /* buttons held while running */
@@ -279,6 +284,41 @@ void Host_BotTick(unsigned int wait) {
 #else
             reply("err devedit needs a dev build");
 #endif
+        } else if (strcmp(cmd, "town") == 0) {
+            /* a city walking scene (table 3, stag2000): "town GRID PX PY EXITS": GRID 24x24 chars,
+             * index [x * 24 + y] like Stg20_MapGrid[x][y] ('.' free, '#' wall, 'n' a walker,
+             * 'P' the player), EXITS "x,y,mode,arg;..." (mode + 0x300 is the scene it leads to) */
+            extern u8 Stg20_MapGrid[24][24];
+            /* Cd_GetFileEntry: main/156C.h (EntA0 *) */
+            static char grid[24 * 24 + 1];
+            char exits[1024];
+            int x, y, n = 0, px = -1, py = -1;
+            const Stg20MapFileView *mi;
+
+            /* the map file the scene already set up (Stg20_GetMapInfo without its first-use relocation) */
+            if ((Sys_State.gameMode >> 8) != 3 || (Sys_State.gameMode & 0xFF) >= 0x20 ||
+                (mi = (const Stg20MapFileView *)Cd_GetFileEntry((Sys_State.gameMode & 0xFF) + 0x308FFFF)) == NULL || !mi->loaded || mi->exits == 0) {
+                reply("err no town");
+                continue;
+            }
+            for (x = 0; x < 24; x++) {
+                for (y = 0; y < 24; y++) {
+                    u8 v = Stg20_MapGrid[x][y];
+
+                    if (v & 0x80) {
+                        px = x;
+                        py = y;
+                    }
+                    grid[n++] = (v & 0x80) ? 'P' : (v & 0x40) ? 'n' : (v & 0x3F) ? '#' : '.';
+                }
+            }
+            grid[n] = 0;
+            n = 0;
+            exits[0] = 0;
+            for (const u8 *e = (const u8 *)(uintptr_t)(uint32_t)mi->exits; e[0] != 0 && n < (int)sizeof(exits) - 32; e += 4) {
+                n += snprintf(exits + n, sizeof(exits) - (size_t)n, "%d,%d,0x%X,%d;", e[0], e[1], e[2] + 0x300, e[3]);
+            }
+            reply("town %s %d %d %s", grid, px, py, n ? exits : "-");
         } else if (strcmp(cmd, "nav") == 0) {
             /* the open city / area map pick: "nav INDEX id,mode,arg,x,y;..." (shown destinations) */
             extern void *Host_BotNav;

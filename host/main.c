@@ -478,6 +478,9 @@ HOST_ENTRY int main(int argc, char **argv) {
             Settings_Override(SET_TEX_FILTER, strcmp(argv[++i], "bilinear") == 0 ? SET_TEXF_BILINEAR : SET_TEXF_NEAREST);
         } else if (strcmp(argv[i], "--cheats") == 0) {
             cheats_at_start = 1; /* dw2-pc-port: cheats on at start (tests; with backup as in F1) */
+        } else if (strcmp(argv[i], "--lang-dump") == 0 && i + 1 < argc) {
+            extern void Lang_SetDump(const char *dir);
+            Lang_SetDump(argv[++i]); /* dw2-pc-port tests: write the patched font files */
         } else if (strcmp(argv[i], "--no-mods") == 0) {
             Host_PakNoMods(); /* dw2-pc-port: Mods/files overrides off */
         } else if (strcmp(argv[i], "--import-texture") == 0 && i + 1 < argc) {
@@ -625,6 +628,16 @@ HOST_ENTRY int main(int argc, char **argv) {
     /* Main thread, before the game thread and window: the pack build may show its own progress
      * window and a file dialog. */
     Host_PakOpen(pak, disc, no_window);
+    {
+        /* dw2-pc-port: the game's text dictionary for decoding, then the German text layer */
+        extern void DevData_InitConst(void);
+        extern void Lang_Apply(void);
+
+        DevData_InitConst();
+        if (export_dir == NULL && import_png == NULL) {
+            Lang_Apply();
+        }
+    }
     if (import_png != NULL) {
         int r = Assets_ImportTexture(import_png);
 

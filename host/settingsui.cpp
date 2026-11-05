@@ -94,8 +94,8 @@ const Tr k_tr[] = {
       "Größe dieses Fensters und der Hinweise; auto folgt der Fenstergröße." },
     { "Show \"Press F1 for settings\" on the title", "Auf dem Titel \"F1 für Einstellungen\" zeigen" },
     { "Language", "Sprache" },
-    { "Language of these PC menus. The game's own texts stay English (USA disc).",
-      "Sprache dieser PC-Menüs. Die Spieltexte selbst bleiben englisch (USA-Disc)." },
+    { "Language of these PC menus and, after a restart, of the game texts that have a German version: attack names (verified German names) and Digimon types (Serum, Datei, Virus). Dialogues and items stay English.",
+      "Sprache dieser PC-Menüs und, nach einem Neustart, der Spieltexte mit deutscher Fassung: Attackennamen (belegte deutsche Namen) und Digimon-Typen (Serum, Datei, Virus). Dialoge und Items bleiben englisch." },
     { "Renderer", "Renderer" }, { "GPU (Vulkan)", "GPU (Vulkan)" }, { "Software", "Software" },
     { "Takes effect at the next start. Running now: %s.", "Gilt ab dem nächsten Start. Läuft jetzt: %s." },
     { "Some values come from the command line for this run and are not saved.",
@@ -776,7 +776,7 @@ void language_combo(void) {
     if (ImGui::Combo(TL("Language", "lang"), &lang, langs, 2)) {
         Settings_Set(SET_LANGUAGE, lang);
     }
-    ui_hint(T("Language of these PC menus. The game's own texts stay English (USA disc)."));
+    ui_hint(T("Language of these PC menus and, after a restart, of the game texts that have a German version: attack names (verified German names) and Digimon types (Serum, Datei, Virus). Dialogues and items stay English."));
 }
 
 void open_folder(const char *path) {

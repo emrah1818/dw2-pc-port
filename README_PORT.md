@@ -1,4 +1,4 @@
-# DW2 PC-Port (Version 1.1.0-port)
+# DW2 PC-Port (Version 1.2.0-port)
 
 Dies ist eine native PC-Fassung von **Digimon World 2 (USA, SLUS-01193)** für Windows x64 und Linux x64. Sie bietet:
 
@@ -60,9 +60,22 @@ Ein anderes Image importierst du so: `dw2.pak` und `dw2.pak.slus` löschen, dann
 
 ## 3. Sprache
 
-Die Sprache stellst du unter **F1 → Start → Sprache** (oder F1 → Grafik) auf Deutsch oder English. Sie wird gespeichert. Beim ersten Start folgt sie der Systemsprache.
+Unter **F1 → Start → Sprache** (oder F1 → Grafik) stellst du Deutsch oder English ein. Die Wahl wird gespeichert, für die Spieltexte gilt sie nach einem Neustart. Beim ersten Start folgt die Sprache der Systemsprache.
 
-Übersetzt sind die PC-Menüs. Die Texte des Spiels selbst (Dialoge, Items, Attacken) bleiben englisch, wie auf der USA-Disc. Der Grund steht im Testbericht.
+Mit Deutsch ändert sich Folgendes:
+
+- **PC-Menüs:** komplett deutsch.
+- **Digimon-Typen im Spiel:** **Serum** (Vaccine), **Datei** (Data), **Virus**. Das gilt im Statusfenster, im Cheat-Menü und im Export. Die internen Typ-IDs bleiben gleich.
+- **Attackennamen im Spiel:** Sie kommen aus `Languages/German/attacks.csv`, die aus deiner Tabelle `Languages/German/source/digimon_world_2_attacken_de_en.xlsx` gebaut wird (`tools/i18n/build_attacks.py`). Die Regeln:
+  1. Erste Anime-Bezeichnung.
+  2. Sonst die Bezeichnung aus einem anderen Spiel.
+  3. Sonst bleibt der englische Name.
+
+  Stand: 43 von 182 Attacken haben einen deutschen Namen, alle 43 wurden im Spiel gefunden und ersetzt. Schaden, MP und IDs bleiben unverändert.
+- **Umlaute im Spiel:** Ä Ö Ü ä ö ü ß werden beim Start aus deiner eigenen Spielschrift erzeugt, in Zeichenzellen, die kein Text nutzt.
+- **Bericht:** Jeder Start auf Deutsch schreibt `Languages/German/report.txt`. Darin steht für jede Attacke im Spiel Englisch → Deutsch oder der Grund, warum sie englisch bleibt.
+- **Noch englisch:** Dialoge, Story, Itemnamen und -beschreibungen, Attackenbeschreibungen, Kampfmeldungen und die übrigen Menüwörter des Spiels. Siehe TESTBERICHT.md, Abschnitt 1.2.0.
+- **Eigene Übersetzungen:** `attacks.csv` und `types.csv` sind einfache UTF-8-Dateien (`englisch;deutsch;...`). Du kannst sie bearbeiten, beim nächsten Start gelten sie.
 
 ## 4. Grafik
 

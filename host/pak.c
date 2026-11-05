@@ -445,10 +445,6 @@ void Host_PakNoMods(void) {
     no_mods = 1;
 }
 
-int Host_PakModCount(void) {
-    return mod_count;
-}
-
 int Host_PakHasMod(int id) {
     return id >= 0 && id < PAK_FILES && mod_data[id] != NULL;
 }
@@ -518,6 +514,43 @@ static void load_mods(void) {
         printf("[mods] %d file override%s active\n", mod_count, mod_count == 1 ? "" : "s");
     }
     SDL_free(pref);
+}
+
+/* dw2-pc-port language layer (host/lang.c): a patched copy of file `id` served like a mod file
+ * (not counted as a user mod) */
+static int lang_count;
+
+void Host_PakSetLayer(int id, const Uint8 *data, int size) {
+    if (id < 0 || id >= PAK_FILES || files[id].format != FORMAT_DATA || size <= 0 || (Uint64)size > files[id].size) {
+        return;
+    }
+    if (mod_data[id] == NULL) {
+        mod_data[id] = calloc(1, (size_t)files[id].size);
+        lang_count++;
+    }
+    if (mod_data[id] != NULL) {
+        memcpy(mod_data[id], data, (size_t)size);
+    }
+}
+
+int Host_PakModCount(void) {
+    return mod_count;
+}
+
+/* file `id` as the game reads it (a mod / language copy when there is one), malloc'd */
+void *Host_PakReadFileLayered(int id, int *size) {
+    void *buf;
+
+    if (id >= 0 && id < PAK_FILES && mod_data[id] != NULL) {
+        buf = malloc((size_t)files[id].size + 1);
+        if (buf != NULL) {
+            memcpy(buf, mod_data[id], (size_t)files[id].size);
+            ((Uint8 *)buf)[files[id].size] = 0xFF;
+            *size = (int)files[id].size;
+        }
+        return buf;
+    }
+    return Host_PakReadFile(id, size);
 }
 
 int Host_PakFileInfo(int id, int *lba, int *sectors, int *form2, unsigned long long *size) {

@@ -81,6 +81,10 @@ static const char *glyph(int c, char *tmp) {
         tmp[0] = (char)('a' + c - 0x24);
     } else if (c <= 0x5D) {
         return punct[c - 0x3E];
+    } else if (c >= 0xE6 && c <= 0xEC) {
+        /* dw2-pc-port: the umlaut glyphs of the German language layer (host/lang.c) */
+        static const char *const um[] = { "\xC3\x84", "\xC3\x96", "\xC3\x9C", "\xC3\xA4", "\xC3\xB6", "\xC3\xBC", "\xC3\x9F" };
+        return um[c - 0xE6];
     } else {
         return NULL;
     }
@@ -226,7 +230,7 @@ void DevData_InitConst(void) {
 }
 
 static int read_file(int id, File *f) {
-    f->data = (uint8_t *)Host_PakReadFile(id, &f->size);
+    f->data = (uint8_t *)Host_PakReadFileLayered(id, &f->size); /* dw2-pc-port: as the game reads it (German) */
     if (f->data == NULL || f->size < 16) {
         printf("[devdata] file 0x%03X: cannot read from the pack\n", id);
         free(f->data);

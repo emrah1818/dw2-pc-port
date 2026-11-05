@@ -1,4 +1,37 @@
-# DW2 PC-Port – Testbericht (Version 1.1.0-port, 05.11.2026)
+# DW2 PC-Port – Testbericht (Version 1.2.0-port, 05.11.2026)
+
+## Neu in 1.2.0: deutsche Spieltexte (Stand und Grenzen)
+
+### Getestet (Linux, dein Image)
+
+- **Attackennamen:** `Languages/German/attacks.csv` aus deiner Tabelle hat 182 Einträge. Nach den Regeln (erste Anime-Bezeichnung, sonst anderes Spiel, sonst Englisch) haben 43 einen deutschen Namen. Alle 43 wurden in der Attacken-Tabelle des Spiels (256 Attacken) über den englischen Namen gefunden und ersetzt. 213 Attacken bleiben englisch, 0 Fehler. Die Liste je Attacke steht in `Languages/German/report.txt`.
+- **Im Kampf geprüft:** Im Technikmenü steht „Kleine Flamme“ statt „Pepper Breath“, mit einer Testzeile für Umlaute.
+- **Typen:** Im Digimon-Statusfenster des Spiels steht „Type Serum“ bei Agumon. Data wird zu Datei, Virus bleibt Virus.
+- **Umlaute:** Ä Ö Ü ä ö ü ß werden in beiden Spielschriften (klein und groß) aus deiner Schrift erzeugt. Die Zielzellen wurden vorher als leer geprüft. Die Glyphen sind pixelweise kontrolliert und im Kampfmenü dargestellt.
+- **Englischer Modus:** keine Sprach-Ebene, die 6 Referenzbilder sind unverändert.
+
+### Nicht umgesetzt
+
+Dafür gibt es keine belegten Texte, und eine eigene Übersetzung war für Attacken ausdrücklich ausgeschlossen. Für die übrigen Texte ist sie in diesem Umfang nicht geleistet.
+
+- Dialoge und Story
+- Itemnamen und -beschreibungen, Attackenbeschreibungen
+- Kampfmeldungen
+- Menüwörter des Spiels, die als fertige Wortgrafiken in der Schrift liegen, etwa „Digi-Beetle“, „Counter Attack“ oder „Type“
+- Städte- und Domainnamen
+
+Die Technik für weitere Texte steht bereit: deutsche Texte in die Spieldateien schreiben (an Ort und Stelle oder in den freien Bereich) und Umlaut-Glyphen. Eine vollständige Text-Inventur aller Spieltextdateien gibt es noch nicht.
+
+### Weiter offen aus der 1.2.0-Aufgabe
+
+- **Originalmenüs neu gestalten:** nicht umgesetzt. Die Spielmenüs bleiben im Original, im Remastered-Profil geglättet hochskaliert.
+- **3D-Studio im Spiel:** nicht umgesetzt. Modelle gibt es weiterhin über den Export und den DW2 3D Viewer.
+- **Hochauflösende Ersatztexturen:** nicht umgesetzt. Der Renderer zeichnet PS1-VRAM-Texturen. HD-Ersatz bräuchte eine eigene Texturersetzung im Renderer.
+- **Eigenes Launcher-Programm:** nicht umgesetzt. Die Startzentrale ist der F1-Reiter „Start“.
+- **Story-Bot über Mission 2 hinaus:** nicht weiterentwickelt.
+
+Alle Tests aus 1.1.0 gelten weiter (gleiche Codepfade im englischen Modus). Speicher- und Cheattest wurden für 1.2.0 nicht erneut ausgeführt.
+
 
 Alle Ergebnisse unten stammen aus tatsächlich ausgeführten Tests. Wo nichts getestet werden konnte,
 steht das ausdrücklich dabei.

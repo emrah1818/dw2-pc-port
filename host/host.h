@@ -133,6 +133,9 @@ void *Host_PakReadFile(int id, int *size);
 void Host_PakNoMods(void);
 int Host_PakModCount(void);
 int Host_PakHasMod(int id);
+/* dw2-pc-port language layer: install a patched copy; read a file as the game sees it */
+void Host_PakSetLayer(int id, const unsigned char *data, int size);
+void *Host_PakReadFileLayered(int id, int *size);
 /* dw2-pc-port: the pack index, for the asset export (host/assets.c) */
 int Host_PakFileInfo(int id, int *lba, int *sectors, int *form2, unsigned long long *size);
 

@@ -128,6 +128,7 @@ jobs:
           Copy-Item LICENSE "$pkg/LICENSE.txt"
           Copy-Item README_PORT.md "$pkg/README_PORT.md"
           Copy-Item TESTBERICHT.md "$pkg/TESTBERICHT.md"
+          Copy-Item -Recurse Languages "$pkg/Languages"
           # Windows test run for the player's PC (tools/wintest): renderer test + reference hashes
           New-Item -ItemType Directory -Force "$pkg/tests" | Out-Null
           Copy-Item "$b/hd_test.exe" "$pkg/tests/"
@@ -185,6 +186,7 @@ jobs:
           cp -L sdl3inst/lib/libSDL3.so.0 DW2-PC-Port/DW2-PC/
           cp LICENSE DW2-PC-Port/DW2-PC/LICENSE.txt
           cp README_PORT.md TESTBERICHT.md DW2-PC-Port/DW2-PC/
+          cp -r Languages DW2-PC-Port/DW2-PC/
           (cd DW2-PC-Port && zip -r ../DW2-PC-Port-linux-x64.zip DW2-PC)
 
       - uses: actions/upload-artifact@v4

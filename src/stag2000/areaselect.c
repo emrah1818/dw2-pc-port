@@ -1,4 +1,8 @@
 #include "common.h"
+#if defined(DW2_NATIVE)
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 #include "stag2000/stag2000.h"
 #include "stag2000/mapbg.h"
 
@@ -648,6 +652,13 @@ void Stg20_AreaSelectUpdate(Actor *a) {
                 w->recs[n] = *r;
                 n++;
             }
+#if defined(DW2_NATIVE) && DW2_DEV
+            if (getenv("DW2_AREA_DEBUG") != NULL) {
+                printf("[area] map 0x%X dest %d: id 0x%X (%s) flag 0x%X mode 0x%X arg %d cell %d,%d\n",
+                       Sys_State.gameMode, (int)i, r->id, r->id == 0 || Flag_Test(r->id) ? "shown" : "hidden", r->flag,
+                       r->mode, r->arg, r->cell.x, r->cell.y);
+            }
+#endif
         }
         w->recs[n].id = -1;
         w->redraw = 1;

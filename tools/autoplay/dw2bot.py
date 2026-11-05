@@ -144,6 +144,19 @@ class Game:
         r = self._call("hdshot %s" % path)
         return path, r[3:]
 
+    def dung(self):
+        """The dungeon floor, or None: dict cols, rows, x, y, floor, grid (rows of '.' / '#'),
+        ents [(kind, x, y)]."""
+        try:
+            r = self._call("dung").split()
+        except GameError:
+            return None
+        cols, rows, x, y, floor = (int(v) for v in r[1:6])
+        cells = r[6]
+        ents = [] if r[7] == "-" else [tuple(int(v) for v in e.split(",")) for e in r[7].split(";") if e]
+        return {"cols": cols, "rows": rows, "x": x, "y": y, "floor": floor,
+                "grid": [cells[i * cols:(i + 1) * cols] for i in range(rows)], "ents": ents}
+
     # ---- common state ----
     def mode(self):
         return self.s32("Sys_State", 0x18)

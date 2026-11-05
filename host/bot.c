@@ -11,6 +11,9 @@
  *   peek ADDR LEN          bytes at native address ADDR -> "hex <bytes>" (LEN <= 65536)
  *   poke ADDR HEX          write bytes (test set-up only) -> "ok"
  *   shot DIR TAG           display + VRAM screenshot pair -> "ok"
+ *   dung                   the dungeon floor (stag4000 loaded, Dung_StatePtr set) -> "dung cols rows px py
+ *                          floor CELLS ENTS": CELLS one char per cell, row by row ('.' walkable,
+ *                          '#' not), ENTS "kind,x,y;..." of the live entities (2 / 3 exits)
  *   quit                   quit the program
  * Addresses must lie inside the program's 16 MB game window (psyq/ps1mem.h): the driver turns a
  * symbol from `nm` into a run-time address with the Sys_State base. Nothing here changes the game
@@ -27,7 +30,19 @@
 
 int Host_WritePngPacked(const char *path, const uint32_t *pixels, int w, int h);
 
-extern u8 Sys_State[];
+#include "main/156C.h"
+
+extern SysState Sys_State;
+extern DungState *Dung_StatePtr;
+extern GameState Save_GameState;
+extern s32 Ovl_CurrentId;
+
+/* include/stag4000/stag4000.h Stg40Cell (no pointers: same layout natively) */
+typedef struct {
+    u16 flags;
+    u8 roomId;
+    u8 wallBits;
+} BotCell;
 
 static FILE *in, *out;
 static unsigned int budget;     /* waits left before the next stop */
@@ -110,7 +125,7 @@ void Host_BotTick(unsigned int wait) {
             continue;
         }
         if (strcmp(cmd, "hello") == 0) {
-            reply("base 0x%llx wait %u vb %llu", (unsigned long long)(uintptr_t)Sys_State, wait,
+            reply("base 0x%llx wait %u vb %llu", (unsigned long long)(uintptr_t)&Sys_State, wait,
                   Host_VBlankCount());
         } else if (strcmp(cmd, "run") == 0) {
             unsigned int n = 0;
@@ -199,6 +214,52 @@ void Host_BotTick(unsigned int wait) {
             }
             free(px);
             reply("ok %dx%d", w, h);
+        } else if (strcmp(cmd, "dung") == 0) {
+            DungState *d = Dung_StatePtr;
+            static char cells[256 * 256 + 1];
+            static char ents[41 * 16 + 1];
+            int cols, rows, x, y, n = 0, k;
+
+            if (Ovl_CurrentId != 1 || d == NULL || d->floorHdr == NULL || d->cells == NULL || d->playerLoc == NULL) {
+                reply("err no dungeon");
+                continue;
+            }
+            cols = d->floorHdr->cols;
+            rows = d->floorHdr->rows;
+            if (cols <= 0 || rows <= 0 || cols > 256 || rows > 256) {
+                reply("err floor size %d x %d", cols, rows);
+                continue;
+            }
+            for (y = 0; y < rows; y++) {
+                for (x = 0; x < cols; x++) {
+                    u16 f = ((const BotCell *)d->cells)[cols * y + x].flags;
+                    cells[n++] = (f & 0x8000) && (f & 0x30) != 0x20 ? '.' : '#';
+                }
+            }
+            cells[n] = 0;
+            n = 0;
+            for (k = 0; k < 41 && n < (int)sizeof(ents) - 16; k++) {
+                const Stg40Ent48 *e = &d->ents[k];
+
+                if (e->flags & 0x8000) {
+                    n += snprintf(ents + n, sizeof(ents) - (size_t)n, "%d,%d,%d;", e->kind, e->loc.u0.pair.field_0,
+                                  e->loc.u0.pair.field_2);
+                }
+            }
+            ents[n] = 0;
+            {
+                /* the player is the live entity with flag 1 (stag4000 obj.c); playerLoc as a fallback */
+                const Stg40Loc *pl = d->playerLoc;
+
+                for (k = 0; k < 41; k++) {
+                    if ((d->ents[k].flags & 0x8001) == 0x8001) {
+                        pl = &d->ents[k].loc;
+                        break;
+                    }
+                }
+                reply("dung %d %d %d %d %d %s %s", cols, rows, pl->u0.pair.field_0, pl->u0.pair.field_2, d->floor, cells,
+                      n ? ents : "-");
+            }
         } else if (strcmp(cmd, "quit") == 0) {
             reply("bye");
             Host_Quit("--bot quit");

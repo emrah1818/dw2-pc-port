@@ -144,6 +144,10 @@ class Game:
         r = self._call("hdshot %s" % path)
         return path, r[3:]
 
+    def devedit(self, spec):
+        """Dev builds: a PD.4 state edit for the next VBlank (a test set-up, not play)."""
+        self._call("devedit " + spec)
+
     def dung(self):
         """The dungeon floor, or None: dict cols, rows, x, y, floor, grid (rows of '.' / '#'),
         ents [(kind, x, y)]."""

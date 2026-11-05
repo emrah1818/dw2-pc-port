@@ -14,6 +14,8 @@
  *   dung                   the dungeon floor (stag4000 loaded, Dung_StatePtr set) -> "dung cols rows px py
  *                          floor CELLS ENTS": CELLS one char per cell, row by row ('.' walkable,
  *                          '#' not), ENTS "kind,x,y;..." of the live entities (2 / 3 exits)
+ *   devedit SPEC           dev builds: queue a PD.4 state edit (host/devedit.c, e.g. warp=0x200,3) for
+ *                          the next VBlank wait; it is applied before the game reads its state
  *   quit                   quit the program
  * Addresses must lie inside the program's 16 MB game window (psyq/ps1mem.h): the driver turns a
  * symbol from `nm` into a run-time address with the Sys_State base. Nothing here changes the game
@@ -31,6 +33,9 @@
 int Host_WritePngPacked(const char *path, const uint32_t *pixels, int w, int h);
 
 #include "main/156C.h"
+#if DW2_DEV
+#include "host/devedit.h"
+#endif
 
 extern SysState Sys_State;
 extern DungState *Dung_StatePtr;
@@ -260,6 +265,20 @@ void Host_BotTick(unsigned int wait) {
                 reply("dung %d %d %d %d %d %s %s", cols, rows, pl->u0.pair.field_0, pl->u0.pair.field_2, d->floor, cells,
                       n ? ents : "-");
             }
+        } else if (strcmp(cmd, "devedit") == 0) {
+#if DW2_DEV
+            char spec[160];
+
+            if (sscanf(line, "%*s %127s", spec + 32) != 1) {
+                reply("err syntax");
+                continue;
+            }
+            snprintf(spec, 32, "%llu:", Host_VBlankCount() + 1);
+            memmove(spec + strlen(spec), spec + 32, strlen(spec + 32) + 1);
+            reply(DevEdit_Script(spec) ? "ok" : "err bad spec");
+#else
+            reply("err devedit needs a dev build");
+#endif
         } else if (strcmp(cmd, "quit") == 0) {
             reply("bye");
             Host_Quit("--bot quit");

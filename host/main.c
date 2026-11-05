@@ -127,6 +127,8 @@ static int shot_count;
 static unsigned long long shot_vb[16];
 static int shot_vb_count, shot_vb_done;
 static int hold_boot;
+static unsigned long long win_shot_vb[8]; /* dw2-pc-port --window-shot-vb */
+static int win_shot_count, win_shot_done;
 static int start_mode;
 
 int Host_StartMode(void) {
@@ -249,6 +251,11 @@ void Host_WaitVBlank(void) {
 
         snprintf(tag, sizeof(tag), "vb%llu", shot_vb[shot_vb_done++]);
         Host_SaveShot(shots(), tag);
+    }
+    /* dw2-pc-port --window-shot-vb N: the window picture as F12 saves it (GPU renderer, any scale) */
+    while (win_shot_done < win_shot_count && Host_VBlankCount() >= win_shot_vb[win_shot_done]) {
+        win_shot_done++;
+        Host_ShotKey();
     }
     if (max_vblanks != 0 && vblanks > max_vblanks) {
         printf("[host] stop after %u VBlank waits (%u Psy-Q calls)\n", max_vblanks, Psyq_CallCount);
@@ -459,6 +466,8 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--texture-filter") == 0 && i + 1 < argc) {
             /* dw2-pc-port: nearest or bilinear, this run only */
             Settings_Override(SET_TEX_FILTER, strcmp(argv[++i], "bilinear") == 0 ? SET_TEXF_BILINEAR : SET_TEXF_NEAREST);
+        } else if (strcmp(argv[i], "--window-shot-vb") == 0 && i + 1 < argc && win_shot_count < 8) {
+            win_shot_vb[win_shot_count++] = strtoull(argv[++i], NULL, 0); /* dw2-pc-port */
         } else if (strcmp(argv[i], "--smooth-2d") == 0) {
             Settings_Override(SET_SMOOTH2D, 1); /* dw2-pc-port, this run only */
         } else if (strcmp(argv[i], "--profile") == 0 && i + 1 < argc) {

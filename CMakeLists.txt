@@ -241,7 +241,7 @@ target_include_directories(textscript_test PRIVATE ${CMAKE_SOURCE_DIR})
 # dw2-pc-port renderer test (tests/hd_test.c): synthetic scene, software vs GPU renderer, no game data.
 add_executable(hd_test ${CMAKE_SOURCE_DIR}/tests/hd_test.c ${CMAKE_SOURCE_DIR}/backend/psxgpu.c
     ${CMAKE_SOURCE_DIR}/backend/psxgpu_hd.c ${CMAKE_SOURCE_DIR}/backend/psxgpu_hw.c ${CMAKE_SOURCE_DIR}/backend/pgxp.c
-    ${CMAKE_SOURCE_DIR}/backend/sharpen.c)
+    ${CMAKE_SOURCE_DIR}/backend/sharpen.c ${CMAKE_SOURCE_DIR}/backend/texrep.c)
 target_compile_definitions(hd_test PRIVATE DW2_NATIVE)
 target_compile_options(hd_test PRIVATE ${DW2_ARCH_FLAG} -funsigned-char -fno-strict-aliasing -fwrapv)
 target_link_options(hd_test PRIVATE ${DW2_ARCH_FLAG})

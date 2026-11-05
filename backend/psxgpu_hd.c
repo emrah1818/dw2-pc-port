@@ -116,6 +116,7 @@ static void copy_from_vram(Surf *s, int x, int y, int w, int h) {
 }
 
 static Cmd *push(int type, Surf *s, const PsxGpuState *st);
+static uint16_t texel(const PsxGpuState *st, const PsxTex *t, int u, int v);
 static void gpu_fill(Surf *s, int x, int y, int w, int h, uint16_t c);
 static void gpu_copy(Surf *s, int x, int y, int w, int h);
 
@@ -303,7 +304,31 @@ static Cmd *push(int type, Surf *s, const PsxGpuState *st) {
     c->blend = 0;
     c->dx = 0;
     c->dy = 0;
+    c->rep.img = NULL;
     return c;
+}
+
+/* dw2-pc-port texture packs: the replacement for a primitive's texel box (software renderer only;
+ * the GPU renderer samples VRAM in its shaders). */
+static void find_rep(Cmd *c, const PsxGpuState *st, const PsxTex *t, int umin, int umax, int vmin, int vmax) {
+    if (gpu || t == NULL || !TexRep_Active()) {
+        return;
+    }
+    TexRep_Find(t->mode, t->tx, t->ty, t->cx, t->cy, st->tw_mask_x, st->tw_mask_y, umin, umax, vmin, vmax, &c->rep);
+}
+
+/* the replacement colour at (fu, fv) with the original texel's mask bit (semi-transparency as in
+ * the game); 0 = transparent */
+static uint16_t rep_texel(const PsxGpuState *st, const Cmd *c, int u, int v, int fu, int fv) {
+    int col = TexRep_Sample(&c->rep, fu, fv);
+    uint16_t o, out;
+
+    if (col < 0) {
+        return 0;
+    }
+    o = texel(st, &c->tex, u, v);
+    out = (uint16_t)(col | (o & 0x8000));
+    return out == 0 ? 0x0421 : out; /* opaque black must not read as transparent */
 }
 
 void PsxHd_SetThreads(int n) {
@@ -831,7 +856,14 @@ void PsxHd_Triangle(const PsxGpuState *st, const PsxVtx *v0, const PsxVtx *v1, c
     c->v[2] = *v2;
     c->textured = t != NULL;
     if (t != NULL) {
+        int umin = v0->u < v1->u ? v0->u : v1->u, umax = v0->u > v1->u ? v0->u : v1->u;
+        int vmin = v0->v < v1->v ? v0->v : v1->v, vmax = v0->v > v1->v ? v0->v : v1->v;
+        umin = v2->u < umin ? v2->u : umin;
+        umax = v2->u > umax ? v2->u : umax;
+        vmin = v2->v < vmin ? v2->v : vmin;
+        vmax = v2->v > vmax ? v2->v : vmax;
         c->tex = *t;
+        find_rep(c, st, t, umin, umax, vmin, vmax);
     }
     c->gouraud = gouraud;
     c->semi = semi;
@@ -1038,20 +1070,27 @@ static void draw_tri(const Cmd *c, int part, int parts) {
                     double iw = 1.0 / qw;
                     u = (int)floor(qu * iw + 1.0 / 512);
                     vv = (int)floor(qv * iw + 1.0 / 512);
-                    if (filt) {
+                    if (filt || c->rep.img != NULL) {
                         fu = (int)floor(qu * iw * 256.0 + 0.5);
                         fv = (int)floor(qv * iw * 256.0 + 0.5);
                     }
                 } else {
                     u = (int)(u24 >> 24);
                     vv = (int)(v24 >> 24);
-                    if (filt || s2d) {
+                    if (filt || s2d || c->rep.img != NULL) {
                         fu = (int)(u24 >> 16);
                         fv = (int)(v24 >> 16);
                     }
                 }
             }
-            if (s2d) {
+            if (c->rep.img != NULL && t != NULL) {
+                /* dw2-pc-port texture pack: the replacement texel inside the original texel */
+                if (block) {
+                    fu = (u << 8) | (sub * 256 + 128) / scale;
+                    fv = (vv << 8) | ((Y % scale) * 256 + 128) / scale;
+                }
+                hshade_c(st, row + X, t, rep_texel(st, c, u, vv, fu, fv), r, g, b, semi, abr, d);
+            } else if (s2d) {
                 /* the UV box is exclusive at its far edges for sprite-like quads (u1 = u0 + w) */
                 hshade_c(st, row + X, t, smooth2d_texel(st, t, fu, fv, umin, umax - 1, vmin, vmax - 1), r, g, b, semi, abr,
                          d);
@@ -1093,7 +1132,9 @@ void PsxHd_Rect(const PsxGpuState *st, int x0, int y0, int w, int h, const PsxTe
     c->h = h;
     c->textured = t != NULL;
     if (t != NULL) {
+        int ua = st->flip_x ? u0 - (w - 1) : u0, va = st->flip_y ? v0 - (h - 1) : v0;
         c->tex = *t;
+        find_rep(c, st, t, ua, ua + w - 1, va, va + h - 1);
     }
     c->u0 = u0;
     c->v0 = v0;
@@ -1135,6 +1176,18 @@ static void draw_rect(const Cmd *c, int part, int parts) {
         int yy = Y / scale + s->y - y0;
         int tv = st->flip_y ? v0 - yy : v0 + yy;
 
+        if (t != NULL && c->rep.img != NULL) {
+            /* dw2-pc-port texture pack: sub-texel position from the HD pixel inside its 1x pixel */
+            int fy = ((Y % scale) * 256 + 128) / scale;
+            int fv = (tv << 8) | (st->flip_y ? 255 - fy : fy);
+            for (X = xs; X <= xe; X++) {
+                int xx = X / scale + OX(s) - x0, tu = st->flip_x ? u0 - xx : u0 + xx;
+                int fx = ((X % scale) * 256 + 128) / scale;
+                hshade_c(st, row + X, t, rep_texel(st, c, tu, tv, (tu << 8) | (st->flip_x ? 255 - fx : fx), fv), r, g, b,
+                         semi, abr, 0);
+            }
+            continue;
+        }
         if (t != NULL && smooth2d && scale >= 2) {
             /* dw2-pc-port 2D smoothing (xBR level 1 style, no blending): a texel's corner
              * quadrant takes the colour of its two side neighbours when they match each other,

@@ -4,7 +4,9 @@
  * 2D smoothing):
  *   - the software and GPU pictures agree (few pixels differ by more than a small amount),
  *   - the texture filter changes the 3D quads and leaves the sprites alone,
- *   - 2D smoothing changes the sprites and leaves the 3D quads alone.
+ *   - 2D smoothing changes the sprites and leaves the 3D quads alone,
+ *   - texture packs (backend/texrep.c): --dump-textures names, a 4x replacement drawn texel-exact
+ *     on the sprites, broken / wrong-size files ignored, the 1x picture unchanged.
  * Pictures go to the output folder as .bmp for a look.
  *
  *   hd_test [--out DIR] [--require-gpu] [--scale N]
@@ -18,6 +20,7 @@
 
 #include "backend/psxgpu.h"
 #include "backend/psxgpu_hd.h"
+#include "backend/texrep.h"
 
 /* backend/pgxp.c needs two GTE symbols; PGXP stays off here */
 uint32_t Gte_MatSerial;
@@ -177,6 +180,152 @@ static void scene(void) {
     }
 }
 
+
+/* ---- texture packs (backend/texrep.c) ---- */
+
+static uint32_t *render(int gpu, int filter, int s2d, int scale, int *w, int *h);
+static int diff_count(const uint32_t *a, const uint32_t *b, int w, int scale, int x0, int y0, int x1, int y1, int tol);
+
+static void pattern(int hx, int hy, int *r, int *g, int *b) {
+    *r = (hx * 37) & 0xF8;
+    *g = (hy * 53) & 0xF8;
+    *b = ((hx ^ hy) & 3) * 80;
+}
+
+static int write_png(const char *path, int w, int h, int bad) {
+    SDL_Surface *s;
+    int ok;
+
+    if (bad) { /* not a PNG */
+        FILE *f = fopen(path, "wb");
+        if (f == NULL) return 0;
+        fputs("this is no png", f);
+        fclose(f);
+        return 1;
+    }
+    s = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_ARGB8888);
+    if (s == NULL) return 0;
+    for (int y = 0; y < h; y++) {
+        uint32_t *row = (uint32_t *)((uint8_t *)s->pixels + (size_t)y * (size_t)s->pitch);
+        for (int x = 0; x < w; x++) {
+            int r, g, b;
+            pattern(x, y, &r, &g, &b);
+            row[x] = 0xFF000000u | (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
+        }
+    }
+    ok = SDL_SavePNG(s, path);
+    SDL_DestroySurface(s);
+    return ok;
+}
+
+/* the file in dir whose name ends with `tail` (dumped names start with the upload hash) */
+static int find_dump(const char *dir, const char *pattern_glob, char *name, size_t n) {
+    int count = 0;
+    char **f = SDL_GlobDirectory(dir, pattern_glob, 0, &count);
+    int ok = f != NULL && count == 1;
+    if (ok) SDL_strlcpy(name, f[0], n);
+    SDL_free(f);
+    return ok;
+}
+
+static void texture_pack_tests(int scale, const uint32_t *orig, int w) {
+    char dump_dir[1024], root[1024], pack[1024], path[1200], n4[256], n8[256], n15[256];
+    uint32_t *a1, *b1, *hd;
+    int w1, h1, wh, hh, bad = 0, opaque = 0;
+
+    snprintf(dump_dir, sizeof(dump_dir), "%s/texdump", out_dir);
+    snprintf(root, sizeof(root), "%s/Textures", out_dir);
+    snprintf(pack, sizeof(pack), "%s/Textures/testpack", out_dir);
+    SDL_CreateDirectory(root);
+    SDL_CreateDirectory(pack);
+    /* the 1x picture before any pack (classic path) */
+    PsxHd_SetScale(1);
+    PsxGpu_Reset(0);
+    PsxGpu_SetDisplay(0, 0, W, H, 0);
+    PsxGpu_SetDisplayEnable(1);
+    load_textures();
+    scene();
+    a1 = calloc((size_t)640 * 480, 4);
+    PsxGpu_ReadDisplay(a1, &w1, &h1);
+
+    TexRep_SetDump(dump_dir);
+    free(render(0, 0, 0, scale, &wh, &hh));
+    check(find_dump(dump_dir, "*_16x64_m0_c*.png", n4, sizeof(n4)), "textures: 4-bit sheet dumped (hash_16x64_m0_cCLUT)");
+    check(find_dump(dump_dir, "*_32x64_m1_c*.png", n8, sizeof(n8)), "textures: 8-bit texture dumped (hash_32x64_m1_cCLUT)");
+    check(find_dump(dump_dir, "*_64x64.png", n15, sizeof(n15)), "textures: 16-bit texture dumped (hash_64x64)");
+    {
+        SDL_Surface *d;
+        snprintf(path, sizeof(path), "%s/%s", dump_dir, n4);
+        d = SDL_LoadPNG(path);
+        check(d != NULL && d->w == 64 && d->h == 64, "textures: dumped 4-bit sheet is 64x64 texels");
+        if (d) SDL_DestroySurface(d);
+    }
+    /* the pack: the 4-bit sheet at 4x for every palette (name without _c), a broken file for the
+     * 16-bit texture, a wrong size for the 8-bit one */
+    {
+        char base[256];
+        SDL_strlcpy(base, n4, sizeof(base));
+        *strstr(base, "_c") = 0;
+        snprintf(path, sizeof(path), "%s/%s.png", pack, base);
+        check(write_png(path, 64 * scale, 64 * scale, 0), "textures: test pack written");
+        snprintf(path, sizeof(path), "%s/%s", pack, n15);
+        write_png(path, 0, 0, 1);
+        snprintf(path, sizeof(path), "%s/%s", pack, n8);
+        write_png(path, 100, 100, 0);
+        snprintf(path, sizeof(path), "%s/not-a-texture.png", pack);
+        write_png(path, 8, 8, 0);
+    }
+    TexRep_AddRoot(root);
+    check(TexRep_Count() == 3, "textures: 3 files with texture names found, the other name skipped");
+    hd = render(0, 0, 0, scale, &wh, &hh);
+    check(hd != NULL && wh == w, "textures: HD picture with the pack");
+    if (hd != NULL && wh == w) {
+        char what[200];
+        /* sprites (SPRT 16x16 at x 180 + i*34, y 195, u = i*16, v = 16): every HD pixel is the
+         * replacement texel inside its original texel */
+        for (int i = 0; i < 3; i++) {
+            for (int Y = 195 * scale; Y < (195 + 16) * scale; Y++) {
+                for (int X = (180 + i * 34) * scale; X < (180 + i * 34 + 16) * scale; X++) {
+                    int hx = (i * 16) * scale + (X - (180 + i * 34) * scale), hy = 16 * scale + (Y - 195 * scale);
+                    int r, g, b;
+                    uint32_t p = hd[(size_t)Y * w + X];
+                    pattern(hx, hy, &r, &g, &b);
+                    if (abs((int)((p >> 16) & 255) - r) > 8 || abs((int)((p >> 8) & 255) - g) > 8 ||
+                        abs((int)(p & 255) - (b & 0xF8)) > 8) {
+                        bad++;
+                    }
+                    opaque++;
+                }
+            }
+        }
+        snprintf(what, sizeof(what), "textures: sprites drawn from the 4x replacement, texel-exact (%d of %d pixels off)",
+                 bad, opaque);
+        check(bad == 0 && opaque > 0, what);
+        check(diff_count(orig, hd, w, scale, 10, 10, 160, 135, 4) > 1000, "textures: the 4-bit 3D quad uses the replacement");
+        check(diff_count(orig, hd, w, scale, 170, 20, 300, 130, 0) == 0, "textures: wrong-size 8-bit file ignored (original)");
+        check(diff_count(orig, hd, w, scale, 40, 145, 150, 215, 0) == 0, "textures: broken 16-bit file ignored (original)");
+        write_bmp("soft_texture_pack", hd, w, hh);
+        {
+            int loaded, failed, uses;
+            TexRep_Stats(&loaded, &failed, &uses);
+            check(loaded == 1 && failed == 2, "textures: 1 replacement loaded, 2 bad files reported");
+        }
+    }
+    free(hd);
+    /* 1x (classic) with the pack: unchanged */
+    PsxHd_SetScale(1);
+    PsxGpu_Reset(0);
+    PsxGpu_SetDisplay(0, 0, W, H, 0);
+    PsxGpu_SetDisplayEnable(1);
+    load_textures();
+    scene();
+    b1 = calloc((size_t)640 * 480, 4);
+    PsxGpu_ReadDisplay(b1, &w1, &h1);
+    check(memcmp(a1, b1, (size_t)w1 * h1 * 4) == 0, "textures: 1x picture unchanged by the pack");
+    free(a1);
+    free(b1);
+}
+
 /* ---- GPU readback ---- */
 
 static SDL_GPUDevice *dev;
@@ -317,6 +466,8 @@ int main(int argc, char **argv) {
     check(diff_count(soft[0], soft[1], w, scale, 178, 148, 285, 213, 0) == 0, "soft: filter leaves the sprites");
     check(diff_count(soft[0], soft[2], w, scale, 178, 148, 285, 213, 4) > 100, "soft: 2D smoothing changes the sprites");
     check(diff_count(soft[0], soft[2], w, scale, 10, 10, 300, 135, 0) == 0, "soft: 2D smoothing leaves the 3D quads");
+
+    texture_pack_tests(scale, soft[0], w);
 
     dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, NULL);
     if (dev != NULL && PsxHw_Init(dev)) {

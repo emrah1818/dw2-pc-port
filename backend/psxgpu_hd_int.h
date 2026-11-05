@@ -14,6 +14,7 @@
 #endif
 
 #include "backend/psxgpu_hd.h"
+#include "backend/texrep.h"
 
 typedef struct {
     int x, y, w, h; /* VRAM rect */
@@ -38,6 +39,7 @@ typedef struct {
     int layer;    /* PR.34: the 2D layer of its packet (PsxHd_SmoothLayer), 0 none */
     int blend;    /* PR.34: every vertex has its frame-before position (v[].qx ...) */
     float dx, dy; /* PR.34: its layer's frame-before offset minus this frame's (VRAM pixels) */
+    TexRepUse rep; /* dw2-pc-port: replacement texture (backend/texrep.h), rep.img NULL = none */
 } PsxHdCmd;
 
 /* Clip rect of the draw area of c in surface pixels, inclusive, inside the surface (at the

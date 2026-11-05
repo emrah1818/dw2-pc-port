@@ -4,6 +4,7 @@
 #include "backend/psxgpu.h"
 #include "backend/pgxp.h"
 #include "backend/psxgpu_hd.h"
+#include "backend/texrep.h"
 
 /* Emulated PS1 GPU (P1.4, title subset). Implemented: VRAM fill (GP0 02), polygons (GP0 20-3F:
  * flat / Gouraud, textured 4 / 8 / 15 bit with CLUT, modulated or raw, semi-transparent),
@@ -404,6 +405,7 @@ void PsxGpu_Fill(int x, int y, int w, int h, uint32_t rgb24) {
             row[(x + i) & (PSXGPU_VRAM_W - 1)] = c;
         }
     }
+    TexRep_OnWrite(x, y, w, h); /* dw2-pc-port texture packs */
     if (PsxHd_On()) {
         PsxHd_Fill(x, y, w, h, c);
     }
@@ -421,6 +423,7 @@ void PsxGpu_LoadImage(int x, int y, int w, int h, const uint16_t *src) {
             row[(x + i) & (PSXGPU_VRAM_W - 1)] = *src++;
         }
     }
+    TexRep_OnUpload(x, y, w, h, src - (size_t)w * (size_t)h); /* dw2-pc-port texture packs */
     if (PsxHd_On()) {
         PsxHd_Refresh(x, y, w, h);
     }
@@ -459,6 +462,7 @@ void PsxGpu_MoveImage(int sx, int sy, int dx, int dy, int w, int h) {
             d[(dx + i) & (PSXGPU_VRAM_W - 1)] = line[i];
         }
     }
+    TexRep_OnWrite(dx, dy, w, h); /* dw2-pc-port texture packs */
     if (PsxHd_On()) {
         PsxHd_Refresh(dx, dy, w, h);
     }

@@ -234,6 +234,10 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/psyq/libgte.c PROPERTIES
 set_source_files_properties(${CMAKE_SOURCE_DIR}/psyq/snd_hw.c PROPERTIES
     OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/assets/main/retail_rodata.bin;${CMAKE_SOURCE_DIR}/assets/main/retail_data.bin")
 
+# dw2-pc-port text/script layout test (tests/textscript_test.c): made-up bytes, no game data.
+add_executable(textscript_test ${CMAKE_SOURCE_DIR}/tests/textscript_test.c ${CMAKE_SOURCE_DIR}/host/textscript.c)
+target_include_directories(textscript_test PRIVATE ${CMAKE_SOURCE_DIR})
+
 # dw2-pc-port renderer test (tests/hd_test.c): synthetic scene, software vs GPU renderer, no game data.
 add_executable(hd_test ${CMAKE_SOURCE_DIR}/tests/hd_test.c ${CMAKE_SOURCE_DIR}/backend/psxgpu.c
     ${CMAKE_SOURCE_DIR}/backend/psxgpu_hd.c ${CMAKE_SOURCE_DIR}/backend/psxgpu_hw.c ${CMAKE_SOURCE_DIR}/backend/pgxp.c

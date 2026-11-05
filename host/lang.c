@@ -23,6 +23,7 @@
 #include "host/devdata.h"
 #include "host/host.h"
 #include "host/settings.h"
+#include "host/textscript.h"
 
 #define F_SMALLFONT 0x13A
 #define F_BIGFONT 0x110
@@ -322,7 +323,10 @@ static int encode(const char *s, uint8_t *out, int max, int umlauts) {
         s++;
     }
     out[n] = 0xFF;
-    return *s ? -1 : n + 1;
+    if (*s || !TextScript_Valid(out, n + 1)) {
+        return -1; /* cut off, or {B:..} bytes that are no whole command */
+    }
+    return n + 1;
 }
 
 /* ';' separated UTF-8 file: column 0 and 1 of each line after the header */
@@ -403,7 +407,11 @@ static uint32_t tail_start(const uint8_t *d, int size) {
 
 /* string length incl. 0xFF at o */
 static int slot_len(const uint8_t *d, int size, uint32_t o) {
-    int n = 0;
+    int n = TextScript_Len(d, size, o); /* walks command arguments (they may be 0xFF) */
+
+    if (n > 0) {
+        return n;
+    }
 
     while ((int)(o + n) < size && d[o + n] != 0xFF) {
         n++;
@@ -545,7 +553,7 @@ static int tokenize(const uint8_t *d, int size, uint32_t o, char *out, int n) {
         if (c < 10) { tmp[0] = (char)('0' + c); tmp[1] = 0; PUT(tmp); glyphs++; continue; }
         if (c < 0x24) { tmp[0] = (char)('A' + c - 10); tmp[1] = 0; PUT(tmp); glyphs++; continue; }
         if (c < 0x3E) { tmp[0] = (char)('a' + c - 0x24); tmp[1] = 0; PUT(tmp); glyphs++; continue; }
-        if (c <= 0x5D) {
+        if (c <= 0x5D || (c >= 0x5E && c <= 0xE5) || c == 0xED || c == 0xEE) {
             static const char punct[] = "&?!/-,.'\";:%+=#";
             static const int codes[] = { 0x42, 0x44, 0x45, 0x46, 0x49, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D };
             int k;
@@ -610,7 +618,17 @@ static int tokenize(const uint8_t *d, int size, uint32_t o, char *out, int n) {
                 i += (uint32_t)na;
                 break;
             }
-            if (c >= 0xF3) { script = 1; snprintf(tmp, sizeof(tmp), "{CMD:%02X}", c); PUT(tmp); break; }
+            if (c == 0xF3 || c == 0xF4 || c == 0xF6 || c == 0xF7) {
+                /* event commands (textscript.c): kept byte for byte, so a translation keeps them */
+                int na = TextScript_ElemLen(d + i, size - (int)i), k;
+                if (na == 0) return 0;
+                PUT("{B:");
+                for (k = 0; k < na; k++) { snprintf(tmp, sizeof(tmp), "%02X", d[i + k]); PUT(tmp); }
+                PUT("}");
+                i += (uint32_t)na - 1;
+                script = 1;
+                break;
+            }
             return 0; /* a byte text never has */
         }
     }
@@ -657,7 +675,7 @@ typedef struct { FILE *f; int file, n, script; } ExportCtx;
 
 static void export_one(void *vctx, const uint8_t *d, int size, uint32_t at, const char *cat) {
     ExportCtx *x = vctx;
-    char text[2048];
+    char text[4096];
     uint32_t o = rd32(d + at);
     int k;
 
@@ -672,19 +690,38 @@ static void export_one(void *vctx, const uint8_t *d, int size, uint32_t at, cons
     x->script += k == 2;
 }
 
-/* --export-texts DIR: DIR/texts_en.tsv (key, category, kind, English). From the player's disc:
- * stays on the player's PC. */
+static int is_known_table(int id) {
+    for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
+        if (k_tables[t].file == id) return 1;
+    }
+    return 0;
+}
+
+#define MAX_DIALOG_SLOTS 4096
+
+/* --export-texts DIR: DIR/texts_en.tsv (key, category, kind, English) and DIR/dialog_files.tsv
+ * (every event table found: entries, texts, whether its string area is understood, free bytes).
+ * From the player's disc: stays on the player's PC. */
 int Lang_ExportTexts(const char *dir) {
     char path[1024];
     ExportCtx x = { 0 };
+    FILE *ff;
+    static uint32_t slots[MAX_DIALOG_SLOTS];
+    int tables = 0, dialogs = 0, unclear = 0, lba, sectors, form2;
+    unsigned long long fsize;
 
     SDL_CreateDirectory(dir);
     snprintf(path, sizeof(path), "%s/texts_en.tsv", dir);
     x.f = fopen(path, "w");
-    if (x.f == NULL) {
+    snprintf(path, sizeof(path), "%s/dialog_files.tsv", dir);
+    ff = fopen(path, "w");
+    if (x.f == NULL || ff == NULL) {
+        if (x.f) fclose(x.f);
+        if (ff) fclose(ff);
         return 1;
     }
     fprintf(x.f, "key\tcategory\tkind\tenglish\n");
+    fprintf(ff, "file\tentries\ttexts\tarea\tarea_bytes\tfree_tail_bytes\n");
     for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
         int size = 0;
         uint8_t *d = Host_PakReadFile(k_tables[t].file, &size);
@@ -696,8 +733,42 @@ int Lang_ExportTexts(const char *dir) {
         walk(&k_tables[t], d, size, export_one, &x);
         free(d);
     }
+    /* event (dialog) tables: every data file that has the layout of Flag_SelectBranch's table */
+    for (int id = 0; Host_PakFileInfo(id, &lba, &sectors, &form2, &fsize); id++) {
+        int size = 0, n = 0, entries, area;
+        uint8_t *d;
+        uint32_t start = 0, end = 0, tail = 0;
+
+        if (form2 || fsize < 16 || is_known_table(id) || (d = Host_PakReadFile(id, &size)) == NULL) {
+            continue;
+        }
+        entries = TextScript_FlagTable(d, size, slots, MAX_DIALOG_SLOTS, &n);
+        if (entries > 0) {
+            int before = x.n;
+            area = TextScript_Area(d, size, slots, n, (int)(rd32(d) / 4), &start, &end, &tail);
+            x.file = id;
+            for (int i = 0; i < n; i++) {
+                uint32_t rel = slots[i] - rd32(d);
+                char cat[64];
+                snprintf(cat, sizeof(cat), "dialog e%u b%u digi%d", rel / TS_FLAG_STRIDE,
+                         (rel % TS_FLAG_STRIDE - TS_FLAG_BRANCHES) / 4,
+                         (int16_t)(d[slots[i] - (rel % TS_FLAG_STRIDE)] | d[slots[i] - (rel % TS_FLAG_STRIDE) + 1] << 8));
+                export_one(&x, d, size, slots[i], cat);
+            }
+            fprintf(ff, "%04X\t%d\t%d\t%s\t%u\t%u\n", id, entries, x.n - before,
+                    area ? "ok" : "NOT UNDERSTOOD (texts of this file cannot be replaced)",
+                    area ? end - start : 0, area && tail < (uint32_t)size ? (uint32_t)size - tail : 0);
+            tables++;
+            dialogs += x.n - before;
+            unclear += !area;
+        }
+        free(d);
+    }
     fclose(x.f);
-    printf("[lang] %d texts (%d with script commands) -> %s\n", x.n, x.script, path);
+    fclose(ff);
+    printf("[lang] %d texts (%d with script commands; %d dialog texts in %d event tables, %d tables "
+           "with an unclear string area) -> %s/texts_en.tsv, dialog_files.tsv\n",
+           x.n, x.script, dialogs, tables, unclear, dir);
     return 0;
 }
 
@@ -731,83 +802,67 @@ static int table_slots(const Table *t, const uint8_t *d, int size, uint32_t *slo
     return n;
 }
 
-/* Lays out every string of the table again (the new texts where there are, else the current
- * bytes) from the start of the string area, then into the free tail; same strings share space.
- * Returns the number of texts that did not fit (those keep their old string). */
-static int repack(const Table *t, uint8_t *d, int size, uint8_t **trans, int *tlen) {
-    static uint32_t slots[2048];
-    static uint8_t *str[2048];
-    static int len[2048];
-    uint32_t area_end, start = 0xFFFFFFFF, tail = tail_start(d, size), at;
-    int n = table_slots(t, d, size, slots, 2048, &area_end), lost = 0;
-
-    for (int i = 0; i < n; i++) {
-        uint32_t o = rd32(d + slots[i]);
-        start = o < start ? o : start;
-        if (trans[slots[i]] != NULL) {
-            str[i] = trans[slots[i]];
-            len[i] = tlen[slots[i]];
-        } else {
-            len[i] = slot_len(d, size, o);
-            str[i] = malloc((size_t)len[i]);
-            memcpy(str[i], d + o, (size_t)len[i]);
+/* The slots and string area of file `id` (a known table or an event table). 0 = not understood. */
+static int file_area(int id, const uint8_t *d, int size, uint32_t *slots, int max, int *n,
+                     uint32_t *start, uint32_t *end, uint32_t *tail) {
+    for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
+        if (k_tables[t].file == id) {
+            *n = table_slots(&k_tables[t], d, size, slots, max, end);
+            *start = 0xFFFFFFFF;
+            for (int i = 0; i < *n; i++) {
+                uint32_t o = rd32(d + slots[i]);
+                *start = o < *start ? o : *start;
+            }
+            *tail = tail_start(d, size);
+            if (*tail > (uint32_t)size) *tail = (uint32_t)size;
+            return *n > 0 && *start < *end && *tail >= *end;
         }
     }
-    if (n == 0 || start >= area_end || tail < area_end) {
-        return -1;
-    }
-    memset(d + start, 0xFF, area_end - start);
-    memset(d + tail, 0, (size_t)size - tail);
-    at = start;
-    for (int i = 0; i < n; i++) {
-        int dup = -1;
-        for (int k = 0; k < i && dup < 0; k++) {
-            if (len[k] == len[i] && memcmp(str[k], str[i], (size_t)len[i]) == 0) dup = k;
-        }
-        if (dup >= 0) {
-            wr32(d + slots[i], rd32(d + slots[dup]));
-            continue;
-        }
-        if (at + (uint32_t)len[i] > area_end && at < tail) {
-            at = tail; /* the string area is full: on in the free tail */
-        }
-        if (at + (uint32_t)len[i] > (uint32_t)size) {
-            lost++;
-            str[i] = NULL;
-            continue;
-        }
-        memcpy(d + at, str[i], (size_t)len[i]);
-        wr32(d + slots[i], at);
-        at += (uint32_t)len[i];
-    }
-    for (int i = 0; i < n; i++) {
-        if (trans[slots[i]] == NULL && str[i] != NULL) free(str[i]);
-    }
-    return lost;
+    return TextScript_FlagTable(d, size, slots, max, n) > 0 &&
+           TextScript_Area(d, size, slots, *n, (int)(rd32(d) / 4), start, end, tail);
 }
 
-/* texts.tsv: key<TAB>German (lines starting with # are comments) */
+/* texts.tsv: key<TAB>German (lines starting with # are comments). Every file named by a key is
+ * laid out again (textscript.c): a text that does not fit keeps its English string, and a file
+ * whose layout is not understood is not touched at all. */
 static void patch_texts(const char *dir, int umlauts) {
     char path[1024];
     size_t sz = 0;
-    char *data;
-    int ok = 0, bad = 0;
+    char *data, *copy, *line, *next;
+    int ok = 0, bad = 0, nfiles = 0;
+    static int files[512];
+    static uint32_t slots[MAX_DIALOG_SLOTS];
 
     snprintf(path, sizeof(path), "%stexts.tsv", dir);
     data = SDL_LoadFile(path, &sz);
     if (data == NULL) {
-        note("no %s: item and system texts stay English%s", path, "");
+        note("no %s: game texts stay English%s", path, "");
         return;
     }
     if (rep) fprintf(rep, "\n# texts.tsv\n");
-    for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
-        int size = 0, count = 0;
-        uint8_t *d = Host_PakReadFileLayered(k_tables[t].file, &size);
+    /* the files the keys name, in order of first use */
+    copy = SDL_strdup(data);
+    for (line = copy; line != NULL && *line; line = next) {
+        unsigned file = 0, at = 0;
+        int k;
+        next = strchr(line, '\n');
+        if (next != NULL) *next++ = 0;
+        if (line[0] == '#' || sscanf(line, "%x:%x", &file, &at) != 2) continue;
+        for (k = 0; k < nfiles && files[k] != (int)file; k++) {
+        }
+        if (k == nfiles && nfiles < 512) files[nfiles++] = (int)file;
+    }
+    SDL_free(copy);
+    for (int fi = 0; fi < nfiles; fi++) {
+        int id = files[fi], size = 0, count = 0, n = 0, placed = 0, fell;
+        uint8_t *d = Host_PakReadFileLayered(id, &size);
         uint8_t **trans;
         int *tlen;
-        char *copy, *line, *next;
+        uint32_t start, end, tail;
 
-        if (d == NULL) continue;
+        if (d == NULL) {
+            continue;
+        }
         trans = calloc((size_t)size, sizeof(*trans));
         tlen = calloc((size_t)size, sizeof(*tlen));
         copy = SDL_strdup(data);
@@ -819,7 +874,7 @@ static void patch_texts(const char *dir, int umlauts) {
 
             next = strchr(line, '\n');
             if (next != NULL) *next++ = 0;
-            if (line[0] == '#' || sscanf(line, "%x:%x", &file, &at) != 2 || (int)file != k_tables[t].file ||
+            if (line[0] == '#' || sscanf(line, "%x:%x", &file, &at) != 2 || (int)file != id ||
                 (tab = strchr(line, '\t')) == NULL || at + 4 > (unsigned)size) {
                 continue;
             }
@@ -839,15 +894,29 @@ static void patch_texts(const char *dir, int umlauts) {
         }
         SDL_free(copy);
         if (count > 0) {
-            int lost = repack(&k_tables[t], d, size, trans, tlen);
-            if (lost < 0) {
+            if (!file_area(id, d, size, slots, MAX_DIALOG_SLOTS, &n, &start, &end, &tail)) {
                 bad += count;
-                if (rep) fprintf(rep, "%04X: string area not understood, texts left English\n", k_tables[t].file);
+                if (rep) fprintf(rep, "%04X: string area not understood, %d texts left English\n", id, count);
             } else {
-                ok += count - lost;
-                bad += lost;
-                if (rep && lost) fprintf(rep, "%04X: %d texts did not fit (file full), English kept\n", k_tables[t].file, lost);
-                Host_PakSetLayer(k_tables[t].file, d, size);
+                static uint8_t *tr[MAX_DIALOG_SLOTS];
+                static int tl[MAX_DIALOG_SLOTS];
+                int unknown = count;
+                for (int i = 0; i < n; i++) {
+                    tr[i] = trans[slots[i]];
+                    tl[i] = tlen[slots[i]];
+                    unknown -= tr[i] != NULL;
+                }
+                fell = TextScript_Repack(d, size, slots, n, start, end, tail, tr, tl, &placed);
+                if (fell < 0) {
+                    bad += count;
+                    if (rep) fprintf(rep, "%04X: could not lay out the strings, %d texts left English\n", id, count);
+                } else {
+                    ok += placed;
+                    bad += count - placed;
+                    if (rep && fell) fprintf(rep, "%04X: %d texts did not fit (file full) or are invalid, English kept\n", id, fell);
+                    if (rep && unknown) fprintf(rep, "%04X: %d keys are no text pointer of this file, ignored\n", id, unknown);
+                    Host_PakSetLayer(id, d, size);
+                }
             }
         }
         for (int i = 0; i < size; i++) free(trans[i]);

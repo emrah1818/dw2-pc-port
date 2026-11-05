@@ -164,6 +164,9 @@ jobs:
       - name: Build (release, no disc data)
         run: python3 tools/build_native.py --release --no-disc
 
+      - name: Text/script layout test (made-up bytes, no game data)
+        run: build/linux64_rel_nodisc/textscript_test
+
       - name: Renderer test (software vs GPU on Mesa lavapipe, synthetic scene, no game data)
         run: |
           sudo apt-get install -y mesa-vulkan-drivers libvulkan1 vulkan-tools

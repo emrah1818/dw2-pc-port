@@ -533,7 +533,8 @@ typedef struct {
 /* PG.3 16:9 (native build): the floor window can have STG40_WIDE_COLS more columns on each side,
  * used while the host's 16:9 is on (floor.c Stg40_WideCols). Offsets below are the retail ones. */
 #ifdef DW2_NATIVE
-#define STG40_WIDE_COLS 2
+/* dw2-pc-port: room for 21:9 (floor.c picks 2 for 16:9, 5 for 21:9 per frame) */
+#define STG40_WIDE_COLS 5
 #else
 #define STG40_WIDE_COLS 0
 #endif

@@ -229,6 +229,7 @@ void Host_WaitVBlank(void) {
     vblanks++;
     Host_TraceTick(vblanks);
     Host_SceneTick();
+    Host_BotTick(vblanks);
     Host_InputScriptTick(vblanks);
 #if DW2_DEV
     DevEdit_ScriptTick(vblanks);
@@ -380,6 +381,7 @@ static void run_threaded(void) {
 
 HOST_ENTRY int main(int argc, char **argv) {
     int i;
+    int cl_scale_value = 1, cl_profile = -1;
     int cl_scale = 0, cl_wide = 0, cl_pgxp = 0, cl_renderer = 0, cl_window = -1, cl_sharpen = -1, cl_smooth = 0;
     int update_force = 0;
 
@@ -404,6 +406,11 @@ HOST_ENTRY int main(int argc, char **argv) {
             Update_SetLocalVersion(argv[++i]);
         } else if (strcmp(argv[i], "--update-auto") == 0) {
             Update_SetAuto();
+        } else if (strcmp(argv[i], "--bot") == 0 && i + 2 < argc) {
+            if (Host_BotOpen(argv[i + 1], argv[i + 2]) != 0) {
+                return 1;
+            }
+            i += 2;
         } else if (strcmp(argv[i], "--version") == 0) {
             printf("DW2-PC v%s\n", DW2_VERSION);
             return 0;
@@ -440,8 +447,22 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--save-dir") == 0 && i + 1 < argc) {
             Host_CardSetDir(argv[++i]);
         } else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
-            PsxHd_SetScale((int)strtol(argv[++i], NULL, 0));
+            /* dw2-pc-port: 1..12 or auto */
+            i++;
+            cl_scale_value = strcmp(argv[i], "auto") == 0 ? 0 : (int)strtol(argv[i], NULL, 0);
+            cl_scale_value = cl_scale_value < 0 ? 1 : cl_scale_value > PSXHD_MAX_SCALE ? PSXHD_MAX_SCALE : cl_scale_value;
             cl_scale = 1;
+        } else if (strcmp(argv[i], "--aspect") == 0 && i + 1 < argc) {
+            /* dw2-pc-port: 4:3, 16:9 or 21:9 */
+            i++;
+            cl_wide = strcmp(argv[i], "21:9") == 0 ? 3 : strcmp(argv[i], "16:9") == 0 ? 2 : 1;
+        } else if (strcmp(argv[i], "--texture-filter") == 0 && i + 1 < argc) {
+            /* dw2-pc-port: nearest or bilinear, this run only */
+            Settings_Override(SET_TEX_FILTER, strcmp(argv[++i], "bilinear") == 0 ? SET_TEXF_BILINEAR : SET_TEXF_NEAREST);
+        } else if (strcmp(argv[i], "--profile") == 0 && i + 1 < argc) {
+            /* dw2-pc-port: classic or remastered, this run only */
+            i++;
+            cl_profile = strcmp(argv[i], "classic") == 0 ? SET_PROFILE_CLASSIC : SET_PROFILE_REMASTERED;
         } else if (strcmp(argv[i], "--sharpen") == 0 && i + 1 < argc) {
             cl_sharpen = (int)strtol(argv[++i], NULL, 0);
             cl_sharpen = cl_sharpen < 0 ? 0 : cl_sharpen > 100 ? 100 : cl_sharpen;
@@ -459,8 +480,7 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--smooth") == 0) {
             cl_smooth = 1;
         } else if (strcmp(argv[i], "--wide") == 0) {
-            Host_SetWide(1);
-            cl_wide = 1;
+            cl_wide = 2;
         } else if (strcmp(argv[i], "--renderer") == 0 && i + 1 < argc &&
                    (strcmp(argv[i + 1], "gpu") == 0 || strcmp(argv[i + 1], "soft") == 0)) {
             Host_SetRenderer(strcmp(argv[++i], "gpu") == 0 ? 2 : 1);
@@ -493,11 +513,22 @@ HOST_ENTRY int main(int argc, char **argv) {
     }
     setvbuf(stdout, NULL, _IOLBF, 1 << 16);
     /* PR.2: the settings file; command line options win for this run and are not saved */
+    if (cl_profile >= 0) {
+        /* dw2-pc-port: --profile; the single options below win over it */
+        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+        size_t k;
+
+        for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {
+            if (!Settings_Overridden(ids[k])) {
+                Settings_Override(ids[k], Settings_ProfileValue(cl_profile, ids[k]));
+            }
+        }
+    }
     if (cl_scale) {
-        Settings_Override(SET_SCALE, PsxHd_Scale());
+        Settings_Override(SET_SCALE, cl_scale_value);
     }
     if (cl_wide) {
-        Settings_Override(SET_WIDE, 1);
+        Settings_Override(SET_WIDE, cl_wide - 1);
     }
     if (cl_pgxp) {
         Settings_Override(SET_PGXP, 1);
@@ -515,16 +546,26 @@ HOST_ENTRY int main(int argc, char **argv) {
         Settings_Override(SET_SMOOTH, 1);
     }
     Settings_Load(no_window);
-    if (!cl_scale) {
-        PsxHd_SetScale(Settings_Get(SET_SCALE));
+    if (Settings_FirstRun() && !no_window) {
+        /* dw2-pc-port: the first start with a window gets the Remastered profile (saved; F1 or
+         * --profile classic change it) */
+        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+        size_t k;
+
+        for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {
+            if (!Settings_Overridden(ids[k])) {
+                Settings_Set(ids[k], Settings_ProfileValue(SET_PROFILE_REMASTERED, ids[k]));
+            }
+        }
+        printf("[settings] first start: Remastered profile\n");
     }
-    if (!cl_wide && Settings_Get(SET_WIDE)) {
-        Host_SetWide(1);
-    }
-    if (!cl_pgxp && Settings_Get(SET_PGXP)) {
+    PsxHd_SetScale(Host_ResolveScale(Settings_Get(SET_SCALE)));
+    Host_SetWide(Settings_Get(SET_WIDE));
+    if (Settings_Get(SET_PGXP)) {
         Host_SetPgxp(1);
     }
     Host_SetSharpen(Settings_Get(SET_SHARPEN)); /* the override's value with --sharpen */
+    PsxHd_SetTexFilter(Settings_Get(SET_TEX_FILTER) == SET_TEXF_BILINEAR); /* dw2-pc-port */
     if (Settings_Get(SET_SMOOTH)) {
         Host_SetSmooth(1); /* PR.34, also with --smooth */
     }

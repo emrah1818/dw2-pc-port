@@ -164,16 +164,55 @@ void draw_title_hint(void) {
 }
 
 /* the style for the display's content scale (again when the window moves to another display) */
-void apply_scale(SDL_Window *window) {
+/* dw2-pc-port UI scale: ui_scale percent, or auto (0): the display's content scale, at least
+ * the window height / 900 (1080p 1.2, 1440p 1.6, 2160p 2.4), at most 4. */
+SDL_Window *g_window;
+float g_ui_scale = 1.0f;
+
+float ui_factor(SDL_Window *window) {
     float dpi = SDL_GetDisplayContentScale(SDL_GetDisplayForWindow(window));
+    int set = Settings_Get(SET_UI_SCALE), w = 0, h = 0;
+    float k;
 
     if (!(dpi > 0.5f && dpi < 8.0f)) {
         dpi = 1.0f;
     }
+    if (set > 0) {
+        return dpi * (float)set / 100.0f;
+    }
+    SDL_GetWindowSizeInPixels(window, &w, &h);
+    k = (float)h / 900.0f;
+    k = k > dpi ? k : dpi;
+    return k < 1.0f ? 1.0f : k > 4.0f ? 4.0f : k;
+}
+
+void apply_scale(SDL_Window *window) {
+    float k = ui_factor(window);
+
     ImGui::GetStyle() = ImGuiStyle();
     ImGui::StyleColorsDark();
-    ImGui::GetStyle().ScaleAllSizes(dpi);
-    ImGui::GetStyle().FontScaleDpi = dpi;
+    /* dw2-pc-port: rounder, calmer look than the stock dark style */
+    ImGui::GetStyle().WindowRounding = 8.0f;
+    ImGui::GetStyle().FrameRounding = 5.0f;
+    ImGui::GetStyle().GrabRounding = 5.0f;
+    ImGui::GetStyle().TabRounding = 5.0f;
+    ImGui::GetStyle().WindowPadding = ImVec2(14.0f, 12.0f);
+    ImGui::GetStyle().ItemSpacing = ImVec2(9.0f, 7.0f);
+    ImGui::GetStyle().FramePadding = ImVec2(8.0f, 5.0f);
+    ImGui::GetStyle().ScaleAllSizes(k);
+    ImGui::GetStyle().FontScaleDpi = k;
+    g_ui_scale = k;
+}
+
+/* dw2-pc-port: follow window size and ui_scale changes (checked each drawn frame) */
+void check_scale(void) {
+    if (g_window != NULL) {
+        float k = ui_factor(g_window);
+
+        if (k < g_ui_scale - 0.02f || k > g_ui_scale + 0.02f) {
+            apply_scale(g_window);
+        }
+    }
 }
 
 /* headless shots: requested on the game side, written at the next render */
@@ -219,7 +258,7 @@ void write_shot(void) {
 }
 
 bool is_hotkey(SDL_Scancode sc) {
-    return sc == SDL_SCANCODE_F3 || sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_F6 || sc == SDL_SCANCODE_F7 || sc == SDL_SCANCODE_F8 ||
+    return sc == SDL_SCANCODE_F3 || sc == SDL_SCANCODE_F4 || sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_F6 || sc == SDL_SCANCODE_F7 || sc == SDL_SCANCODE_F8 ||
            sc == SDL_SCANCODE_F9 || sc == SDL_SCANCODE_F11 || sc == SDL_SCANCODE_F12;
 }
 
@@ -269,6 +308,10 @@ void Ui_Init(SDL_Window *window, SDL_Renderer *renderer, int headless) {
     ImGuiIO &io = ImGui::GetIO();
     io.IniFilename = NULL; /* no imgui.ini in the working folder */
     io.LogFilename = NULL;
+    g_window = window;
+    /* dw2-pc-port: the embedded scalable font, sharp at any UI scale (the bitmap default is
+     * made for 13 px at 1x) */
+    io.Fonts->AddFontDefaultVector();
     apply_scale(window);
     dpi = ImGui::GetStyle().FontScaleDpi;
     if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer) || !ImGui_ImplSDLRenderer3_Init(renderer)) {
@@ -393,6 +436,7 @@ void Ui_Render(void) {
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         }
     }
+    check_scale();
     ImGui_ImplSDLRenderer3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();

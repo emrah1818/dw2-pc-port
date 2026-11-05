@@ -366,8 +366,11 @@ void Host_InputPoll(void) {
             int x = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTX);
             int y = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTY);
 
-            b[p] |= (x <= -STICK_ON ? PAD_LEFT : 0) | (x >= STICK_ON ? PAD_RIGHT : 0) | (y <= -STICK_ON ? PAD_UP : 0) |
-                    (y >= STICK_ON ? PAD_DOWN : 0);
+            /* dw2-pc-port: stick_deadzone percent (50 = the PR.2 half-way threshold) */
+            int on = Settings_Get(SET_DEADZONE) * 32767 / 100;
+
+            b[p] |= (x <= -on ? PAD_LEFT : 0) | (x >= on ? PAD_RIGHT : 0) | (y <= -on ? PAD_UP : 0) |
+                    (y >= on ? PAD_DOWN : 0);
         }
         if (hold_button >= 0) {
             /* PR.38: a held Select stays away from the game; a short press shows after the release */
@@ -401,6 +404,9 @@ void Host_InputLatch(void) {
     SDL_UnlockMutex(lock);
     for (p = 0; p < PORTS; p++) {
         b[p] |= script_bits[p];
+        if (p == 0) {
+            b[p] |= Host_BotButtons(); /* dw2-pc-port test harness */
+        }
         if (b[p] != buttons[p]) {
             buttons[p] = b[p];
             log_buttons(p, b[p]);

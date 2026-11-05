@@ -46,16 +46,19 @@ const int Settings_ButtonOrder[16] = {
 static const char *const int_keys[SET_COUNT] = {
     "scale", "wide", "pgxp", "renderer", "volume", "stick_dpad", "window_mode", "fullscreen_display", "window_maximized",
     "sharpen", "title_hint", "speed", "update_check", "smooth",
-    "select_hold_menu",
+    "select_hold_menu", "music_volume", "sfx_volume", "voice_volume", "ui_scale", "texture_filter", "stick_deadzone",
+    "vsync",
 };
-static const int int_default[SET_COUNT] = { 1, 0, 0, SET_RENDERER_GPU, 100, 1, SET_WINDOW_WINDOWED, 0, 0, 0, 1, 3, 1, 1, 1 };
-static const int int_min[SET_COUNT] = { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-static const int int_max[SET_COUNT] = { 8, 1, 1, 1, 100, 1, 2, 16, 1, 100, 1, 8, 1, 1, 1 };
+static const int int_default[SET_COUNT] = { 1, 0, 0, SET_RENDERER_GPU, 100, 1, SET_WINDOW_WINDOWED, 0, 0, 0, 1, 3, 1, 1, 1,
+                                             100, 100, 100, 0, SET_TEXF_NEAREST, 50, 0 };
+static const int int_min[SET_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0 };
+static const int int_max[SET_COUNT] = { 12, 2, 1, 1, 100, 1, 2, 16, 1, 100, 1, 8, 1, 1, 1, 100, 100, 100, 300, 1, 90, 1 };
 static const char *const renderer_names[] = { "gpu", "soft", NULL };
 static const char *const window_names[] = { "windowed", "borderless", "exclusive", NULL };
+static const char *const filter_names[] = { "nearest", "bilinear", NULL };
 /* values written as names instead of numbers */
 static const char *const *const int_names[SET_COUNT] = {
-    [SET_RENDERER] = renderer_names, [SET_WINDOW_MODE] = window_names,
+    [SET_RENDERER] = renderer_names, [SET_WINDOW_MODE] = window_names, [SET_TEX_FILTER] = filter_names,
 };
 
 /* Known keys: 0..SET_COUNT-1 the values, then the PR.3 window keys with two or three numbers,
@@ -101,6 +104,7 @@ static int win_w, win_h;          /* window_size, 0 = auto */
 static int win_pos, win_x, win_y; /* window_pos, win_pos 0 = center */
 
 static char *path_; /* NULL: no file */
+static int first_run; /* dw2-pc-port: no settings file at start */
 static char *lines[MAX_LINES];
 static int line_key[MAX_LINES]; /* known key index, or -1 */
 static int line_count;
@@ -120,6 +124,26 @@ static void reset_controls(void) {
 void Settings_ResetControls(void) {
     reset_controls();
     mark_dirty();
+}
+
+/* dw2-pc-port profiles. Classic: the PS1 picture. Remastered: fits the window, 16:9, no wobble,
+ * smooth frames, light sharpening, bilinear 3D textures. */
+int Settings_ProfileValue(int p, int id) {
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+    static const int classic[] = { 1, 0, 0, 0, 0, SET_TEXF_NEAREST };
+    static const int remastered[] = { 0, 1, 1, 25, 1, SET_TEXF_BILINEAR };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(ids) / sizeof(ids[0])); i++) {
+        if (ids[i] == id) {
+            return p == SET_PROFILE_CLASSIC ? classic[i] : remastered[i];
+        }
+    }
+    return -1;
+}
+
+int Settings_FirstRun(void) {
+    return first_run;
 }
 
 void Settings_SetPath(const char *path) {
@@ -265,7 +289,7 @@ void Settings_SetPad(int bit, int code) {
 
 int Settings_KeyReserved(int sc) {
     return sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_TAB || sc == SDL_SCANCODE_F1 || sc == SDL_SCANCODE_F2 ||
-           sc == SDL_SCANCODE_F3 || sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_F6 || sc == SDL_SCANCODE_F7 || sc == SDL_SCANCODE_F8 ||
+           sc == SDL_SCANCODE_F3 || sc == SDL_SCANCODE_F4 || sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_F6 || sc == SDL_SCANCODE_F7 || sc == SDL_SCANCODE_F8 ||
            sc == SDL_SCANCODE_F9 || sc == SDL_SCANCODE_F11 || sc == SDL_SCANCODE_F12;
 }
 
@@ -373,10 +397,11 @@ static int apply_kv(int k, char *v, int as_change, char *why, size_t whylen) {
         } else {
             n = strtol(v, &end, 10);
         }
-        if (*v == 0 || *end != 0 || n < int_min[k] || n > int_max[k]) {
+        if (*v == 0 || *end != 0 || n < int_min[k] || n > int_max[k] || (k == SET_UI_SCALE && n != 0 && n < 50)) {
             snprintf(why, whylen, "%s: \"%s\" is not %s", int_keys[k], v,
                      k == SET_RENDERER        ? "gpu or soft"
                      : k == SET_WINDOW_MODE ? "windowed, borderless or exclusive"
+                     : k == SET_TEX_FILTER  ? "nearest or bilinear"
                                             : "a number in range");
             return 0;
         }
@@ -518,6 +543,7 @@ static void read_file(void) {
 
     if (data == NULL) {
         printf("[settings] no file %s: defaults\n", path_);
+        first_run = 1;
         return;
     }
     if (size > MAX_FILE || memchr(data, 0, size) != NULL) {
@@ -618,6 +644,9 @@ void Settings_Load(int no_window) {
     printf("[settings] sharpen %d, title_hint %d, speed %d, update_check %d, smooth %d, select_hold_menu %d\n",
            Settings_Get(SET_SHARPEN), Settings_Get(SET_TITLE_HINT), Settings_Get(SET_SPEED),
            Settings_Get(SET_UPDATE_CHECK), Settings_Get(SET_SMOOTH), Settings_Get(SET_SELECT_HOLD));
+    printf("[settings] music %d, sfx %d, voice %d, ui_scale %d, texture_filter %s, stick_deadzone %d, vsync %d\n",
+           Settings_Get(SET_MUSIC_VOL), Settings_Get(SET_SFX_VOL), Settings_Get(SET_VOICE_VOL), Settings_Get(SET_UI_SCALE),
+           filter_names[Settings_Get(SET_TEX_FILTER)], Settings_Get(SET_DEADZONE), Settings_Get(SET_VSYNC));
     {
         char fm[32], ws[32], wp[32];
 
@@ -715,6 +744,7 @@ static int save(void) {
     static const int order[K_KEY] = {
         SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_RENDERER, SET_VOLUME, SET_STICK_DPAD, SET_SELECT_HOLD,
         SET_TITLE_HINT, SET_SPEED, SET_UPDATE_CHECK, SET_WINDOW_MODE, SET_FS_DISPLAY, K_FSMODE, K_WINSIZE, K_WINPOS, SET_WIN_MAX,
+        SET_MUSIC_VOL, SET_SFX_VOL, SET_VOICE_VOL, SET_UI_SCALE, SET_TEX_FILTER, SET_DEADZONE, SET_VSYNC,
     };
     char seen[K_COUNT] = { 0 };
     char *tmp = NULL;

@@ -64,7 +64,7 @@
 #define SLOTS 3
 
 enum { REQ_SCALE = 1, REQ_WIDE = 2, REQ_PGXP = 4, REQ_SHOT = 8, REQ_QUIT = 16, REQ_SETTING = 32, REQ_SHARPEN = 64,
-       REQ_SPEED = 128, REQ_SMOOTH = 256 };
+       REQ_SPEED = 128, REQ_SMOOTH = 256, REQ_TEXF = 512 };
 
 typedef struct {
     int kind;      /* 0 black, 1 1x picture, 2 software HD picture, 3 GPU texture */
@@ -88,6 +88,8 @@ static int headless;
 static int threaded;
 static int logical_w = 320; /* 427 in 16:9 (game side) */
 static int shown_logical_w; /* the window's logical presentation (main thread) */
+static SDL_AtomicInt out_pic_h; /* dw2-pc-port: picture height in output pixels (main thread writes) */
+static int auto_want, auto_stable; /* game thread: auto scale candidate and how long it held */
 static int initialized;
 static int renderer_choice; /* 0 automatic (GPU with a window), 1 soft, 2 GPU */
 static SDL_GPUDevice *gpudev;
@@ -523,8 +525,43 @@ int Host_TitleHint(void) {
 
 /* Game side (or before the window exists); the window follows with the next picture. */
 void Host_SetWide(int on) {
+    static const int widths[3] = { 320, 427, 560 }; /* 4:3, 16:9, 21:9 */
+
     PsxHd_SetWide(on);
-    logical_w = on ? 427 : 320;
+    logical_w = widths[PsxHd_Wide()];
+}
+
+/* dw2-pc-port: the render scale for a scale setting (0 = auto: the smallest scale whose picture
+ * is at least as tall as the window's picture, 240 lines per step: 720 -> 3, 1080 -> 5,
+ * 1440 -> 6, 2160 -> 9). Before the window shows a frame, auto uses the display height. */
+int Host_ResolveScale(int setting) {
+    int h;
+
+    if (setting > 0) {
+        return setting;
+    }
+    h = SDL_GetAtomicInt(&out_pic_h);
+    if (h <= 0) {
+        if (headless) {
+            return 1;
+        }
+        if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+            h = 720;
+        } else {
+            const SDL_DisplayMode *dm = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+
+            h = dm != NULL ? (int)(dm->h * dm->pixel_density) : 720;
+            if (Settings_Get(SET_WINDOW_MODE) == SET_WINDOW_WINDOWED) {
+                h = h * 2 / 3; /* a window is smaller than the display */
+            }
+        }
+    }
+    h = (h + 239) / 240;
+    return h < 1 ? 1 : h > PSXHD_MAX_SCALE ? PSXHD_MAX_SCALE : h;
+}
+
+static const char *aspect_name(int wide) {
+    return wide == 2 ? "21:9" : wide ? "16:9" : "4:3";
 }
 
 int Host_WideMargin(int width) {
@@ -828,6 +865,17 @@ void Host_Present(void) {
         shown_logical_w = f->logical_w;
         SDL_SetRenderLogicalPresentation(renderer, shown_logical_w, 240, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     }
+    {
+        /* dw2-pc-port auto scale: the picture's height in output pixels (letterboxed) */
+        int ow = 0, oh = 0;
+
+        if (SDL_GetCurrentRenderOutputSize(renderer, &ow, &oh) && ow > 0 && oh > 0) {
+            int lw = shown_logical_w > 0 ? shown_logical_w : 320;
+            int ph = ow * 240 / lw < oh ? ow * 240 / lw : oh;
+
+            SDL_SetAtomicInt(&out_pic_h, ph);
+        }
+    }
     if (f != NULL && SDL_GetAtomicInt(&smooth_on) &&
         PsxHd_SmoothPicture(SDL_GetTicksNS(), &stex, &sf.w, &sf.h, &sf.margin)) {
         /* PR.34: the newest package drawn for now */
@@ -933,6 +981,9 @@ void Host_PumpEvents(void) {
                 if (e.key.scancode == SDL_SCANCODE_F9) {
                     request(REQ_SMOOTH);
                 }
+                if (e.key.scancode == SDL_SCANCODE_F4) {
+                    request(REQ_TEXF); /* dw2-pc-port */
+                }
                 if (e.key.scancode == SDL_SCANCODE_F3) {
                     request(REQ_SPEED);
                 }
@@ -993,14 +1044,14 @@ void Host_GameEvents(void) {
     if (r & REQ_SETTING) {
         int v;
 
-        if ((v = SDL_SetAtomicInt(&wanted[SET_SCALE], 0)) != 0 && v - 1 != PsxHd_Scale()) {
-            PsxHd_SetScale(v - 1);
-            printf("[gpu] scale %dx (F1)\n", PsxHd_Scale());
-            Settings_Set(SET_SCALE, PsxHd_Scale());
+        if ((v = SDL_SetAtomicInt(&wanted[SET_SCALE], 0)) != 0) {
+            Settings_Set(SET_SCALE, v - 1);
+            PsxHd_SetScale(Host_ResolveScale(v - 1));
+            printf("[gpu] scale %s%dx (F1)\n", v - 1 == 0 ? "auto " : "", PsxHd_Scale());
         }
         if ((v = SDL_SetAtomicInt(&wanted[SET_WIDE], 0)) != 0 && v - 1 != PsxHd_Wide()) {
             Host_SetWide(v - 1);
-            printf("[gpu] 16:9 %s (F1)\n", PsxHd_Wide() ? "on" : "off");
+            printf("[gpu] aspect %s (F1)\n", aspect_name(PsxHd_Wide()));
             Settings_Set(SET_WIDE, PsxHd_Wide());
         }
         if ((v = SDL_SetAtomicInt(&wanted[SET_PGXP], 0)) != 0 && v - 1 != PsxHd_Pgxp()) {
@@ -1019,6 +1070,19 @@ void Host_GameEvents(void) {
                    PsxHd_Smooth() && !PsxHd_Gpu() ? ": needs the GPU renderer" : "");
             Settings_Set(SET_SMOOTH, PsxHd_Smooth());
         }
+        if ((v = SDL_SetAtomicInt(&wanted[SET_TEX_FILTER], 0)) != 0) {
+            Settings_Set(SET_TEX_FILTER, v - 1);
+            PsxHd_SetTexFilter(v - 1 == SET_TEXF_BILINEAR);
+            printf("[gpu] texture filter %s (F1)\n", PsxHd_TexFilter() ? "bilinear" : "nearest");
+        }
+        fflush(stdout);
+    }
+    if (r & REQ_TEXF) {
+        Settings_Set(SET_TEX_FILTER, PsxHd_TexFilter() ? SET_TEXF_NEAREST : SET_TEXF_BILINEAR);
+        PsxHd_SetTexFilter(Settings_Get(SET_TEX_FILTER) == SET_TEXF_BILINEAR);
+        printf("[gpu] texture filter %s (F4)\n", PsxHd_TexFilter() ? "bilinear" : "nearest");
+        notice("Texture filter %s (F4)%s", PsxHd_TexFilter() ? "bilinear" : "off",
+               PsxHd_TexFilter() && PsxHd_Scale() == 1 && !PsxHd_Wide() ? ", needs scale 2x or more" : "");
         fflush(stdout);
     }
     if (r & REQ_SHARPEN) {
@@ -1059,18 +1123,42 @@ void Host_GameEvents(void) {
         fflush(stdout);
     }
     if (r & REQ_SCALE) {
-        PsxHd_SetScale(PsxHd_Scale() % 8 + 1);
-        printf("[gpu] scale %dx (F5)\n", PsxHd_Scale());
-        notice("Resolution scale %dx (F5)", PsxHd_Scale());
-        Settings_Set(SET_SCALE, PsxHd_Scale());
+        /* dw2-pc-port: Auto, 1x .. 12x, Auto */
+        int set = (Settings_Get(SET_SCALE) + 1) % (PSXHD_MAX_SCALE + 1);
+
+        Settings_Set(SET_SCALE, set);
+        PsxHd_SetScale(Host_ResolveScale(set));
+        printf("[gpu] scale %s%dx (F5)\n", set == 0 ? "auto " : "", PsxHd_Scale());
+        if (set == 0) {
+            notice("Resolution scale auto: %dx, %d lines (F5)", PsxHd_Scale(), 240 * PsxHd_Scale());
+        } else {
+            notice("Resolution scale %dx, %d lines (F5)", PsxHd_Scale(), 240 * PsxHd_Scale());
+        }
         fflush(stdout);
     }
     if (r & REQ_WIDE) {
-        Host_SetWide(!PsxHd_Wide());
-        printf("[gpu] 16:9 %s (F7)\n", PsxHd_Wide() ? "on" : "off");
-        notice("16:9 widescreen %s (F7)", PsxHd_Wide() ? "on" : "off");
+        /* dw2-pc-port: 4:3 -> 16:9 -> 21:9 -> 4:3 */
+        Host_SetWide((PsxHd_Wide() + 1) % 3);
+        printf("[gpu] aspect %s (F7)\n", aspect_name(PsxHd_Wide()));
+        notice("Aspect ratio %s (F7)", aspect_name(PsxHd_Wide()));
         Settings_Set(SET_WIDE, PsxHd_Wide());
         fflush(stdout);
+    }
+    if (Settings_Get(SET_SCALE) == 0) {
+        /* dw2-pc-port auto scale: follow the window once a new size held for half a second */
+        int want = Host_ResolveScale(0);
+
+        if (want == PsxHd_Scale()) {
+            auto_stable = 0;
+        } else if (want != auto_want) {
+            auto_want = want;
+            auto_stable = 0;
+        } else if (++auto_stable >= 30) {
+            PsxHd_SetScale(want);
+            printf("[gpu] auto scale %dx (picture %d lines)\n", PsxHd_Scale(), SDL_GetAtomicInt(&out_pic_h));
+            fflush(stdout);
+            auto_stable = 0;
+        }
     }
     if (r & REQ_PGXP) {
         Host_SetPgxp(!PsxHd_Pgxp());
@@ -1096,11 +1184,14 @@ void Host_GameEvents(void) {
 /* PR.34, main thread: vsync on while smooth frames are on (one picture per refresh). */
 static int smooth_vsync(void) {
     int sm = SDL_GetAtomicInt(&smooth_on) && !(SDL_GetWindowFlags(window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
+    /* dw2-pc-port: the vsync setting turns it on without smooth frames too */
+    int want = sm || (Settings_Get(SET_VSYNC) && !(SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED));
 
-    if (sm != shown_vsync) {
-        shown_vsync = sm;
-        vsync_ok = SDL_SetRenderVSync(renderer, sm ? 1 : 0);
-        printf("[host] vsync %s%s\n", sm ? "on (smooth frames)" : "off", vsync_ok ? "" : ": not available");
+    if (want != shown_vsync) {
+        shown_vsync = want;
+        vsync_ok = SDL_SetRenderVSync(renderer, want ? 1 : 0);
+        printf("[host] vsync %s%s\n", want ? (sm ? "on (smooth frames)" : "on (setting)") : "off",
+               vsync_ok ? "" : ": not available");
         fflush(stdout);
     }
     return sm;

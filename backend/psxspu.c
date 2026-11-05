@@ -45,6 +45,18 @@ typedef struct {
 static uint16_t regs[0x200]; /* register file as written (halfwords at 0x1F801C00..) */
 static Voice voices[24];
 static int main_level[2];
+static int voice_gain[24] = { 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768,
+                              32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768 };
+static int cd_gain = 32768;
+
+void PsxSpu_SetGains(const int *g, int cd) {
+    int i;
+
+    for (i = 0; i < 24; i++) {
+        voice_gain[i] = g[i];
+    }
+    cd_gain = cd;
+}
 static EnvState main_env[2];
 static uint32_t endx;
 static uint32_t transfer_addr;
@@ -470,6 +482,9 @@ void PsxSpu_Render(int16_t *out, int n) {
             sample += (gauss_tbl[ip] * v->s[idx + 3]) >> 15;
             if (non & (1u << i)) sample = (int16_t)noise_level;
             sample = (sample * v->level) >> 15;
+            if (voice_gain[i] != 32768) {
+                sample = (sample * voice_gain[i]) >> 15; /* dw2-pc-port music / effects volume */
+            }
             v->vol_level[0] = volume_step(regs[i * 8 + 0], &v->vol_env[0], v->vol_level[0]);
             v->vol_level[1] = volume_step(regs[i * 8 + 1], &v->vol_env[1], v->vol_level[1]);
             {
@@ -496,6 +511,10 @@ void PsxSpu_Render(int16_t *out, int n) {
         }
         /* CD input (XA through the CD controller, PR.5): ATTR bit 0 mixes it, bit 2 also into the
          * reverb, at the CD volume (0x1B0 / 0x1B2). The CD keeps flowing either way. */
+        if (cd_gain != 32768) {
+            cd_l = (int16_t)((cd_l * cd_gain) >> 15); /* dw2-pc-port voice / movie volume */
+            cd_r = (int16_t)((cd_r * cd_gain) >> 15);
+        }
         if (attr & 1) {
             int vl = (cd_l * (int16_t)regs[0x1B0 >> 1]) >> 15, vr = (cd_r * (int16_t)regs[0x1B2 >> 1]) >> 15;
             l += vl;

@@ -24,6 +24,10 @@ uint16_t PsxSpu_Read16(uint32_t off);
 void PsxSpu_DmaWrite(const uint32_t *src, uint32_t words);
 void PsxSpu_DmaRead(uint32_t *dst, uint32_t words);
 
+/* dw2-pc-port: per-voice output gain (Q15, 32768 = as the game set it) and the gain of the CD
+ * input (XA). The game's registers and envelopes are untouched; only the mix is scaled. */
+void PsxSpu_SetGains(const int *voice_gain24, int cd_gain);
+
 /* Produce n stereo frames (s16 L, R interleaved) at 44100 Hz. */
 void PsxSpu_Render(int16_t *out, int n);
 

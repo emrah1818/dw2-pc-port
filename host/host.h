@@ -68,7 +68,8 @@ void Host_SetPgxp(int on);
 /* host/sdl.c: PR.2b sharpening of the HD picture, 0..100 (0 off; F8 toggles back to the last). */
 void Host_SetSharpen(int strength);
 /* host/sdl.c: PG.3 16:9 on / off (wide HD surfaces, 16:9 window picture). */
-void Host_SetWide(int on);
+void Host_SetWide(int on); /* dw2-pc-port: 0 = 4:3, 1 = 16:9, 2 = 21:9 */
+int Host_ResolveScale(int setting); /* dw2-pc-port: scale setting (0 = auto) -> render scale */
 /* host/sdl.c: PR.34 smooth frames on / off (--smooth, F9, settings smooth; GPU renderer, uses the
  * PGXP vertices). Host_SmoothLayer, for the game C (draw pass, writes no game state): the packets
  * from start to end (addresses) are a 2D layer at offset x, y (VRAM pixels) this frame, moved
@@ -106,6 +107,11 @@ void Host_InputPad2Keys(void);
  * is full. */
 int Host_InputScriptAdd(int port, unsigned int at, unsigned short bits, unsigned int len);
 void Host_InputScriptTick(unsigned int wait);
+/* dw2-pc-port test harness (host/bot.c): --bot IN OUT lock-step control channel. */
+int Host_BotOpen(const char *in_path, const char *out_path);
+int Host_BotActive(void);
+unsigned short Host_BotButtons(void);
+void Host_BotTick(unsigned int wait);
 /* "Start", "Down+Cross" ... (bit names as logged) -> mask, 0 if a name is unknown. */
 unsigned short Host_PadParseButtons(const char *names);
 

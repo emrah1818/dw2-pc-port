@@ -43,7 +43,7 @@ typedef struct {
 #define FENCES 8 /* PR.36: submissions in flight per thread before a submit waits */
 #define ROW_BYTES (PSXGPU_VRAM_W * 2)
 
-enum { F_DITHER = 1, F_BLOCK = 2, F_CLAMP = 0x200, F_SETMASK = 0x100 };
+enum { F_DITHER = 1, F_BLOCK = 2, F_CLAMP = 0x200, F_SETMASK = 0x100, F_FILTER = 0x400 };
 #define F_PASS(p) ((uint32_t)(p) << 2)
 #define F_ABR(a) ((uint32_t)(a) << 4)
 #define F_KIND(k) ((uint32_t)(k) << 6)
@@ -470,6 +470,19 @@ static void tri(Ctx *x, const PsxHdCmd *c, int scale) {
     }
     if (st->set_mask) {
         fl |= F_SETMASK;
+    }
+    if (t != NULL && !block && PsxHd_TexFilter()) {
+        /* dw2-pc-port: bilinear inside the triangle's UV box */
+        int u0 = p[0].u, u1 = p[0].u, v0 = p[0].v, v1 = p[0].v;
+
+        for (i = 1; i < 3; i++) {
+            u0 = p[i].u < u0 ? p[i].u : u0;
+            u1 = p[i].u > u1 ? p[i].u : u1;
+            v0 = p[i].v < v0 ? p[i].v : v0;
+            v1 = p[i].v > v1 ? p[i].v : v1;
+        }
+        fl |= F_FILTER;
+        lim = (uint32_t)u0 | (uint32_t)u1 << 8 | (uint32_t)v0 << 16 | (uint32_t)v1 << 24;
     }
     for (i = 0; i < 3; i++) {
         const PsxVtx *q = c->gouraud ? &p[i] : &p[0];

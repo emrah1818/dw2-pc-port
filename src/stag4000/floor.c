@@ -320,7 +320,14 @@ void Stg40_ProjectGrid(Stg40FloorWork *w) {
         cols = 0xB;
     }
 #ifdef DW2_NATIVE
-    Stg40_WideCols = Host_WideMargin(centerX * 2) != 0 ? STG40_WIDE_COLS : 0;
+    {
+        /* PG.3: 2 columns cover the 16:9 margin (53 of 320 pixels); dw2-pc-port: as many more
+         * for wider margins (21:9: 120 pixels, 5 columns), at most STG40_WIDE_COLS */
+        s32 m = Host_WideMargin(centerX * 2) * 160 / (centerX != 0 ? centerX : 160); /* in 320 pixels */
+        s32 c = m == 0 ? 0 : (m * 2 + 52) / 53;
+
+        Stg40_WideCols = c > STG40_WIDE_COLS ? STG40_WIDE_COLS : c;
+    }
     cols += 2 * Stg40_WideCols;
 #endif
     n.lo = rows;

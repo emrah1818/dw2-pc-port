@@ -17,6 +17,7 @@
 #define DISCORD_URL "https://discord.gg/nHXAq2fdCJ"
 
 extern "C" void Host_RequestSetting(int id, int value);
+extern "C" int Host_ResolveScale(int setting);
 extern "C" void Host_AudioSetVolume(int volume);
 extern "C" const char *Host_RendererName(void);
 extern "C" int Host_WindowMode(void);
@@ -194,27 +195,107 @@ ImGuiTabItemFlags tab_flags(const char *name) {
     return SDL_strcasecmp(g_start_tab, name) == 0 ? ImGuiTabItemFlags_SetSelected : 0;
 }
 
+void apply_profile(int p) {
+    /* dw2-pc-port: Classic / Remastered (host/settings.c Settings_ProfileValue) */
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+
+    for (int id : ids) {
+        Host_RequestSetting(id, Settings_ProfileValue(p, id));
+    }
+}
+
+int profile_now(void) {
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+
+    for (int p = SET_PROFILE_CLASSIC; p <= SET_PROFILE_REMASTERED; p++) {
+        bool all = true;
+
+        for (int id : ids) {
+            all = all && Settings_Get(id) == Settings_ProfileValue(p, id);
+        }
+        if (all) {
+            return p;
+        }
+    }
+    return -1;
+}
+
 void display_tab(void) {
     int scale = Settings_Get(SET_SCALE);
-    bool wide = Settings_Get(SET_WIDE) != 0;
+    int wide = Settings_Get(SET_WIDE);
     bool pgxp = Settings_Get(SET_PGXP) != 0;
     int renderer = Settings_Get(SET_RENDERER);
     int sharpen = Settings_Get(SET_SHARPEN);
     bool smooth = Settings_Get(SET_SMOOTH) != 0;
     bool hint = Settings_Get(SET_TITLE_HINT) != 0;
+    int filter = Settings_Get(SET_TEX_FILTER);
+    bool vsync = Settings_Get(SET_VSYNC) != 0;
+    int ui = Settings_Get(SET_UI_SCALE);
+    int prof = profile_now();
+
+    ImGui::SeparatorText("Profile");
+    if (ImGui::RadioButton("Classic", prof == SET_PROFILE_CLASSIC)) {
+        apply_profile(SET_PROFILE_CLASSIC);
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Remastered", prof == SET_PROFILE_REMASTERED)) {
+        apply_profile(SET_PROFILE_REMASTERED);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled(prof < 0 ? "(custom)" : "");
+    ImGui::TextDisabled("Classic: the PS1 picture. Remastered: sharp 3D at your resolution, widescreen,");
+    ImGui::TextDisabled("no wobble, smooth frames, filtered textures. Gameplay is the same in both.");
 
     ImGui::SeparatorText("Picture");
-    if (ImGui::SliderInt("Resolution scale (F5)", &scale, 1, 8, "%dx")) {
-        Host_RequestSetting(SET_SCALE, scale);
+    {
+        /* dw2-pc-port: Auto, 1x .. 12x with the lines they draw */
+        static const int steps[] = { 0, 1, 2, 3, 4, 5, 6, 8, 9, 12 };
+        char label[64];
+
+        if (scale == 0) {
+            snprintf(label, sizeof(label), "Auto (now %dx, %d lines)", Host_ResolveScale(0), 240 * Host_ResolveScale(0));
+        } else {
+            snprintf(label, sizeof(label), "%dx (%d lines)", scale, 240 * scale);
+        }
+        if (ImGui::BeginCombo("Resolution (F5)", label)) {
+            for (int v : steps) {
+                char item[64];
+
+                if (v == 0) {
+                    snprintf(item, sizeof(item), "Auto: fits the window");
+                } else {
+                    snprintf(item, sizeof(item), "%dx: %d lines%s", v, 240 * v,
+                             v == 1 ? " (PS1)" : v == 3 ? " (720p)" : v == 5 ? " (1080p+)" : v == 6 ? " (1440p WQHD)"
+                             : v == 9 ? " (2160p 4K)" : v == 12 ? " (2880p 5K)" : "");
+                }
+                if (ImGui::Selectable(item, v == scale)) {
+                    Host_RequestSetting(SET_SCALE, v);
+                }
+            }
+            ImGui::EndCombo();
+        }
     }
-    ImGui::TextDisabled("1x = the PS1's own 320x240. Higher draws 3D sharper (%dx%d).", 320 * scale, 240 * scale);
-    if (ImGui::Checkbox("16:9 widescreen (F7)", &wide)) {
-        Host_RequestSetting(SET_WIDE, wide);
+    ImGui::TextDisabled("Auto draws 3D at the window's height: Full HD, WQHD and 4K stay sharp.");
+    {
+        const char *aspects[] = { "4:3 (PS1)", "16:9 widescreen", "21:9 ultrawide" };
+
+        if (ImGui::Combo("Aspect ratio (F7)", &wide, aspects, 3)) {
+            Host_RequestSetting(SET_WIDE, wide);
+        }
     }
+    ImGui::TextDisabled("Widescreen shows more of the 3D world; menus and text stay 4:3.");
     if (ImGui::Checkbox("No wobble (F6)", &pgxp)) {
         Host_RequestSetting(SET_PGXP, pgxp);
     }
     ImGui::TextDisabled("Removes the PS1 vertex jitter and texture warp (PGXP).");
+    {
+        const char *filters[] = { "Off (original pixels)", "Bilinear (3D only)" };
+
+        if (ImGui::Combo("Texture filtering (F4)", &filter, filters, 2)) {
+            Host_RequestSetting(SET_TEX_FILTER, filter);
+        }
+    }
+    ImGui::TextDisabled("Smooths 3D textures; text, menus and 2D art keep their pixels.");
     if (ImGui::SliderInt("Sharpening (F8)", &sharpen, 0, 100, sharpen == 0 ? "off" : "%d")) {
         Host_RequestSetting(SET_SHARPEN, sharpen);
     }
@@ -226,8 +307,23 @@ void display_tab(void) {
     if (ImGui::Checkbox("Smooth frames (F9)", &smooth)) {
         Host_RequestSetting(SET_SMOOTH, smooth);
     }
-    ImGui::TextDisabled("Pictures at the monitor's refresh rate, blended between game frames in the");
-    ImGui::TextDisabled("city, dungeons and battles (GPU renderer). The game itself runs as before.");
+    ImGui::TextDisabled("Pictures at the monitor's refresh rate (60 / 120 / 144 Hz and more), blended");
+    ImGui::TextDisabled("between game frames (GPU renderer). The game logic runs at its original rate.");
+    if (ImGui::Checkbox("VSync", &vsync)) {
+        Settings_Set(SET_VSYNC, vsync);
+    }
+    ImGui::TextDisabled("Waits for the monitor: no tearing, slightly more input delay.");
+
+    ImGui::SeparatorText("Interface");
+    {
+        int pct = ui == 0 ? 0 : ui;
+
+        if (ImGui::SliderInt("Menu size", &pct, 0, 300, pct == 0 ? "auto" : "%d%%")) {
+            pct = pct != 0 && pct < 50 ? 50 : pct;
+            Settings_Set(SET_UI_SCALE, pct);
+        }
+    }
+    ImGui::TextDisabled("Size of this window and the notices; auto follows the window size.");
     if (ImGui::Checkbox("Show \"Press F1 for settings\" on the title", &hint)) {
         Settings_Set(SET_TITLE_HINT, hint);
     }
@@ -274,6 +370,13 @@ void controls_tab(void) {
     if (ImGui::Checkbox("Left stick moves like the D-pad", &stick)) {
         Settings_Set(SET_STICK_DPAD, stick);
     }
+    {
+        int dz = Settings_Get(SET_DEADZONE);
+
+        if (ImGui::SliderInt("Stick dead zone", &dz, 10, 90, "%d%%")) {
+            Settings_Set(SET_DEADZONE, dz);
+        }
+    }
     if (ImGui::Checkbox("Hold Select (Backspace or the gamepad's Back / Select) to open this window", &hold)) {
         Settings_Set(SET_SELECT_HOLD, hold);
     }
@@ -288,7 +391,7 @@ void controls_tab(void) {
         ImGui::TextColored(ImVec4(0.5f, 0.9f, 1.0f, 1.0f), "%s: press a %s (Esc cancels)",
                            Settings_ButtonName(g_cap_bit), g_cap_slot < 2 ? "key" : "gamepad button");
     } else {
-        ImGui::TextDisabled("Esc, Tab, F1, F2, F3, F5, F6, F7, F8, F9, F11 and F12 are reserved.");
+        ImGui::TextDisabled("Esc, Tab, F1 to F9, F11 and F12 are reserved.");
     }
     if (ImGui::BeginTable("binds", 4, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("PS1 button", ImGuiTableColumnFlags_WidthStretch, 1.0f);
@@ -378,11 +481,24 @@ void update_banner(void) {
 
 void sound_tab(void) {
     int v = Settings_Get(SET_VOLUME);
+    int m = Settings_Get(SET_MUSIC_VOL), fx = Settings_Get(SET_SFX_VOL), vo = Settings_Get(SET_VOICE_VOL);
 
-    if (ImGui::SliderInt("Volume", &v, 0, 100, "%d%%")) {
+    if (ImGui::SliderInt("Master volume", &v, 0, 100, "%d%%")) {
         Settings_Set(SET_VOLUME, v);
         Host_AudioSetVolume(v);
     }
+    ImGui::Spacing();
+    if (ImGui::SliderInt("Music", &m, 0, 100, "%d%%")) {
+        Settings_Set(SET_MUSIC_VOL, m);
+    }
+    if (ImGui::SliderInt("Sound effects", &fx, 0, 100, "%d%%")) {
+        Settings_Set(SET_SFX_VOL, fx);
+    }
+    if (ImGui::SliderInt("Voices and movies", &vo, 0, 100, "%d%%")) {
+        Settings_Set(SET_VOICE_VOL, vo);
+    }
+    ImGui::TextDisabled("Music is the background track; jingles and effects count as sound effects.");
+    ImGui::TextDisabled("Voices: the battle and DigiLab voice lines and the movie sound (CD audio).");
 }
 
 } // namespace
@@ -464,7 +580,7 @@ void SettingsUi_Draw(void) {
     ImGuiIO &io = ImGui::GetIO();
     ImVec2 ds = io.DisplaySize;
     float k = ImGui::GetStyle().FontScaleMain * ImGui::GetStyle().FontScaleDpi;
-    float w = 520.0f * k, h = 640.0f * k;
+    float w = 600.0f * k, h = 720.0f * k;
     bool open = true;
 
     w = w < ds.x * 0.95f ? w : ds.x * 0.95f;

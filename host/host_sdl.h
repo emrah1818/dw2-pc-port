@@ -97,6 +97,7 @@ void Host_AudioClose(void);
 /* host/sdl.c (PR.2): F1 window helpers, main thread */
 void Host_RequestSetting(int id, int value);
 const char *Host_RendererName(void);
+int Host_ResolveScale(int setting); /* dw2-pc-port (host/sdl.c) */
 
 /* host/sdl.c (PR.3): window modes (SET_WINDOW_*), main thread */
 int Host_WindowMode(void);

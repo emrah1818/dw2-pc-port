@@ -1,10 +1,60 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "host/host.h"
 #include "host/host_sdl.h"
 #include "backend/psxspu.h"
 #include "host/settings.h"
+#include "psyq/snd_native.h"
+
+/* dw2-pc-port: separate music / effects / voice volumes. DW2 plays music and effects alike as
+ * SEP sequences; the background music is the one Snd_PlayById started with set = 1
+ * (Snd_CurrentId). Each libsnd voice keeps the access number (SEP | sequence << 8) of the
+ * sequence that keyed it on (voice table 0x800624F8 + v * 0x38), so a voice playing that
+ * sequence is music and every other voice an effect. The streamed CD audio (XA: battle voice
+ * lines, the DNA scene, movie sound) has its own volume. */
+extern int Snd_CurrentId;
+extern int Snd_MusicAccess(void); /* src/main/sound.c */
+
+static int gain_q15(int percent) {
+    return percent * percent * 32768 / 10000; /* (v / 100)^2 like the master volume */
+}
+
+static int music_access(void) {
+    return Snd_MusicAccess();
+}
+
+static void update_gains(void) {
+    int g[24], music = music_access(), i;
+    int gm = gain_q15(Settings_Get(SET_MUSIC_VOL)), gs = gain_q15(Settings_Get(SET_SFX_VOL));
+
+    for (i = 0; i < 24; i++) {
+        int acc = (int)Snd_R16(0x800624F8u + (uint32_t)i * 0x38u);
+
+        g[i] = music >= 0 && acc == music ? gm : gs;
+    }
+    PsxSpu_SetGains(g, gain_q15(Settings_Get(SET_VOICE_VOL)));
+    if (getenv("DW2_AUDIO_DEBUG") != NULL) {
+        static int n;
+
+        if (++n % 120 == 0) {
+            printf("[audio] music id %d access 0x%X:", Snd_CurrentId, music);
+            for (i = 0; i < 24; i++) {
+                if (Snd_R8(0x80062505u + (uint32_t)i * 0x38u) != 0) {
+                    printf(" v%d=0x%X", i, Snd_R16(0x800624F8u + (uint32_t)i * 0x38u));
+                }
+            }
+            printf("\n");
+        }
+    }
+}
+
+int Host_AudioVoiceIsMusic(int voice) {
+    int music = music_access();
+
+    return music >= 0 && voice >= 0 && voice < 24 && (int)Snd_R16(0x800624F8u + (uint32_t)voice * 0x38u) == music;
+}
 
 /* Audio device: 44.1 kHz stereo s16 (the SPU's own rate), fed from the VBlank tick on the main
  * thread with frames of the emulated SPU (backend/psxspu.c). Keeps about 4 VBlanks queued, so
@@ -34,6 +84,7 @@ static void wav_header(void) {
 
 static void render(int frames) {
     static int checked;
+    update_gains();
     PsxSpu_Render(mixbuf, frames);
     if (!checked) {
         const char *path = getenv("DW2_WAV");

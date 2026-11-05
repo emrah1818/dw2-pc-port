@@ -10,8 +10,8 @@
  * v_par.z flags: 0 dither, 1 sprite-like (sample at the 1x pixel), 2-3 pass (0 all, 1 opaque
  *         texels only, 2 semi-transparent texels / pixels only), 4-5 abr, 6-7 kind (0 primitive,
  *         1 fill: colour = 5-bit value << 3, 2 VRAM copy: uv = VRAM position), 8 set mask,
- *         9 clamp u to the limits
- * v_par.w u limits: min | max << 8 */
+ *         9 clamp u to the limits, 10 bilinear (dw2-pc-port texture filtering)
+ * v_par.w u limits: min | max << 8; with bit 10 also v limits: min << 16 | max << 24 */
 
 layout(location = 0) in vec2 v_uv;
 layout(location = 1) noperspective in vec3 v_col;
@@ -41,6 +41,24 @@ ivec3 to5(ivec3 c8, int d) {
 
 vec4 out_col(ivec3 c5, bool mask) {
     return vec4(vec3((c5 << 3) | (c5 >> 2)) / 255.0, mask ? 1.0 : 0.0);
+}
+
+uint fetch(int u, int v, uint tex, uint win) {
+    int mx = int(win & 31u) * 8, my = int((win >> 5) & 31u) * 8;
+    int ox = int((win >> 10) & 31u) * 8, oy = int((win >> 15) & 31u) * 8;
+    int tx = int((tex >> 4) & 15u) * 64, ty = int((tex >> 8) & 1u) * 256;
+    int cx = int((tex >> 9) & 63u) * 16, cy = int((tex >> 15) & 511u);
+
+    u = ((u & ~mx) | (ox & mx)) & 255;
+    v = ((v & ~my) | (oy & my)) & 255;
+    switch (tex & 3u) {
+    case 0u:
+        return vram16(cx + int((vram16(tx + (u >> 2), ty + v) >> ((u & 3) * 4)) & 15u), cy);
+    case 1u:
+        return vram16(cx + int((vram16(tx + (u >> 1), ty + v) >> ((u & 1) * 8)) & 255u), cy);
+    default:
+        return vram16(tx + u, ty + v);
+    }
 }
 
 void main() {
@@ -73,7 +91,49 @@ void main() {
         return;
     }
     int d = (fl & 1u) != 0u ? dither_tbl[((P.y / S) & 3) * 4 + ((P.x / S) & 3)] : 0;
-    if ((tex & 8u) != 0u) {
+    if ((tex & 8u) != 0u && (fl & 0x400u) != 0u) {
+        /* dw2-pc-port bilinear: as hshade_bilinear in backend/psxgpu_hd.c (8.8 weights, UV box
+         * clamp, transparent texels carry no colour, semi bit of the heaviest opaque texel) */
+        ivec2 f = ivec2(floor(uv * 256.0 + 0.5)) - 128;
+        ivec2 b0 = f >> 8;
+        ivec2 a = f & 255;
+        int umin = int(v_par.w & 255u), umax = int((v_par.w >> 8) & 255u);
+        int vmin = int((v_par.w >> 16) & 255u), vmax = int((v_par.w >> 24) & 255u);
+        int us0 = clamp(b0.x, umin, umax), us1 = clamp(b0.x + 1, umin, umax);
+        int vs0 = clamp(b0.y, vmin, vmax), vs1 = clamp(b0.y + 1, vmin, vmax);
+        uint t4[4] = uint[4](fetch(us0, vs0, tex, win), fetch(us1, vs0, tex, win), fetch(us0, vs1, tex, win),
+                             fetch(us1, vs1, tex, win));
+        int w4[4] = int[4]((256 - a.x) * (256 - a.y), a.x * (256 - a.y), (256 - a.x) * a.y, a.x * a.y);
+        int W = 0, best = 0, bestw = -1;
+        ivec3 sum = ivec3(0);
+
+        for (int i = 0; i < 4; i++) {
+            if (t4[i] == 0u) {
+                continue;
+            }
+            W += w4[i];
+            sum += w4[i] * ivec3(t4[i] & 31u, (t4[i] >> 5) & 31u, (t4[i] >> 10) & 31u);
+            if (w4[i] > bestw) {
+                bestw = w4[i];
+                best = i;
+            }
+        }
+        if (W < 32768) {
+            discard;
+        }
+        bool tsemi = (t4[best] & 0x8000u) != 0u;
+        if ((pass == 1 && tsemi) || (pass == 2 && !tsemi)) {
+            discard;
+        }
+        /* texel colour x 8, rounded: (sum * 8 + W / 2) / W (sum < 2^21, so sum * 8 fits in 32 bits) */
+        ivec3 t8 = (sum * 8 + W / 2) / W;
+        if ((tex & 4u) == 0u) {
+            c5 = to5((t8 * col) >> 7, d);
+        } else {
+            c5 = t8 >> 3;
+        }
+        mask = mask || tsemi;
+    } else if ((tex & 8u) != 0u) {
         int u, v, tx, ty, cx, cy;
         uint t;
         int mx = int(win & 31u) * 8, my = int((win >> 5) & 31u) * 8;

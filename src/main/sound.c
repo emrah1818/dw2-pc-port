@@ -226,6 +226,19 @@ void Snd_SetSlotContent(s32 idx, s32 v) {
     }
 }
 
+#ifdef DW2_NATIVE
+/* dw2-pc-port (host/audio.c music volume): the libsnd access number (SEP | sequence << 8) of the
+ * background music Snd_PlayById started with set = 1, or -1. */
+s32 Snd_MusicAccess(void) {
+    s32 id = Snd_CurrentId;
+
+    if (id < 0 || (id >> 8) > 2 || ((id >> 4) & 0xF) > 9) {
+        return -1;
+    }
+    return (Snd_Slots[id >> 8].sepIds[(id >> 4) & 0xF] & 0xFF) | (id & 0xF) << 8;
+}
+#endif
+
 void Snd_PlayById(s32 id, s32 set) {
     s32 k;
     s32 i;

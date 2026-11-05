@@ -39,6 +39,9 @@ typedef struct {
     int raw;
 } PsxTex;
 
+/* dw2-pc-port: scale 1..PSXHD_MAX_SCALE (12: 2880 lines, 9 = 2160 = 4K). */
+#define PSXHD_MAX_SCALE 12
+
 /* Scale 1..8. The HD path is on with a scale above 1 or 16:9. Surfaces are rebuilt from the 1x
  * VRAM at the next use. */
 void PsxHd_SetScale(int scale);
@@ -50,7 +53,7 @@ void PsxHd_SetThreads(int n);
 /* PG.3 16:9: wide surfaces (margins of PsxHd_Margin(w) VRAM pixels per side, 0 when off).
  * PsxHd_PillarboxFrame: the frame being built keeps black sides (2D-only pictures);
  * PsxHd_BeginFrame (libgpu DrawOTag) starts drawing a frame and takes that mark. */
-void PsxHd_SetWide(int on);
+void PsxHd_SetWide(int on); /* dw2-pc-port: 0 = 4:3, 1 = 16:9, 2 = 21:9 */
 int PsxHd_Wide(void);
 int PsxHd_Margin(int w);
 void PsxHd_PillarboxFrame(void);
@@ -58,6 +61,9 @@ void PsxHd_BeginFrame(void);
 /* PG.2 no-wobble geometry: polygons whose vertices all have a precise GTE position
  * (backend/pgxp.c) are drawn there, with perspective-correct texture mapping. */
 void PsxHd_SetPgxp(int on);
+/* dw2-pc-port: bilinear filtering of 3D polygon textures (2D sprites and rects stay exact). */
+void PsxHd_SetTexFilter(int on);
+int PsxHd_TexFilter(void);
 int PsxHd_Pgxp(void);
 
 /* PR.2b sharpening of the HD picture (contrast adaptive, strength 0..100, 0 = off): applied by

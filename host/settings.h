@@ -11,11 +11,11 @@ extern "C" {
 #endif
 
 enum {
-    SET_SCALE,      /* 1..8 */
-    SET_WIDE,       /* 0 / 1 */
+    SET_SCALE,      /* dw2-pc-port: 0 = auto (fits the window), 1..12 */
+    SET_WIDE,       /* dw2-pc-port: 0 = 4:3, 1 = 16:9, 2 = 21:9 */
     SET_PGXP,       /* 0 / 1 */
     SET_RENDERER,   /* SET_RENDERER_GPU / SET_RENDERER_SOFT, used at the next start */
-    SET_VOLUME,     /* 0..100 */
+    SET_VOLUME,     /* 0..100: master */
     SET_STICK_DPAD, /* 0 / 1 */
     SET_WINDOW_MODE, /* SET_WINDOW_* (PR.3) */
     SET_FS_DISPLAY, /* 0 = the display the window is on, N = the Nth display */
@@ -26,9 +26,19 @@ enum {
     SET_UPDATE_CHECK, /* 0 / 1: PR.30 ask GitHub for a newer release at start */
     SET_SMOOTH,       /* 0 / 1: PR.34 smooth frames (F9), on by default */
     SET_SELECT_HOLD,  /* 0 / 1: PR.38 Select held 1 s opens F1 (issue #5), on by default */
+    /* dw2-pc-port */
+    SET_MUSIC_VOL,    /* 0..100: music (sequenced sound driver voices) */
+    SET_SFX_VOL,      /* 0..100: sound effects */
+    SET_VOICE_VOL,    /* 0..100: streamed CD audio (battle voices, movies) */
+    SET_UI_SCALE,     /* 0 = auto, else 50..300 %: the F1 window and notices */
+    SET_TEX_FILTER,   /* SET_TEXF_*: 3D texture filtering */
+    SET_DEADZONE,     /* 10..90 %: left stick as D-pad threshold */
+    SET_VSYNC,        /* 0 / 1: present with vsync */
     SET_COUNT
 };
 enum { SET_RENDERER_GPU, SET_RENDERER_SOFT };
+enum { SET_TEXF_NEAREST, SET_TEXF_BILINEAR }; /* dw2-pc-port */
+enum { SET_PROFILE_CLASSIC, SET_PROFILE_REMASTERED }; /* dw2-pc-port: Settings_ProfileValue */
 enum { SET_WINDOW_WINDOWED, SET_WINDOW_BORDERLESS, SET_WINDOW_EXCLUSIVE };
 
 #define SET_KEY_SLOTS 2   /* keyboard keys per pad button */
@@ -77,7 +87,11 @@ extern const int Settings_ButtonOrder[16];
 void Settings_SaveIfDirty(void);
 /* Main thread, at shutdown: write a pending change now. */
 void Settings_Flush(void);
-const char *Settings_FilePath(void); /* NULL when no file is used (headless without --settings) */
+const char *Settings_FilePath(void);
+/* dw2-pc-port graphics profiles: the value profile p gives setting id, or -1 when p leaves it. */
+int Settings_ProfileValue(int p, int id);
+/* 1 when the settings file did not exist at start (first run): main() applies Remastered. */
+int Settings_FirstRun(void); /* NULL when no file is used (headless without --settings) */
 
 #ifdef __cplusplus
 }

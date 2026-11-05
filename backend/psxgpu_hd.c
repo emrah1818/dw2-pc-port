@@ -48,6 +48,7 @@ static int frame_wide, pillar_next; /* this frame draws into the margins / next 
 static unsigned serial;
 static int last_margin; /* margin of the last ReadDisplay picture, output pixels */
 static int sharpen;     /* PR.2b strength 0..100 */
+static int texfilter;   /* dw2-pc-port: bilinear 3D textures */
 static uint32_t *sharp_buf; /* PR.2b: the picture before sharpening (soft) */
 static size_t sharp_cap;
 static void *sharp_tex; /* PR.2b: the sharpened picture of a read (GPU) */
@@ -339,13 +340,26 @@ void PsxHd_Sync(void) {
 }
 
 void PsxHd_SetScale(int s) {
-    s = s < 1 ? 1 : s > 8 ? 8 : s;
+    s = s < 1 ? 1 : s > PSXHD_MAX_SCALE ? PSXHD_MAX_SCALE : s;
     if (s != scale) {
         flush();
         release_all();
         scale = s;
         serial++;
     }
+}
+
+void PsxHd_SetTexFilter(int on) {
+    on = on != 0;
+    if (on != texfilter) {
+        flush();
+        texfilter = on;
+        serial++;
+    }
+}
+
+int PsxHd_TexFilter(void) {
+    return texfilter;
 }
 
 int PsxHd_Scale(void) {
@@ -373,7 +387,8 @@ int PsxHd_SharpenActive(void) {
 }
 
 void PsxHd_SetWide(int on) {
-    on = on != 0;
+    /* dw2-pc-port: 0 = 4:3, 1 = 16:9, 2 = 21:9 */
+    on = on < 0 ? 0 : on > 2 ? 2 : on;
     if (on != wide) {
         flush();
         release_all();
@@ -387,7 +402,8 @@ int PsxHd_Wide(void) {
 }
 
 int PsxHd_Margin(int w) {
-    return wide ? (w + 3) / 6 : 0;
+    /* per side: 16:9 = w / 6 (4/3 * 4/3), 21:9 = 3 w / 8 (4/3 * 7/4) */
+    return wide == 2 ? (3 * w + 4) / 8 : wide ? (w + 3) / 6 : 0;
 }
 
 void PsxHd_PillarboxFrame(void) {
@@ -599,6 +615,63 @@ static void hshade(const PsxGpuState *st, uint16_t *p, const PsxTex *t, int u, i
     }
 }
 
+/* dw2-pc-port texture filtering: bilinear between the 4 texels around (fu, fv) (8.8 fixed point,
+ * texel centres at .5), the neighbours kept inside the primitive's UV box so atlas neighbours do
+ * not bleed in. Transparent texels (0x0000) carry no colour: the pixel is drawn when the opaque
+ * texels hold at least half the weight, with their colour; the semi-transparency bit comes from
+ * the heaviest opaque texel. */
+static void hshade_bilinear(const PsxGpuState *st, uint16_t *p, const PsxTex *t, int fu, int fv, int umin, int umax,
+                            int vmin, int vmax, int r, int g, int b, int semi, int abr, int d) {
+    int u0 = (fu - 128) >> 8, v0 = (fv - 128) >> 8;
+    int ax = (fu - 128) & 255, ay = (fv - 128) & 255;
+    int us[2], vs[2], w[4], i;
+    int W = 0, sr = 0, sg = 0, sb = 0, best = -1, bestw = -1;
+    uint16_t c[4];
+
+    us[0] = u0 < umin ? umin : u0 > umax ? umax : u0;
+    us[1] = u0 + 1 < umin ? umin : u0 + 1 > umax ? umax : u0 + 1;
+    vs[0] = v0 < vmin ? vmin : v0 > vmax ? vmax : v0;
+    vs[1] = v0 + 1 < vmin ? vmin : v0 + 1 > vmax ? vmax : v0 + 1;
+    w[0] = (256 - ax) * (256 - ay);
+    w[1] = ax * (256 - ay);
+    w[2] = (256 - ax) * ay;
+    w[3] = ax * ay;
+    for (i = 0; i < 4; i++) {
+        c[i] = texel(st, t, us[i & 1], vs[i >> 1]);
+        if (c[i] == 0) {
+            continue;
+        }
+        W += w[i];
+        sr += w[i] * (c[i] & 31);
+        sg += w[i] * ((c[i] >> 5) & 31);
+        sb += w[i] * ((c[i] >> 10) & 31);
+        if (w[i] > bestw) {
+            bestw = w[i];
+            best = i;
+        }
+    }
+    if (W < 32768) {
+        return;
+    }
+    {
+        /* texel colour x 8 (0..248), then the vertex colour as in hshade */
+        int tr = (int)(((int64_t)sr * 8 + W / 2) / W), tg = (int)(((int64_t)sg * 8 + W / 2) / W);
+        int tb = (int)(((int64_t)sb * 8 + W / 2) / W);
+        int sbit = c[best] & 0x8000;
+
+        if (!t->raw) {
+            tr = to5((tr * r) >> 7, d);
+            tg = to5((tg * g) >> 7, d);
+            tb = to5((tb * b) >> 7, d);
+        } else {
+            tr >>= 3;
+            tg >>= 3;
+            tb >>= 3;
+        }
+        hput(st, p, tr, tg, tb, semi && sbit, abr, sbit);
+    }
+}
+
 /* ---- triangles ---- */
 
 static int64_t fdiv(int64_t a, int64_t b) {
@@ -711,7 +784,7 @@ static void draw_tri(const Cmd *c, int part, int parts) {
     int miny, maxy, Y, i, k, natt;
     int dith = st->dither && (gouraud || (t != NULL && !t->raw));
     int block = 0;
-    int umin = 0, umax = 0;
+    int umin = 0, umax = 0, vmin = 0, vmax = 0, filt = 0, fu = 0, fv = 0;
     int persp = 0;
     double pw[3] = { 0 }, puw[3] = { 0 }, pvw[3] = { 0 };
 
@@ -781,6 +854,11 @@ static void draw_tri(const Cmd *c, int part, int parts) {
         umin = v[2]->u < umin ? v[2]->u : umin;
         umax = v[0]->u > v[1]->u ? v[0]->u : v[1]->u;
         umax = v[2]->u > umax ? v[2]->u : umax;
+        vmin = v[0]->v < v[1]->v ? v[0]->v : v[1]->v;
+        vmin = v[2]->v < vmin ? v[2]->v : vmin;
+        vmax = v[0]->v > v[1]->v ? v[0]->v : v[1]->v;
+        vmax = v[2]->v > vmax ? v[2]->v : vmax;
+        filt = texfilter && !block;
     }
     natt = gouraud ? 3 : 0;
 
@@ -887,12 +965,24 @@ static void draw_tri(const Cmd *c, int part, int parts) {
                     double iw = 1.0 / qw;
                     u = (int)floor(qu * iw + 1.0 / 512);
                     vv = (int)floor(qv * iw + 1.0 / 512);
+                    if (filt) {
+                        fu = (int)floor(qu * iw * 256.0 + 0.5);
+                        fv = (int)floor(qv * iw * 256.0 + 0.5);
+                    }
                 } else {
                     u = (int)(u24 >> 24);
                     vv = (int)(v24 >> 24);
+                    if (filt) {
+                        fu = (int)(u24 >> 16);
+                        fv = (int)(v24 >> 16);
+                    }
                 }
             }
-            hshade(st, row + X, t, u, vv, r, g, b, semi, abr, d);
+            if (filt) {
+                hshade_bilinear(st, row + X, t, fu, fv, umin, umax, vmin, vmax, r, g, b, semi, abr, d);
+            } else {
+                hshade(st, row + X, t, u, vv, r, g, b, semi, abr, d);
+            }
             for (k = 0; k < natt; k++) {
                 c24[k] += d24[k];
             }

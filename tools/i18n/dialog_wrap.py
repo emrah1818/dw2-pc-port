@@ -87,6 +87,37 @@ def wrap_page(page, W):
     return head, lines
 
 
+def paginate(words, W, cap, L):
+    """split a run of words into pages: the first takes at most `cap` lines, the others L. A page
+    ends at a sentence end when one fits, else the lines are spread evenly (no lone last word)."""
+    pages = []
+    while words:
+        lines = wrap_words(" ".join(words), W)
+        if len(lines) <= cap:
+            pages.append(lines)
+            break
+        best = None
+        for k in range(len(words) - 1, 0, -1):  # the latest sentence end that fits
+            if re.search(r"[.!?]+[\"']?$", TOK.sub("", words[k - 1])) and len(wrap_words(" ".join(words[:k]), W)) <= cap:
+                best = k
+                break
+        if best is None or best < len(words) // 3:
+            # no good sentence end: as many words as fill the lines evenly over the pages needed
+            need = 1 + -(-(len(lines) - cap) // L)
+            per = -(-len(lines) // need)
+            per = min(per, cap)
+            best = 1
+            for k in range(1, len(words)):
+                if len(wrap_words(" ".join(words[:k]), W)) <= per:
+                    best = k
+                else:
+                    break
+        pages.append(wrap_words(" ".join(words[:best]), W))
+        words = words[best:]
+        cap = L
+    return pages
+
+
 def layout(de, W, L):
     out_pages = []
     pages = de.split("{PAGE}")
@@ -96,19 +127,23 @@ def layout(de, W, L):
             out_pages.append(page)  # the commands after the last page break
             continue
         head, lines = wrap_page(page, W)
-        first_cap = L - 1 if head is not None else L
-        parts, k = [], 0
-        cap = first_cap
-        while k < len(lines):
-            parts.append(lines[k:k + cap])
-            k += cap
-            cap = L
+        cap = L - 1 if head is not None else L
+        if len(lines) <= cap or "{B:F80" in page:
+            parts = [lines[k:k + (cap if k == 0 else L)] for k in [0] + list(range(cap, len(lines), L))]
+        else:
+            # re-paginate the words (the trailing commands go back on the last page)
+            trail = re.search(r"((?:\{WAIT\}|\{B:[0-9A-F]+\})*)$", lines[-1]).group(1)
+            body = " ".join(lines)
+            if trail:
+                body = body[: len(body) - len(trail)]
+            words = [w for w in body.split(" ") if w]
+            parts = paginate(words, W, cap, L)
+            parts[-1][-1] += trail
         for j, part in enumerate(parts):
             txt = "{NL}".join(part)
             if j == 0 and head is not None:
                 txt = head + ("{NL}" + txt if txt else "")
             if j < len(parts) - 1:
-                # the part's own trailing commands stay at the very end of the page
                 txt += "{WAIT}"
             out_pages.append(txt)
     return "{PAGE}".join(out_pages)

@@ -1,4 +1,5 @@
 /* dw2-pc-port: external replacement textures (see texrep.h). */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,28 @@ static int ndumped;
 static int disabled;
 static size_t mem_used;
 static int stat_loaded, stat_failed, stat_uses;
+static FILE *logf_;
+
+/* [textures] lines: console and, when set, the log file */
+static void tlog(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    printf("[textures] ");
+    vprintf(fmt, ap);
+    va_end(ap);
+    if (logf_ != NULL) {
+        va_start(ap, fmt);
+        vfprintf(logf_, fmt, ap);
+        va_end(ap);
+        fflush(logf_);
+    }
+}
+
+void TexRep_SetLog(const char *path) {
+    if (logf_ == NULL && path != NULL) {
+        logf_ = fopen(path, "w");
+    }
+}
 
 static uint64_t fnv(uint64_t h, const void *p, size_t n) {
     const uint8_t *b = p;
@@ -82,7 +105,7 @@ static void add_entry(const char *name, const char *path) {
         return;
     }
     if (nentries >= MAX_ENTRIES) {
-        printf("[textures] more than %d files, %s ignored\n", MAX_ENTRIES, path);
+        tlog("more than %d files, %s ignored\n", MAX_ENTRIES, path);
         return;
     }
     i = nentries++;
@@ -162,7 +185,7 @@ void TexRep_AddRoot(const char *root) {
             name[len - 4] = 0;
             for (char *c = name; *c; c++) *c = (char)SDL_tolower((unsigned char)*c);
             if (!name_ok(name)) {
-                printf("[textures] %s/%s: not a texture id name (hash_WxH[_mN[_cCLUT]].png), skipped\n", dir, files[f]);
+                tlog("%s/%s: not a texture id name (hash_WxH[_mN[_cCLUT]].png), skipped\n", dir, files[f]);
                 bad++;
                 continue;
             }
@@ -175,7 +198,7 @@ void TexRep_AddRoot(const char *root) {
         }
         SDL_free(files);
         if (npacks < MAX_PACKS) packs[npacks++] = SDL_strdup(dirs[d]);
-        printf("[textures] pack %s: %d textures%s\n", dir, used, bad ? " (some names skipped)" : "");
+        tlog("pack %s: %d textures%s\n", dir, used, bad ? " (some names skipped)" : "");
         SDL_free(dir);
     }
     SDL_free(dirs);
@@ -270,19 +293,19 @@ static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
     e->tried = 1;
     s = SDL_LoadPNG(e->path);
     if (s == NULL) {
-        printf("[textures] %s: cannot read (%s), original kept\n", e->path, SDL_GetError());
+        tlog("%s: cannot read (%s), original kept\n", e->path, SDL_GetError());
         stat_failed++;
         return NULL;
     }
     if (s->w % bw || s->h % bh || s->w / bw != s->h / bh || s->w / bw < 1 || s->w / bw > 16) {
-        printf("[textures] %s: %dx%d is not 1..16 times the texture (%dx%d), original kept\n", e->path, s->w, s->h,
+        tlog("%s: %dx%d is not 1..16 times the texture (%dx%d), original kept\n", e->path, s->w, s->h,
                bw, bh);
         SDL_DestroySurface(s);
         stat_failed++;
         return NULL;
     }
     if (mem_used + (size_t)s->w * (size_t)s->h * 4 > MEM_LIMIT) {
-        printf("[textures] %s: over the memory limit (%u MiB), original kept\n", e->path, (unsigned)(MEM_LIMIT >> 20));
+        tlog("%s: over the memory limit (%u MiB), original kept\n", e->path, (unsigned)(MEM_LIMIT >> 20));
         SDL_DestroySurface(s);
         stat_failed++;
         return NULL;
@@ -307,14 +330,14 @@ static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
     }
     SDL_DestroySurface(c);
     if (img == NULL) {
-        printf("[textures] %s: out of memory, original kept\n", e->path);
+        tlog("%s: out of memory, original kept\n", e->path);
         stat_failed++;
         return NULL;
     }
     e->img = img;
     stat_loaded++;
     *k = img->w / bw;
-    printf("[textures] %s: %dx%d (%dx)\n", e->path, img->w, img->h, *k);
+    tlog("%s: %dx%d (%dx)\n", e->path, img->w, img->h, *k);
     return img;
 }
 
@@ -343,7 +366,7 @@ static void dump(const Upload *u, int mode, int cx, int cy, const char *name) {
     }
     SDL_asprintf(&path, "%s/%s.png", dump_dir, name);
     if (path != NULL && SDL_SavePNG(s, path)) {
-        printf("[textures] dumped %s\n", path);
+        tlog("dumped %s\n", path);
     }
     SDL_free(path);
     SDL_DestroySurface(s);

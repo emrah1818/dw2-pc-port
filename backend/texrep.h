@@ -37,6 +37,8 @@ typedef struct {
 void TexRep_AddRoot(const char *mods_textures_dir);
 void TexRep_SetDump(const char *dir);
 void TexRep_Disable(void);
+/* every [textures] line also into this file (Mods/Textures/textures_log.txt) */
+void TexRep_SetLog(const char *path);
 int TexRep_Count(void);       /* PNG files known from all packs */
 int TexRep_PackCount(void);
 const char *TexRep_PackName(int i);

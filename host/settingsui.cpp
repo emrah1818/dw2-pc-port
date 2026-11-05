@@ -37,6 +37,12 @@ extern "C" int Cheat_UndoResult(void);
 extern "C" int Cheat_UndoPending(void);
 extern "C" const char *Host_CardDir(void);
 extern "C" int Host_PakModCount(void);
+extern "C" int TexRep_Count(void);
+extern "C" int TexRep_PackCount(void);
+extern "C" const char *TexRep_PackName(int i);
+extern "C" void TexRep_Stats(int *loaded, int *failed, int *uses);
+extern "C" int PsxHd_On(void);
+extern "C" int PsxHd_Gpu(void);
 
 namespace {
 
@@ -138,6 +144,16 @@ const Tr k_tr[] = {
       "Anderes Image importieren: dw2.pak (und dw2.pak.slus) löschen und mit dem Image neben dw2.exe neu starten." },
     { "Diagnostics", "Diagnose" }, { "Information", "Informationen" },
     { "Mod files active: %d (Mods/files next to the program)", "Aktive Mod-Dateien: %d (Mods/files neben dem Programm)" },
+    { "Texture packs: %d (%d files, Mods/Textures)", "Texturpakete: %d (%d Dateien, Mods/Textures)" },
+    { "Open texture packs folder", "Texturpaket-Ordner öffnen" },
+    { "Replacements loaded: %d, faulty files: %d (details in the log)",
+      "Geladene Ersatztexturen: %d, fehlerhafte Dateien: %d (Einzelheiten im Protokoll)" },
+    { "Texture packs need the software renderer and a scale of 2 or more (restart after changing the renderer).",
+      "Texturpakete brauchen den Software-Renderer und eine Skalierung ab 2 (nach Renderer-Wechsel neu starten)." },
+    { "Texture packs: PNG files named after the texture id (dump them with --dump-textures DIR). Each pack is a "
+      "folder in Mods/Textures; a folder starting with _ is off. Restart to apply.",
+      "Texturpakete: PNG-Dateien mit dem Namen der Textur-ID (mit --dump-textures ORDNER erzeugen). Jedes Paket ist ein "
+      "Ordner in Mods/Textures; ein Ordner mit _ am Anfang ist aus. Wirkt nach einem Neustart." },
     { "Export game files", "Spieldateien exportieren" },
     { "Writes GameData next to the program: every disc file, textures as PNG, a folder per Digimon with its "
       "model, textures and data, and the game tables as JSON. From your disc: do not share it.",
@@ -886,10 +902,34 @@ void modding_tab(void) {
         open_folder(mods);
     }
     ImGui::Text(T("Mod files active: %d (Mods/files next to the program)"), Host_PakModCount());
+    ImGui::Separator();
+    {
+        /* dw2-pc-port texture packs (backend/texrep.c) */
+        int loaded = 0, failed = 0, uses = 0;
+        TexRep_Stats(&loaded, &failed, &uses);
+        ImGui::Text(T("Texture packs: %d (%d files, Mods/Textures)"), TexRep_PackCount(), TexRep_Count());
+        for (int i = 0; i < TexRep_PackCount(); i++) {
+            ImGui::BulletText("%s", TexRep_PackName(i));
+        }
+        if (TexRep_Count() > 0) {
+            ImGui::Text(T("Replacements loaded: %d, faulty files: %d (details in the log)"), loaded, failed);
+            if (!PsxHd_On() || PsxHd_Gpu()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "%s",
+                                   T("Texture packs need the software renderer and a scale of 2 or more (restart after changing the renderer)."));
+            }
+        }
+        if (ImGui::Button(TL("Open texture packs folder", "otex")) && base != NULL) {
+            snprintf(mods, sizeof(mods), "%sMods/Textures", base);
+            SDL_CreateDirectory(mods);
+            open_folder(mods);
+        }
+    }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("%s", T("Replace a texture: edit its PNG (same size) and run  dw2.exe --import-texture <PNG>. "
                                "Colours are mapped to the texture's own palette. Changes show after a restart."));
     ImGui::TextWrapped("%s", T("Restore originals: delete the files in Mods/files (or start with --no-mods)."));
+    ImGui::TextWrapped("%s", T("Texture packs: PNG files named after the texture id (dump them with --dump-textures DIR). Each pack is a "
+                               "folder in Mods/Textures; a folder starting with _ is off. Restart to apply."));
     ImGui::TextWrapped("%s", T("3D models (glTF) and animations: the DW2 3D Viewer (tools/viewer_bridge)."));
     ImGui::PopStyleColor();
 }

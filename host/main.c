@@ -137,6 +137,8 @@ static const char *export_dir; /* dw2-pc-port --export-assets DIR */
 static const char *import_png; /* dw2-pc-port --import-texture PNG */
 static int cheats_at_start;
 static const char *export_texts;
+static const char *dump_textures; /* dw2-pc-port: --dump-textures DIR */
+static int no_texture_packs;      /* dw2-pc-port: --no-texture-packs */
 int Lang_ExportTexts(const char *dir);
 int Cheat_SetActive(int on);
 int Assets_ImportTexture(const char *png);
@@ -487,6 +489,10 @@ HOST_ENTRY int main(int argc, char **argv) {
             export_texts = argv[++i]; /* dw2-pc-port: text inventory (host/lang.c) and quit */
         } else if (strcmp(argv[i], "--no-mods") == 0) {
             Host_PakNoMods(); /* dw2-pc-port: Mods/files overrides off */
+        } else if (strcmp(argv[i], "--no-texture-packs") == 0) {
+            no_texture_packs = 1; /* dw2-pc-port: Mods/Textures off (backend/texrep.c) */
+        } else if (strcmp(argv[i], "--dump-textures") == 0 && i + 1 < argc) {
+            dump_textures = argv[++i]; /* dw2-pc-port: write the textures the game draws as PNG */
         } else if (strcmp(argv[i], "--import-texture") == 0 && i + 1 < argc) {
             import_png = argv[++i]; /* dw2-pc-port: PNG into Mods/files (host/assets.c) and quit */
         } else if (strcmp(argv[i], "--export-assets") == 0 && i + 1 < argc) {
@@ -632,6 +638,47 @@ HOST_ENTRY int main(int argc, char **argv) {
     /* Main thread, before the game thread and window: the pack build may show its own progress
      * window and a file dialog. */
     Host_PakOpen(pak, disc, no_window);
+    {
+        /* dw2-pc-port texture packs: Mods/Textures/<pack>/ in the data folder, then next to the
+         * exe (the later wins for the same texture); only the software HD renderer draws them */
+        extern void TexRep_AddRoot(const char *dir);
+        extern void TexRep_SetDump(const char *dir);
+        extern void TexRep_Disable(void);
+        extern int TexRep_Count(void);
+        extern int TexRep_PackCount(void);
+        extern void TexRep_SetLog(const char *path);
+
+        if (no_texture_packs || export_dir != NULL || import_png != NULL || export_texts != NULL) {
+            TexRep_Disable();
+        } else {
+            char *pref = SDL_GetPrefPath("", "DW2-Online"), *dir = NULL;
+            const char *base = SDL_GetBasePath();
+            if (pref != NULL) {
+                SDL_asprintf(&dir, "%sMods/Textures", pref);
+                TexRep_AddRoot(dir);
+                SDL_free(dir);
+                SDL_free(pref);
+            }
+            if (base != NULL) {
+                SDL_PathInfo info;
+                dir = NULL;
+                SDL_asprintf(&dir, "%sMods/Textures", base);
+                if (dir != NULL && SDL_GetPathInfo(dir, &info)) { /* a log only where packs live */
+                    char *lp = NULL;
+                    SDL_asprintf(&lp, "%s/textures_log.txt", dir);
+                    TexRep_SetLog(lp);
+                    SDL_free(lp);
+                }
+                TexRep_AddRoot(dir);
+                SDL_free(dir);
+            }
+            if (dump_textures != NULL) {
+                TexRep_SetDump(dump_textures);
+            }
+            printf("[textures] %d pack(s), %d replacement files%s\n", TexRep_PackCount(), TexRep_Count(),
+                   TexRep_Count() > 0 ? " (drawn by the software renderer at scale 2 and above)" : "");
+        }
+    }
     {
         /* dw2-pc-port: the game's text dictionary for decoding, then the German text layer */
         extern void DevData_InitConst(void);

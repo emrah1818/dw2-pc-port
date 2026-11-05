@@ -59,6 +59,10 @@ jobs:
           7z x mesa.7z -omesa | Out-Null
           $icd = Get-ChildItem mesa/x64 -Filter "lvp_icd*.json" | Select-Object -First 1
           if ($null -eq $icd) { Get-ChildItem -Recurse mesa | Select-Object -First 40 FullName; throw "no lavapipe ICD" }
+          # the loader ignores VK_DRIVER_FILES when elevated (as on the runner): register the ICD
+          # the way a driver installer does
+          New-Item -Path "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers" -Name $icd.FullName -Value 0 -PropertyType DWord -Force | Out-Null
           "VK_DRIVER_FILES=$($icd.FullName)" | Out-File $env:GITHUB_ENV -Append
           "VK_ICD_FILENAMES=$($icd.FullName)" | Out-File $env:GITHUB_ENV -Append
           $vk = Get-ChildItem "$env:DW2_MINGW\bin" -Filter "*vulkan*.dll" | Select-Object -First 1
@@ -69,7 +73,7 @@ jobs:
       - name: Windows renderer test (software vs GPU/Vulkan, synthetic scene)
         shell: pwsh
         env:
-          VK_LOADER_DEBUG: error,warn,info
+          VK_LOADER_DEBUG: error,warn
           SDL_LOGGING: "gpu=debug"
         run: |
           Get-Content $env:VK_DRIVER_FILES

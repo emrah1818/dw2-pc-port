@@ -124,7 +124,7 @@ void Host_AudioOpen(void) {
 
 /* Main thread: 0..100. */
 void Host_AudioSetVolume(int volume) {
-    float v = (float)volume / 100.0f;
+    float v = Settings_Get(SET_MUTE) ? 0.0f : (float)volume / 100.0f; /* dw2-pc-port: mute */
 
     if (stream != NULL) {
         SDL_SetAudioStreamGain(stream, v * v);

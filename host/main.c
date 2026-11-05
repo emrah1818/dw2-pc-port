@@ -20,8 +20,11 @@
 #include "host/ui.h"
 #include "host/update.h"
 #include "psyq/psyq_log.h"
-#if DW2_DEV
+#if DW2_DEV || DW2_CHEATS
 #include "host/devedit.h"
+void Cheat_GameTick(void);
+#endif
+#if DW2_DEV
 #include "host/devui.h"
 #endif
 
@@ -130,6 +133,10 @@ static int hold_boot;
 static unsigned long long win_shot_vb[8]; /* dw2-pc-port --window-shot-vb */
 static int win_shot_count, win_shot_done;
 static int start_mode;
+static const char *export_dir; /* dw2-pc-port --export-assets DIR */
+static const char *import_png; /* dw2-pc-port --import-texture PNG */
+int Assets_ImportTexture(const char *png);
+int Assets_Export(const char *dir, void (*progress)(int done, int total, const char *what));
 
 int Host_StartMode(void) {
     return start_mode;
@@ -235,7 +242,10 @@ void Host_WaitVBlank(void) {
     Host_InputScriptTick(vblanks);
 #if DW2_DEV
     DevEdit_ScriptTick(vblanks);
+#endif
+#if DW2_DEV || DW2_CHEATS
     DevEdit_Apply(); /* PD.4: between frames, before Sys_Main reads nextGameMode */
+    Cheat_GameTick(); /* dw2-pc-port: cheat menu snapshot / undo (host/cheat.c) */
 #endif
     for (i = 0; i < shot_count; i++) {
         if (shot_at[i] == vblanks) {
@@ -466,6 +476,15 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--texture-filter") == 0 && i + 1 < argc) {
             /* dw2-pc-port: nearest or bilinear, this run only */
             Settings_Override(SET_TEX_FILTER, strcmp(argv[++i], "bilinear") == 0 ? SET_TEXF_BILINEAR : SET_TEXF_NEAREST);
+        } else if (strcmp(argv[i], "--no-mods") == 0) {
+            Host_PakNoMods(); /* dw2-pc-port: Mods/files overrides off */
+        } else if (strcmp(argv[i], "--import-texture") == 0 && i + 1 < argc) {
+            import_png = argv[++i]; /* dw2-pc-port: PNG into Mods/files (host/assets.c) and quit */
+        } else if (strcmp(argv[i], "--export-assets") == 0 && i + 1 < argc) {
+            export_dir = argv[++i]; /* dw2-pc-port: write GameData (host/assets.c) and quit */
+        } else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+            /* dw2-pc-port: menu language for this run (de / en) */
+            Settings_Override(SET_LANGUAGE, strcmp(argv[++i], "de") == 0 ? SET_LANG_DE : SET_LANG_EN);
         } else if (strcmp(argv[i], "--window-shot-vb") == 0 && i + 1 < argc && win_shot_count < 8) {
             win_shot_vb[win_shot_count++] = strtoull(argv[++i], NULL, 0); /* dw2-pc-port */
         } else if (strcmp(argv[i], "--smooth-2d") == 0) {
@@ -569,6 +588,17 @@ HOST_ENTRY int main(int argc, char **argv) {
             }
         }
         printf("[settings] first start: Remastered profile\n");
+        /* dw2-pc-port: the PC menus in German when the system prefers German */
+        if (!Settings_Overridden(SET_LANGUAGE)) {
+            int n = 0;
+            SDL_Locale **loc = SDL_GetPreferredLocales(&n);
+
+            if (loc != NULL && n > 0 && loc[0]->language != NULL && SDL_strcasecmp(loc[0]->language, "de") == 0) {
+                Settings_Set(SET_LANGUAGE, SET_LANG_DE);
+            }
+            SDL_free(loc);
+            printf("[settings] first start: menu language %s\n", Settings_Get(SET_LANGUAGE) == SET_LANG_DE ? "de" : "en");
+        }
     }
     PsxHd_SetScale(Host_ResolveScale(Settings_Get(SET_SCALE)));
     Host_SetWide(Settings_Get(SET_WIDE));
@@ -593,7 +623,19 @@ HOST_ENTRY int main(int argc, char **argv) {
     /* Main thread, before the game thread and window: the pack build may show its own progress
      * window and a file dialog. */
     Host_PakOpen(pak, disc, no_window);
-#if DW2_DEV
+    if (import_png != NULL) {
+        int r = Assets_ImportTexture(import_png);
+
+        SDL_Quit();
+        return r;
+    }
+    if (export_dir != NULL) {
+        int r = Assets_Export(export_dir, NULL);
+
+        SDL_Quit();
+        return r == 0 ? 0 : 1;
+    }
+#if DW2_DEV || DW2_CHEATS
     DevEdit_Init();
 #endif
     if (!no_window) {

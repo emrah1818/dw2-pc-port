@@ -1217,6 +1217,26 @@ void Host_WindowLoop(void) {
             if (!vsync_ok) {
                 SDL_DelayPrecise(4000000);
             }
+            {
+                /* dw2-pc-port: fps_limit caps the pictures per second (game logic is unaffected) */
+                static Uint64 next;
+                int lim = Settings_Get(SET_FPS_LIMIT);
+                Uint64 now = SDL_GetTicksNS();
+
+                if (lim > 0) {
+                    Uint64 step = 1000000000ull / (Uint64)lim;
+
+                    if (next == 0 || now > next + step) {
+                        next = now;
+                    }
+                    next += step;
+                    if (next > now) {
+                        SDL_DelayPrecise(next - now);
+                    }
+                } else {
+                    next = 0;
+                }
+            }
             /* the picture rate, about every 10 s */
             if (rate_t0 == 0 || t - rate_t0 > 30000000000ull) {
                 rate_t0 = t;

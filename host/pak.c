@@ -51,6 +51,7 @@ static char pak_path[1024]; /* Host_PakReadFile opens its own stream on it */
 int Host_DiscAssetsFillExe(const unsigned char *exe, Uint32 size);
 int Host_DiscAssetsFillOverlays(unsigned char *(*read)(int id, Uint32 *size));
 static unsigned char *read_data_file(int id, Uint32 *size);
+static void load_mods(void);
 
 static Uint32 rd32(const Uint8 *p) {
     return p[0] | p[1] << 8 | p[2] << 16 | (Uint32)p[3] << 24;
@@ -428,6 +429,106 @@ done:
         SDL_free(cand[i]);
     }
     SDL_free(pref);
+    load_mods();
+}
+
+/* dw2-pc-port mod layer: Mods/files/<id>.bin (file id in hex, e.g. 0C6C.bin) next to the exe or
+ * in the user data folder replaces that disc file while the game reads it. The pack itself stays
+ * untouched and verified; an override may not be larger than the original file (the game's file
+ * table gives each file its sector count) and Form 2 files (audio, movies) cannot be replaced.
+ * --no-mods (Host_PakNoMods) turns the layer off. Deleting the file restores the original. */
+static Uint8 *mod_data[PAK_FILES];
+static int no_mods;
+static int mod_count;
+
+void Host_PakNoMods(void) {
+    no_mods = 1;
+}
+
+int Host_PakModCount(void) {
+    return mod_count;
+}
+
+int Host_PakHasMod(int id) {
+    return id >= 0 && id < PAK_FILES && mod_data[id] != NULL;
+}
+
+static void load_mod_dir(const char *root) {
+    char *dir = NULL;
+    char **names;
+    int count = 0;
+
+    SDL_asprintf(&dir, "%sMods/files", root);
+    names = dir != NULL ? SDL_GlobDirectory(dir, "*.bin", SDL_GLOB_CASEINSENSITIVE, &count) : NULL;
+    for (int k = 0; k < count; k++) {
+        char *end = NULL;
+        long id = strtol(names[k], &end, 16);
+        char *path = NULL;
+        size_t size = 0;
+        void *data;
+
+        if (end == NULL || SDL_strcasecmp(end, ".bin") != 0 || id < 0 || id >= PAK_FILES) {
+            printf("[mods] %s/%s: not a file id name (like 0C6C.bin), skipped\n", dir, names[k]);
+            continue;
+        }
+        if (files[id].format != FORMAT_DATA) {
+            printf("[mods] %s/%s: file 0x%03lX is audio / movie data, cannot be replaced\n", dir, names[k], id);
+            continue;
+        }
+        SDL_asprintf(&path, "%s/%s", dir, names[k]);
+        data = path != NULL ? SDL_LoadFile(path, &size) : NULL;
+        if (data == NULL || size == 0 || size > files[id].size) {
+            printf("[mods] %s: %s (original %llu bytes), skipped\n", path ? path : names[k],
+                   data == NULL ? "cannot read" : size == 0 ? "empty" : "larger than the original",
+                   (unsigned long long)files[id].size);
+            SDL_free(data);
+            SDL_free(path);
+            continue;
+        }
+        free(mod_data[id]);
+        mod_data[id] = calloc(1, (size_t)files[id].size);
+        if (mod_data[id] != NULL) {
+            memcpy(mod_data[id], data, size);
+            printf("[mods] file 0x%03lX replaced by %s (%zu bytes)\n", id, path, size);
+        }
+        SDL_free(data);
+        SDL_free(path);
+    }
+    SDL_free(names);
+    SDL_free(dir);
+}
+
+static void load_mods(void) {
+    const char *base = SDL_GetBasePath();
+    char *pref = SDL_GetPrefPath("", "DW2-Online");
+
+    if (no_mods) {
+        printf("[mods] off (--no-mods)\n");
+    } else {
+        if (pref != NULL) {
+            load_mod_dir(pref);
+        }
+        if (base != NULL) {
+            load_mod_dir(base); /* next to the exe wins */
+        }
+        mod_count = 0;
+        for (int k = 0; k < PAK_FILES; k++) {
+            mod_count += mod_data[k] != NULL;
+        }
+        printf("[mods] %d file override%s active\n", mod_count, mod_count == 1 ? "" : "s");
+    }
+    SDL_free(pref);
+}
+
+int Host_PakFileInfo(int id, int *lba, int *sectors, int *form2, unsigned long long *size) {
+    if (pak_path[0] == 0 || id < 0 || id >= PAK_FILES) {
+        return 0;
+    }
+    *lba = files[id].lba;
+    *sectors = files[id].sectors;
+    *form2 = files[id].format != FORMAT_DATA;
+    *size = files[id].size;
+    return 1;
 }
 
 /* The file holding sector `lba` (binary search over the LBA-sorted index), or -1. */
@@ -474,13 +575,17 @@ int Host_PakSector(int lba, unsigned char *body) {
     } else {
         at = f->offset + (Uint64)(lba - f->lba) * 2048;
         memcpy(body, form1_subheader, 8);
-        SDL_SeekIO(pak, (Sint64)at, SDL_IO_SEEK_SET);
-        SDL_ReadIO(pak, body + 8, 2048);
+        if (mod_data[id] != NULL) {
+            memcpy(body + 8, mod_data[id] + (size_t)(lba - f->lba) * 2048, 2048); /* dw2-pc-port mod layer */
+        } else {
+            SDL_SeekIO(pak, (Sint64)at, SDL_IO_SEEK_SET);
+            SDL_ReadIO(pak, body + 8, 2048);
+        }
     }
     return id;
 }
 
-#if DW2_DEV
+#if 1 /* dw2-pc-port: also release (cheat menu names, asset export) */
 /* Dev tools (PD.7), main thread: the whole Form 1 file `id` in a malloc'd buffer (*size bytes),
  * read through a stream of its own, so the game thread's sector reads are not disturbed. NULL
  * before Host_PakOpen, for Form 2 files and on read errors. The pack was checked at open. */

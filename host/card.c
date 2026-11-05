@@ -41,6 +41,11 @@ static const char *card_dir(void) {
     return dir_;
 }
 
+/* dw2-pc-port: the memory card folder (cheat backups, F1 Data tab) */
+const char *Host_CardDir(void) {
+    return card_dir();
+}
+
 static char *card_path(int port, const char *suffix) {
     char *path = NULL;
     SDL_asprintf(&path, "%scard%d.mcd%s", card_dir(), port + 1, suffix);

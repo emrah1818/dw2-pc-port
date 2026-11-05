@@ -139,11 +139,12 @@ file(GLOB HOST_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/host/*.c)
 # CC0, host/monocypher/LICENCE.md), as they come (no warnings for them).
 set(UPDATE_LIB_SRC ${CMAKE_SOURCE_DIR}/host/miniz/miniz.c ${CMAKE_SOURCE_DIR}/host/monocypher/monocypher.c
     ${CMAKE_SOURCE_DIR}/host/monocypher/monocypher-ed25519.c)
-set(MINIZ_DEFS MINIZ_NO_STDIO MINIZ_NO_TIME MINIZ_NO_ARCHIVE_WRITING_APIS MINIZ_NO_DEFLATE_APIS
+# dw2-pc-port: deflate on for the PNG writer of the asset export (host/assets.c)
+set(MINIZ_DEFS MINIZ_NO_STDIO MINIZ_NO_TIME MINIZ_NO_ARCHIVE_WRITING_APIS
     MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
 set_source_files_properties(${UPDATE_LIB_SRC} PROPERTIES COMPILE_OPTIONS "-w")
 set_source_files_properties(${CMAKE_SOURCE_DIR}/host/miniz/miniz.c ${CMAKE_SOURCE_DIR}/host/update.c
-    PROPERTIES COMPILE_DEFINITIONS "${MINIZ_DEFS}")
+    ${CMAKE_SOURCE_DIR}/host/assets.c PROPERTIES COMPILE_DEFINITIONS "${MINIZ_DEFS}")
 list(APPEND HOST_SRC ${UPDATE_LIB_SRC})
 # Emulated PS1 hardware (backend/psxgpu.c: the GPU).
 file(GLOB BACKEND_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/backend/*.c)
@@ -192,7 +193,7 @@ target_compile_options(dw2 PRIVATE ${DW2_ARCH_FLAG} ${DW2_PIE_FLAGS} -fno-strict
     "-Wa,-I${CMAKE_SOURCE_DIR}"
     $<$<COMPILE_LANGUAGE:C>:-funsigned-char>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti -fno-threadsafe-statics>)
-target_compile_definitions(dw2 PRIVATE DW2_NATIVE DW2_DEV=${DW2_DEV_VALUE})
+target_compile_definitions(dw2 PRIVATE DW2_NATIVE DW2_DEV=${DW2_DEV_VALUE} DW2_CHEATS=1)
 target_include_directories(dw2 PRIVATE ${CMAKE_SOURCE_DIR}/host/imgui)
 target_include_directories(dw2 PRIVATE ${DW2_INCLUDES})
 # 16 MB-aligned fixed image base: the whole image (globals, Ps1_Ram, the heap) lies in one

@@ -129,6 +129,12 @@ int Host_PakFileAt(int lba, int *sectors);
 #if DW2_DEV
 /* Dev tools, main thread: file `id` (Form 1) whole, malloc'd (free it); NULL if not readable. */
 void *Host_PakReadFile(int id, int *size);
+/* dw2-pc-port mod layer (host/pak.c): Mods/files/<id>.bin overrides */
+void Host_PakNoMods(void);
+int Host_PakModCount(void);
+int Host_PakHasMod(int id);
+/* dw2-pc-port: the pack index, for the asset export (host/assets.c) */
+int Host_PakFileInfo(int id, int *lba, int *sectors, int *form2, unsigned long long *size);
 #endif
 
 /* host/card.c: memory card image files (raw 128 KB PS1 card images card1.mcd / card2.mcd in

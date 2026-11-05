@@ -35,9 +35,13 @@ enum {
     SET_DEADZONE,     /* 10..90 %: left stick as D-pad threshold */
     SET_VSYNC,        /* 0 / 1: present with vsync */
     SET_SMOOTH2D,     /* 0 / 1: edge-smoothing upscale of 2D sprites (text, menus) */
+    SET_LANGUAGE,     /* dw2-pc-port: SET_LANG_*: language of the PC menus (F1, launcher, cheats) */
+    SET_MUTE,         /* dw2-pc-port: 0 / 1: all sound off */
+    SET_FPS_LIMIT,    /* dw2-pc-port: 0 = no limit, else 30..360 pictures per second (window thread) */
     SET_COUNT
 };
 enum { SET_RENDERER_GPU, SET_RENDERER_SOFT };
+enum { SET_LANG_EN, SET_LANG_DE }; /* dw2-pc-port */
 enum { SET_TEXF_NEAREST, SET_TEXF_BILINEAR }; /* dw2-pc-port */
 enum { SET_PROFILE_CLASSIC, SET_PROFILE_REMASTERED }; /* dw2-pc-port: Settings_ProfileValue */
 enum { SET_WINDOW_WINDOWED, SET_WINDOW_BORDERLESS, SET_WINDOW_EXCLUSIVE };

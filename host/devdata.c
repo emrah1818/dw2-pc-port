@@ -1,6 +1,6 @@
 #include "common.h"
 
-#if DW2_DEV
+#if DW2_DEV || DW2_CHEATS /* dw2-pc-port: also the release cheat menu */
 
 #include <stdio.h>
 #include <stdlib.h>

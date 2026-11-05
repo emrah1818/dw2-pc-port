@@ -46,7 +46,7 @@ static SDL_Mutex *lock;
 static DevEdit queue[QUEUE]; /* under lock */
 static int q_head, q_count;  /* under lock */
 static SDL_AtomicInt pending; /* q_count, read without the lock */
-static SDL_AtomicInt allowed = { 1 };
+static SDL_AtomicInt allowed = { DW2_DEV }; /* dw2-pc-port: release builds only with the F1 cheats on */
 
 typedef struct {
     unsigned int wait;
@@ -824,6 +824,12 @@ void DevEdit_Apply(void) {
     SDL_SetAtomicInt(&pending, 0);
     SDL_UnlockMutex(lock);
     vb = Host_VBlankCount();
+#if DW2_CHEATS
+    {
+        extern void Cheat_BeforeEdit(void); /* dw2-pc-port: keep the state before the first cheat */
+        Cheat_BeforeEdit();
+    }
+#endif
     for (i = 0; i < n; i++) {
         if (!SDL_GetAtomicInt(&allowed)) {
             refuse(&batch[i], "edits are off (online mode)");

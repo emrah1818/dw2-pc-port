@@ -135,6 +135,8 @@ static int win_shot_count, win_shot_done;
 static int start_mode;
 static const char *export_dir; /* dw2-pc-port --export-assets DIR */
 static const char *import_png; /* dw2-pc-port --import-texture PNG */
+static int cheats_at_start;
+int Cheat_SetActive(int on);
 int Assets_ImportTexture(const char *png);
 int Assets_Export(const char *dir, void (*progress)(int done, int total, const char *what));
 
@@ -240,10 +242,8 @@ void Host_WaitVBlank(void) {
     Host_SceneTick();
     Host_BotTick(vblanks);
     Host_InputScriptTick(vblanks);
-#if DW2_DEV
-    DevEdit_ScriptTick(vblanks);
-#endif
 #if DW2_DEV || DW2_CHEATS
+    DevEdit_ScriptTick(vblanks); /* release: only the bot's devedit (tests), pushed only with cheats on */
     DevEdit_Apply(); /* PD.4: between frames, before Sys_Main reads nextGameMode */
     Cheat_GameTick(); /* dw2-pc-port: cheat menu snapshot / undo (host/cheat.c) */
 #endif
@@ -476,6 +476,8 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--texture-filter") == 0 && i + 1 < argc) {
             /* dw2-pc-port: nearest or bilinear, this run only */
             Settings_Override(SET_TEX_FILTER, strcmp(argv[++i], "bilinear") == 0 ? SET_TEXF_BILINEAR : SET_TEXF_NEAREST);
+        } else if (strcmp(argv[i], "--cheats") == 0) {
+            cheats_at_start = 1; /* dw2-pc-port: cheats on at start (tests; with backup as in F1) */
         } else if (strcmp(argv[i], "--no-mods") == 0) {
             Host_PakNoMods(); /* dw2-pc-port: Mods/files overrides off */
         } else if (strcmp(argv[i], "--import-texture") == 0 && i + 1 < argc) {
@@ -637,6 +639,9 @@ HOST_ENTRY int main(int argc, char **argv) {
     }
 #if DW2_DEV || DW2_CHEATS
     DevEdit_Init();
+    if (cheats_at_start) {
+        Cheat_SetActive(1);
+    }
 #endif
     if (!no_window) {
         run_threaded();

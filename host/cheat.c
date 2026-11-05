@@ -4,7 +4,8 @@
  * (host/devedit.c: checked ranges, applied by the game thread at its VBlank wait), so the main
  * thread never writes game memory. Turning cheats on for the first time in a run:
  *   - copies card1.mcd / card2.mcd to cheat_backup_<date>/ in the save folder,
- *   - keeps the save block (Save_GameState) as it is then, for "Undo all cheat changes".
+ *   - keeps the save block (Save_GameState) as it is just before the first change, for "Undo all
+ * cheat changes".
  * The game thread copies the save block for the tab to show (Cheat_GameTick). Undo writes the kept
  * block back at a VBlank wait outside battles and memory card scenes. */
 #include <stdio.h>
@@ -57,11 +58,6 @@ void Cheat_GameTick(void) {
     memcpy(snap, &Save_GameState, GS_SIZE);
     snap_ok = 1;
     snap_mode = mode;
-    if (SDL_GetAtomicInt(&want_keep)) {
-        memcpy(kept, &Save_GameState, GS_SIZE);
-        kept_ok = 1;
-        SDL_SetAtomicInt(&want_keep, 0);
-    }
     if (SDL_GetAtomicInt(&want_undo)) {
         int table = mode >> 8;
 
@@ -76,6 +72,18 @@ void Cheat_GameTick(void) {
         } /* in a battle or the card scene: waits */
     }
     SDL_UnlockMutex(lock);
+}
+
+/* Game thread, DevEdit_Apply, just before a batch of edits: the first one after cheats were turned
+ * on keeps the save block as it was, for undo. */
+void Cheat_BeforeEdit(void) {
+    if (lock != NULL && SDL_GetAtomicInt(&want_keep)) {
+        SDL_LockMutex(lock);
+        memcpy(kept, &Save_GameState, GS_SIZE);
+        kept_ok = 1;
+        SDL_SetAtomicInt(&want_keep, 0);
+        SDL_UnlockMutex(lock);
+    }
 }
 
 /* Main thread. Returns 1 when on. */

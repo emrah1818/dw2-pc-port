@@ -33,7 +33,7 @@
 int Host_WritePngPacked(const char *path, const uint32_t *pixels, int w, int h);
 
 #include "main/156C.h"
-#if DW2_DEV
+#if DW2_DEV || DW2_CHEATS
 #include "host/devedit.h"
 #endif
 
@@ -271,14 +271,14 @@ void Host_BotTick(unsigned int wait) {
                       n ? ents : "-");
             }
         } else if (strcmp(cmd, "devedit") == 0) {
-#if DW2_DEV
+#if DW2_DEV || DW2_CHEATS /* release: only with cheats on (DevEdit_Push refuses otherwise) */
             char spec[160];
 
             if (sscanf(line, "%*s %127s", spec + 32) != 1) {
                 reply("err syntax");
                 continue;
             }
-            snprintf(spec, 32, "%llu:", Host_VBlankCount() + 1);
+            snprintf(spec, 32, "%u:", wait + 1); /* DevEdit_ScriptTick counts VBlank waits */
             memmove(spec + strlen(spec), spec + 32, strlen(spec + 32) + 1);
             reply(DevEdit_Script(spec) ? "ok" : "err bad spec");
 #else
@@ -349,6 +349,10 @@ void Host_BotTick(unsigned int wait) {
                 }
             }
             reply("nav %d %s", *(const int *)(w + 8), i ? recs : "-");
+        } else if (strcmp(cmd, "cheatundo") == 0) {
+            extern void Cheat_Undo(void);
+            Cheat_Undo(); /* dw2-pc-port: the F1 "Undo all cheat changes" (tests) */
+            reply("ok");
         } else if (strcmp(cmd, "quit") == 0) {
             reply("bye");
             Host_Quit("--bot quit");

@@ -95,6 +95,19 @@ jobs:
       - name: Build (release, no disc data)
         run: python3 tools/build_native.py --release --no-disc
 
+      - name: Renderer test (software vs GPU on Mesa lavapipe, synthetic scene, no game data)
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 vulkan-tools
+          mkdir -p hd_test_out
+          VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1) \
+            build/linux64_rel_nodisc/hd_test --out hd_test_out --require-gpu
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hd-test-pictures
+          path: hd_test_out
+
       - name: Package
         run: |
           b=build/linux64_rel_nodisc

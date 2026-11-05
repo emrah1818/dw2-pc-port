@@ -233,6 +233,20 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/psyq/libgte.c PROPERTIES
 set_source_files_properties(${CMAKE_SOURCE_DIR}/psyq/snd_hw.c PROPERTIES
     OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/assets/main/retail_rodata.bin;${CMAKE_SOURCE_DIR}/assets/main/retail_data.bin")
 
+# dw2-pc-port renderer test (tests/hd_test.c): synthetic scene, software vs GPU renderer, no game data.
+add_executable(hd_test ${CMAKE_SOURCE_DIR}/tests/hd_test.c ${CMAKE_SOURCE_DIR}/backend/psxgpu.c
+    ${CMAKE_SOURCE_DIR}/backend/psxgpu_hd.c ${CMAKE_SOURCE_DIR}/backend/psxgpu_hw.c ${CMAKE_SOURCE_DIR}/backend/pgxp.c
+    ${CMAKE_SOURCE_DIR}/backend/sharpen.c)
+target_compile_definitions(hd_test PRIVATE DW2_NATIVE)
+target_compile_options(hd_test PRIVATE ${DW2_ARCH_FLAG} -funsigned-char -fno-strict-aliasing -fwrapv)
+target_link_options(hd_test PRIVATE ${DW2_ARCH_FLAG})
+target_include_directories(hd_test PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/psyq)
+target_link_libraries(hd_test PRIVATE SDL3::SDL3-shared)
+if(NOT WIN32)
+    target_link_libraries(hd_test PRIVATE m pthread)
+    set_target_properties(hd_test PROPERTIES BUILD_RPATH "$ORIGIN")
+endif()
+
 # GTE model test (tests/gte_test.c): build/native/gte_test.exe, run from the repo root.
 add_executable(gte_test ${CMAKE_SOURCE_DIR}/tests/gte_test.c ${CMAKE_SOURCE_DIR}/psyq/gte.c
     ${CMAKE_SOURCE_DIR}/psyq/libgte.c ${CMAKE_SOURCE_DIR}/psyq/psyq_log.c)

@@ -459,6 +459,8 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--texture-filter") == 0 && i + 1 < argc) {
             /* dw2-pc-port: nearest or bilinear, this run only */
             Settings_Override(SET_TEX_FILTER, strcmp(argv[++i], "bilinear") == 0 ? SET_TEXF_BILINEAR : SET_TEXF_NEAREST);
+        } else if (strcmp(argv[i], "--smooth-2d") == 0) {
+            Settings_Override(SET_SMOOTH2D, 1); /* dw2-pc-port, this run only */
         } else if (strcmp(argv[i], "--profile") == 0 && i + 1 < argc) {
             /* dw2-pc-port: classic or remastered, this run only */
             i++;
@@ -515,7 +517,7 @@ HOST_ENTRY int main(int argc, char **argv) {
     /* PR.2: the settings file; command line options win for this run and are not saved */
     if (cl_profile >= 0) {
         /* dw2-pc-port: --profile; the single options below win over it */
-        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
         size_t k;
 
         for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {
@@ -549,7 +551,7 @@ HOST_ENTRY int main(int argc, char **argv) {
     if (Settings_FirstRun() && !no_window) {
         /* dw2-pc-port: the first start with a window gets the Remastered profile (saved; F1 or
          * --profile classic change it) */
-        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
         size_t k;
 
         for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {
@@ -566,6 +568,7 @@ HOST_ENTRY int main(int argc, char **argv) {
     }
     Host_SetSharpen(Settings_Get(SET_SHARPEN)); /* the override's value with --sharpen */
     PsxHd_SetTexFilter(Settings_Get(SET_TEX_FILTER) == SET_TEXF_BILINEAR); /* dw2-pc-port */
+    PsxHd_SetSmooth2d(Settings_Get(SET_SMOOTH2D));
     if (Settings_Get(SET_SMOOTH)) {
         Host_SetSmooth(1); /* PR.34, also with --smooth */
     }

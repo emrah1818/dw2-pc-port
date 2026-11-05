@@ -10,8 +10,8 @@
  * v_par.z flags: 0 dither, 1 sprite-like (sample at the 1x pixel), 2-3 pass (0 all, 1 opaque
  *         texels only, 2 semi-transparent texels / pixels only), 4-5 abr, 6-7 kind (0 primitive,
  *         1 fill: colour = 5-bit value << 3, 2 VRAM copy: uv = VRAM position), 8 set mask,
- *         9 clamp u to the limits, 10 bilinear (dw2-pc-port texture filtering)
- * v_par.w u limits: min | max << 8; with bit 10 also v limits: min << 16 | max << 24 */
+ *         9 clamp u to the limits, 10 bilinear (dw2-pc-port texture filtering), 11 2D smoothing
+ * v_par.w u limits: min | max << 8; with bit 10 or 11 also v limits: min << 16 | max << 24 */
 
 layout(location = 0) in vec2 v_uv;
 layout(location = 1) noperspective in vec3 v_col;
@@ -61,6 +61,19 @@ uint fetch(int u, int v, uint tex, uint win) {
     }
 }
 
+/* dw2-pc-port 2D smoothing: as same2d in backend/psxgpu_hd.c */
+bool same2d(uint a, uint b) {
+    if (a == 0u || b == 0u) {
+        return a == b;
+    }
+    ivec3 d = abs(ivec3(a & 31u, (a >> 5) & 31u, (a >> 10) & 31u) - ivec3(b & 31u, (b >> 5) & 31u, (b >> 10) & 31u));
+    return d.x + d.y + d.z <= 7;
+}
+
+uint fetch_box(int u, int v, uint tex, uint win, ivec4 box) {
+    return u >= box.x && u <= box.y && v >= box.z && v <= box.w ? fetch(u, v, tex, win) : 0u;
+}
+
 void main() {
     uint tex = v_par.x, win = v_par.y, fl = v_par.z;
     int S = params.scale;
@@ -91,7 +104,36 @@ void main() {
         return;
     }
     int d = (fl & 1u) != 0u ? dither_tbl[((P.y / S) & 3) * 4 + ((P.x / S) & 3)] : 0;
-    if ((tex & 8u) != 0u && (fl & 0x400u) != 0u) {
+    if ((tex & 8u) != 0u && (fl & 0x800u) != 0u) {
+        /* dw2-pc-port 2D smoothing (smooth2d_texel in backend/psxgpu_hd.c) */
+        ivec2 f = ivec2(floor(uv * 256.0));
+        ivec2 b0 = f >> 8;
+        ivec2 q = ivec2((f.x & 255) >= 128 ? 1 : -1, (f.y & 255) >= 128 ? 1 : -1);
+        vec2 pp = vec2(f & 255) / 256.0 - 0.5;
+        ivec4 box = ivec4(int(v_par.w & 255u), int((v_par.w >> 8) & 255u), int((v_par.w >> 16) & 255u),
+                          int((v_par.w >> 24) & 255u));
+        uint E = fetch_box(b0.x, b0.y, tex, win, box);
+        uint Fn = fetch_box(b0.x + q.x, b0.y, tex, win, box), Hn = fetch_box(b0.x, b0.y + q.y, tex, win, box);
+        uint Bo = fetch_box(b0.x, b0.y - q.y, tex, win, box), Do = fetch_box(b0.x - q.x, b0.y, tex, win, box);
+        uint t = E;
+
+        if (same2d(Fn, Hn) && !same2d(Fn, E) && !same2d(Fn, Bo) && !same2d(Hn, Do) &&
+            (q.x > 0 ? pp.x : -pp.x) + (q.y > 0 ? pp.y : -pp.y) > 0.5) {
+            t = Fn;
+        }
+        if (t == 0u) {
+            discard;
+        }
+        bool tsemi = (t & 0x8000u) != 0u;
+        if ((pass == 1 && tsemi) || (pass == 2 && !tsemi)) {
+            discard;
+        }
+        c5 = ivec3(t & 31u, (t >> 5) & 31u, (t >> 10) & 31u);
+        if ((tex & 4u) == 0u) {
+            c5 = to5((c5 * col) >> 4, d);
+        }
+        mask = mask || tsemi;
+    } else     if ((tex & 8u) != 0u && (fl & 0x400u) != 0u) {
         /* dw2-pc-port bilinear: as hshade_bilinear in backend/psxgpu_hd.c (8.8 weights, UV box
          * clamp, transparent texels carry no colour, semi bit of the heaviest opaque texel) */
         ivec2 f = ivec2(floor(uv * 256.0 + 0.5)) - 128;

@@ -197,7 +197,7 @@ ImGuiTabItemFlags tab_flags(const char *name) {
 
 void apply_profile(int p) {
     /* dw2-pc-port: Classic / Remastered (host/settings.c Settings_ProfileValue) */
-    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
 
     for (int id : ids) {
         Host_RequestSetting(id, Settings_ProfileValue(p, id));
@@ -205,7 +205,7 @@ void apply_profile(int p) {
 }
 
 int profile_now(void) {
-    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
 
     for (int p = SET_PROFILE_CLASSIC; p <= SET_PROFILE_REMASTERED; p++) {
         bool all = true;
@@ -296,6 +296,14 @@ void display_tab(void) {
         }
     }
     ImGui::TextDisabled("Smooths 3D textures; text, menus and 2D art keep their pixels.");
+    {
+        bool s2d = Settings_Get(SET_SMOOTH2D) != 0;
+
+        if (ImGui::Checkbox("Smooth text and menus", &s2d)) {
+            Host_RequestSetting(SET_SMOOTH2D, s2d);
+        }
+    }
+    ImGui::TextDisabled("Upscales the game's text, menus and window frames with smooth edges.");
     if (ImGui::SliderInt("Sharpening (F8)", &sharpen, 0, 100, sharpen == 0 ? "off" : "%d")) {
         Host_RequestSetting(SET_SHARPEN, sharpen);
     }

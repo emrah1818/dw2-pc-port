@@ -49,6 +49,7 @@ static unsigned serial;
 static int last_margin; /* margin of the last ReadDisplay picture, output pixels */
 static int sharpen;     /* PR.2b strength 0..100 */
 static int texfilter;   /* dw2-pc-port: bilinear 3D textures */
+static int smooth2d;    /* dw2-pc-port: edge-smoothing upscale of 2D sprites (text, menus) */
 static uint32_t *sharp_buf; /* PR.2b: the picture before sharpening (soft) */
 static size_t sharp_cap;
 static void *sharp_tex; /* PR.2b: the sharpened picture of a read (GPU) */
@@ -358,6 +359,19 @@ void PsxHd_SetTexFilter(int on) {
     }
 }
 
+void PsxHd_SetSmooth2d(int on) {
+    on = on != 0;
+    if (on != smooth2d) {
+        flush();
+        smooth2d = on;
+        serial++;
+    }
+}
+
+int PsxHd_Smooth2d(void) {
+    return smooth2d;
+}
+
 int PsxHd_TexFilter(void) {
     return texfilter;
 }
@@ -591,6 +605,61 @@ static int to5(int c8, int d) {
     return c8 >> 3;
 }
 
+/* dw2-pc-port 2D smoothing: two texels count as the same colour when both are transparent, or
+ * both opaque and close (sum of 5-bit channel differences <= 7: the shades of one glyph stroke). */
+static int same2d(uint16_t a, uint16_t b) {
+    int d;
+
+    if (a == 0 || b == 0) {
+        return a == b;
+    }
+    d = abs((a & 31) - (b & 31)) + abs(((a >> 5) & 31) - ((b >> 5) & 31)) + abs(((a >> 10) & 31) - ((b >> 10) & 31));
+    return d <= 7;
+}
+
+/* dw2-pc-port 2D smoothing of a sprite-like triangle pixel at (fu, fv) (8.8, inside the UV box
+ * umin..umax x vmin..vmax; outside counts as transparent): the texel, or a side neighbour's
+ * colour in a corner cut by the 45 degree edge (see draw_rect). */
+static uint16_t smooth2d_texel(const PsxGpuState *st, const PsxTex *t, int fu, int fv, int umin, int umax, int vmin,
+                               int vmax) {
+    int u = fu >> 8, v = fv >> 8;
+    int dxq = (fu & 255) >= 128 ? 1 : -1, dyq = (fv & 255) >= 128 ? 1 : -1;
+    float px = (float)(fu & 255) / 256.0f - 0.5f, py = (float)(fv & 255) / 256.0f - 0.5f;
+    uint16_t E, Fn, Hn, Bo, Do;
+
+#define IN_BOX(a, b) ((a) >= umin && (a) <= umax && (b) >= vmin && (b) <= vmax)
+    E = IN_BOX(u, v) ? texel(st, t, u, v) : 0;
+    Fn = IN_BOX(u + dxq, v) ? texel(st, t, u + dxq, v) : 0;
+    Hn = IN_BOX(u, v + dyq) ? texel(st, t, u, v + dyq) : 0;
+    Bo = IN_BOX(u, v - dyq) ? texel(st, t, u, v - dyq) : 0;
+    Do = IN_BOX(u - dxq, v) ? texel(st, t, u - dxq, v) : 0;
+#undef IN_BOX
+    if (same2d(Fn, Hn) && !same2d(Fn, E) && !same2d(Fn, Bo) && !same2d(Hn, Do) &&
+        (dxq > 0 ? px : -px) + (dyq > 0 ? py : -py) > 0.5f) {
+        return Fn;
+    }
+    return E;
+}
+
+/* dw2-pc-port: hshade with the texel value already read (the 2D smoothing picks it). */
+static void hshade_c(const PsxGpuState *st, uint16_t *p, const PsxTex *t, uint16_t c, int r, int g, int b, int semi,
+                     int abr, int d) {
+    int tr, tg, tb;
+
+    if (c == 0) {
+        return;
+    }
+    tr = c & 31;
+    tg = (c >> 5) & 31;
+    tb = (c >> 10) & 31;
+    if (!t->raw) {
+        tr = to5((tr * r) >> 4, d);
+        tg = to5((tg * g) >> 4, d);
+        tb = to5((tb * b) >> 4, d);
+    }
+    hput(st, p, tr, tg, tb, semi && (c & 0x8000), abr, c & 0x8000);
+}
+
 /* One pixel of a primitive (see shade() in backend/psxgpu.c); d = dither offset or 0. */
 static void hshade(const PsxGpuState *st, uint16_t *p, const PsxTex *t, int u, int v, int r, int g, int b, int semi,
                    int abr, int d) {
@@ -784,7 +853,7 @@ static void draw_tri(const Cmd *c, int part, int parts) {
     int miny, maxy, Y, i, k, natt;
     int dith = st->dither && (gouraud || (t != NULL && !t->raw));
     int block = 0;
-    int umin = 0, umax = 0, vmin = 0, vmax = 0, filt = 0, fu = 0, fv = 0;
+    int umin = 0, umax = 0, vmin = 0, vmax = 0, filt = 0, fu = 0, fv = 0, s2d = 0;
     int persp = 0;
     double pw[3] = { 0 }, puw[3] = { 0 }, pvw[3] = { 0 };
 
@@ -842,6 +911,10 @@ static void draw_tri(const Cmd *c, int part, int parts) {
          * at the 1x pixel's position so pixel art stays exact at any scale. */
         int64_t dudy = att[3][0] * e[0].dx + att[3][1] * e[1].dx + att[3][2] * e[2].dx;
         block = !c->precise && dudy == 0 && dn[4] == 0;
+        s2d = block && smooth2d && scale >= 2; /* dw2-pc-port: sampled affine, see below */
+        if (s2d) {
+            block = 0;
+        }
         /* PG.2: perspective-correct mapping from the precise depths (1 / z interpolates
          * linearly on screen, so do u / z, v / z) */
         persp = c->precise && v[0]->pz > 0 && v[1]->pz > 0 && v[2]->pz > 0;
@@ -858,7 +931,7 @@ static void draw_tri(const Cmd *c, int part, int parts) {
         vmin = v[2]->v < vmin ? v[2]->v : vmin;
         vmax = v[0]->v > v[1]->v ? v[0]->v : v[1]->v;
         vmax = v[2]->v > vmax ? v[2]->v : vmax;
-        filt = texfilter && !block;
+        filt = texfilter && !block && !s2d;
     }
     natt = gouraud ? 3 : 0;
 
@@ -972,13 +1045,17 @@ static void draw_tri(const Cmd *c, int part, int parts) {
                 } else {
                     u = (int)(u24 >> 24);
                     vv = (int)(v24 >> 24);
-                    if (filt) {
+                    if (filt || s2d) {
                         fu = (int)(u24 >> 16);
                         fv = (int)(v24 >> 16);
                     }
                 }
             }
-            if (filt) {
+            if (s2d) {
+                /* the UV box is exclusive at its far edges for sprite-like quads (u1 = u0 + w) */
+                hshade_c(st, row + X, t, smooth2d_texel(st, t, fu, fv, umin, umax - 1, vmin, vmax - 1), r, g, b, semi, abr,
+                         d);
+            } else if (filt) {
                 hshade_bilinear(st, row + X, t, fu, fv, umin, umax, vmin, vmax, r, g, b, semi, abr, d);
             } else {
                 hshade(st, row + X, t, u, vv, r, g, b, semi, abr, d);
@@ -1058,6 +1135,39 @@ static void draw_rect(const Cmd *c, int part, int parts) {
         int yy = Y / scale + s->y - y0;
         int tv = st->flip_y ? v0 - yy : v0 + yy;
 
+        if (t != NULL && smooth2d && scale >= 2) {
+            /* dw2-pc-port 2D smoothing (xBR level 1 style, no blending): a texel's corner
+             * quadrant takes the colour of its two side neighbours when they match each other,
+             * differ from the texel and the diagonal is a real edge; the cut is the 45 degree
+             * line between the two side midpoints, so stairs in text and frames become
+             * diagonals at any scale. Texels outside the rect count as transparent. Colours are
+             * compared as VRAM values (CLUT output). */
+            int fy = Y % scale;
+            int dyq = 2 * fy + 1 > scale ? 1 : -1; /* lower / upper half of the texel */
+            float py = ((float)fy + 0.5f) / (float)scale - 0.5f;
+
+            for (X = xs; X <= xe; X++) {
+                int xx = X / scale + OX(s) - x0;
+                int fx = X % scale;
+                int dxq = 2 * fx + 1 > scale ? 1 : -1;
+                float px = ((float)fx + 0.5f) / (float)scale - 0.5f;
+                int dir_u = st->flip_x ? -1 : 1, dir_v = st->flip_y ? -1 : 1;
+                int nx = xx + dxq, ny = yy + dyq, ox = xx - dxq, oy = yy - dyq;
+                uint16_t E = texel(st, t, u0 + dir_u * xx, v0 + dir_v * yy);
+                uint16_t Hn = ny >= 0 && ny < h ? texel(st, t, u0 + dir_u * xx, v0 + dir_v * ny) : 0;
+                uint16_t Fn = nx >= 0 && nx < w ? texel(st, t, u0 + dir_u * nx, v0 + dir_v * yy) : 0;
+                uint16_t Bo = oy >= 0 && oy < h ? texel(st, t, u0 + dir_u * xx, v0 + dir_v * oy) : 0;
+                uint16_t Do = ox >= 0 && ox < w ? texel(st, t, u0 + dir_u * ox, v0 + dir_v * yy) : 0;
+                uint16_t col = E;
+
+                if (same2d(Fn, Hn) && !same2d(Fn, E) && !same2d(Fn, Bo) && !same2d(Hn, Do) &&
+                    (dxq > 0 ? px : -px) + (dyq > 0 ? py : -py) > 0.5f) {
+                    col = Fn;
+                }
+                hshade_c(st, row + X, t, col, r, g, b, semi, abr, 0);
+            }
+            continue;
+        }
         for (X = xs; X <= xe; X++) {
             int xx = X / scale + OX(s) - x0;
             hshade(st, row + X, t, st->flip_x ? u0 - xx : u0 + xx, tv, r, g, b, semi, abr, 0);

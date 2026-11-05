@@ -43,7 +43,7 @@ typedef struct {
 #define FENCES 8 /* PR.36: submissions in flight per thread before a submit waits */
 #define ROW_BYTES (PSXGPU_VRAM_W * 2)
 
-enum { F_DITHER = 1, F_BLOCK = 2, F_CLAMP = 0x200, F_SETMASK = 0x100, F_FILTER = 0x400 };
+enum { F_DITHER = 1, F_BLOCK = 2, F_CLAMP = 0x200, F_SETMASK = 0x100, F_FILTER = 0x400, F_SMOOTH2D = 0x800 };
 #define F_PASS(p) ((uint32_t)(p) << 2)
 #define F_ABR(a) ((uint32_t)(a) << 4)
 #define F_KIND(k) ((uint32_t)(k) << 6)
@@ -467,6 +467,17 @@ static void tri(Ctx *x, const PsxHdCmd *c, int scale) {
         umax = p[2].u > umax ? p[2].u : umax;
         fl |= (shift ? 0 : F_BLOCK) | F_CLAMP;
         lim = (uint32_t)umin | (uint32_t)umax << 8;
+        if (!shift && scale >= 2 && PsxHd_Smooth2d()) {
+            /* dw2-pc-port 2D smoothing (backend/psxgpu_hd.c smooth2d_texel), UV box exclusive at
+             * its far edges like the soft path */
+            int vmin = p[0].v < p[1].v ? p[0].v : p[1].v, vmax = p[0].v > p[1].v ? p[0].v : p[1].v;
+
+            vmin = p[2].v < vmin ? p[2].v : vmin;
+            vmax = p[2].v > vmax ? p[2].v : vmax;
+            fl = (fl & ~(uint32_t)(F_BLOCK | F_CLAMP)) | F_SMOOTH2D;
+            lim = (uint32_t)umin | (uint32_t)(umax > umin ? umax - 1 : umin) << 8 | (uint32_t)vmin << 16 |
+                  (uint32_t)(vmax > vmin ? vmax - 1 : vmin) << 24;
+        }
     }
     if (st->set_mask) {
         fl |= F_SETMASK;
@@ -567,6 +578,12 @@ static void rect(Ctx *x, const PsxHdCmd *c, int scale) {
             fl = F_CLAMP;
             lim = (uint32_t)(c->u0 & 255) | (uint32_t)((c->u0 + c->w - 1) & 255) << 8;
         }
+    }
+    if (fl == F_BLOCK && t != NULL && scale >= 2 && !st->flip_x && !st->flip_y && PsxHd_Smooth2d()) {
+        /* dw2-pc-port 2D smoothing inside the rect's texels */
+        fl = F_SMOOTH2D;
+        lim = (uint32_t)(c->u0 & 255) | (uint32_t)((c->u0 + c->w - 1) & 255) << 8 | (uint32_t)(c->v0 & 255) << 16 |
+              (uint32_t)((c->v0 + c->h - 1) & 255) << 24;
     }
     set_par(v, 6, t != NULL ? tex_bits(t) : 0, win_bits(st), fl | (st->set_mask ? F_SETMASK : 0), lim);
     emit_prim(x, c, scale, v, 6, t != NULL);

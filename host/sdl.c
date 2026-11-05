@@ -1070,6 +1070,11 @@ void Host_GameEvents(void) {
                    PsxHd_Smooth() && !PsxHd_Gpu() ? ": needs the GPU renderer" : "");
             Settings_Set(SET_SMOOTH, PsxHd_Smooth());
         }
+        if ((v = SDL_SetAtomicInt(&wanted[SET_SMOOTH2D], 0)) != 0) {
+            Settings_Set(SET_SMOOTH2D, v - 1);
+            PsxHd_SetSmooth2d(v - 1);
+            printf("[gpu] 2D smoothing %s (F1)\n", PsxHd_Smooth2d() ? "on" : "off");
+        }
         if ((v = SDL_SetAtomicInt(&wanted[SET_TEX_FILTER], 0)) != 0) {
             Settings_Set(SET_TEX_FILTER, v - 1);
             PsxHd_SetTexFilter(v - 1 == SET_TEXF_BILINEAR);

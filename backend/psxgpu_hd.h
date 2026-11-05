@@ -64,6 +64,9 @@ void PsxHd_SetPgxp(int on);
 /* dw2-pc-port: bilinear filtering of 3D polygon textures (2D sprites and rects stay exact). */
 void PsxHd_SetTexFilter(int on);
 int PsxHd_TexFilter(void);
+/* dw2-pc-port: edge-smoothing upscale of textured 2D rects (text, menus, frames) at scale 2+. */
+void PsxHd_SetSmooth2d(int on);
+int PsxHd_Smooth2d(void);
 int PsxHd_Pgxp(void);
 
 /* PR.2b sharpening of the HD picture (contrast adaptive, strength 0..100, 0 = off): applied by

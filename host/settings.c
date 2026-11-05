@@ -47,12 +47,12 @@ static const char *const int_keys[SET_COUNT] = {
     "scale", "wide", "pgxp", "renderer", "volume", "stick_dpad", "window_mode", "fullscreen_display", "window_maximized",
     "sharpen", "title_hint", "speed", "update_check", "smooth",
     "select_hold_menu", "music_volume", "sfx_volume", "voice_volume", "ui_scale", "texture_filter", "stick_deadzone",
-    "vsync",
+    "vsync", "smooth_2d",
 };
 static const int int_default[SET_COUNT] = { 1, 0, 0, SET_RENDERER_GPU, 100, 1, SET_WINDOW_WINDOWED, 0, 0, 0, 1, 3, 1, 1, 1,
-                                             100, 100, 100, 0, SET_TEXF_NEAREST, 50, 0 };
-static const int int_min[SET_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0 };
-static const int int_max[SET_COUNT] = { 12, 2, 1, 1, 100, 1, 2, 16, 1, 100, 1, 8, 1, 1, 1, 100, 100, 100, 300, 1, 90, 1 };
+                                             100, 100, 100, 0, SET_TEXF_NEAREST, 50, 0, 0 };
+static const int int_min[SET_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0 };
+static const int int_max[SET_COUNT] = { 12, 2, 1, 1, 100, 1, 2, 16, 1, 100, 1, 8, 1, 1, 1, 100, 100, 100, 300, 1, 90, 1, 1 };
 static const char *const renderer_names[] = { "gpu", "soft", NULL };
 static const char *const window_names[] = { "windowed", "borderless", "exclusive", NULL };
 static const char *const filter_names[] = { "nearest", "bilinear", NULL };
@@ -129,9 +129,9 @@ void Settings_ResetControls(void) {
 /* dw2-pc-port profiles. Classic: the PS1 picture. Remastered: fits the window, 16:9, no wobble,
  * smooth frames, light sharpening, bilinear 3D textures. */
 int Settings_ProfileValue(int p, int id) {
-    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER };
-    static const int classic[] = { 1, 0, 0, 0, 0, SET_TEXF_NEAREST };
-    static const int remastered[] = { 0, 1, 1, 25, 1, SET_TEXF_BILINEAR };
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
+    static const int classic[] = { 1, 0, 0, 0, 0, SET_TEXF_NEAREST, 0 };
+    static const int remastered[] = { 0, 1, 1, 25, 1, SET_TEXF_BILINEAR, 1 };
     int i;
 
     for (i = 0; i < (int)(sizeof(ids) / sizeof(ids[0])); i++) {
@@ -644,9 +644,10 @@ void Settings_Load(int no_window) {
     printf("[settings] sharpen %d, title_hint %d, speed %d, update_check %d, smooth %d, select_hold_menu %d\n",
            Settings_Get(SET_SHARPEN), Settings_Get(SET_TITLE_HINT), Settings_Get(SET_SPEED),
            Settings_Get(SET_UPDATE_CHECK), Settings_Get(SET_SMOOTH), Settings_Get(SET_SELECT_HOLD));
-    printf("[settings] music %d, sfx %d, voice %d, ui_scale %d, texture_filter %s, stick_deadzone %d, vsync %d\n",
+    printf("[settings] music %d, sfx %d, voice %d, ui_scale %d, texture_filter %s, stick_deadzone %d, vsync %d, smooth_2d %d\n",
            Settings_Get(SET_MUSIC_VOL), Settings_Get(SET_SFX_VOL), Settings_Get(SET_VOICE_VOL), Settings_Get(SET_UI_SCALE),
-           filter_names[Settings_Get(SET_TEX_FILTER)], Settings_Get(SET_DEADZONE), Settings_Get(SET_VSYNC));
+           filter_names[Settings_Get(SET_TEX_FILTER)], Settings_Get(SET_DEADZONE), Settings_Get(SET_VSYNC),
+           Settings_Get(SET_SMOOTH2D));
     {
         char fm[32], ws[32], wp[32];
 
@@ -744,7 +745,7 @@ static int save(void) {
     static const int order[K_KEY] = {
         SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_RENDERER, SET_VOLUME, SET_STICK_DPAD, SET_SELECT_HOLD,
         SET_TITLE_HINT, SET_SPEED, SET_UPDATE_CHECK, SET_WINDOW_MODE, SET_FS_DISPLAY, K_FSMODE, K_WINSIZE, K_WINPOS, SET_WIN_MAX,
-        SET_MUSIC_VOL, SET_SFX_VOL, SET_VOICE_VOL, SET_UI_SCALE, SET_TEX_FILTER, SET_DEADZONE, SET_VSYNC,
+        SET_MUSIC_VOL, SET_SFX_VOL, SET_VOICE_VOL, SET_UI_SCALE, SET_TEX_FILTER, SET_DEADZONE, SET_VSYNC, SET_SMOOTH2D,
     };
     char seen[K_COUNT] = { 0 };
     char *tmp = NULL;

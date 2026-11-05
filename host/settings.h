@@ -34,6 +34,7 @@ enum {
     SET_TEX_FILTER,   /* SET_TEXF_*: 3D texture filtering */
     SET_DEADZONE,     /* 10..90 %: left stick as D-pad threshold */
     SET_VSYNC,        /* 0 / 1: present with vsync */
+    SET_SMOOTH2D,     /* 0 / 1: edge-smoothing upscale of 2D sprites (text, menus) */
     SET_COUNT
 };
 enum { SET_RENDERER_GPU, SET_RENDERER_SOFT };

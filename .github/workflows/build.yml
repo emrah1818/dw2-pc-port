@@ -95,6 +95,8 @@ jobs:
           $o
           if ($LASTEXITCODE -ne 1) { throw "wrong image not refused" }
           if (Test-Path fake.pak) { throw "a pack was written from a wrong image" }
+          "import checks passed"
+          exit 0
 
       - uses: actions/upload-artifact@v4
         if: always()

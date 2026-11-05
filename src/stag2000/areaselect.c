@@ -5,6 +5,9 @@
 #endif
 #include "stag2000/stag2000.h"
 #include "stag2000/mapbg.h"
+#ifdef DW2_NATIVE
+void *Host_BotNav; /* dw2-pc-port: the open map pick (Stg20NavWork *), host/bot.c nav */
+#endif
 
 /* Task callbacks the descriptors below need (defined further down). */
 void Stg20_AreaSelectUpdate(Actor *a);
@@ -666,10 +669,16 @@ void Stg20_AreaSelectUpdate(Actor *a) {
         Task_NextState0(a);
         break;
     case 1:
+#ifdef DW2_NATIVE
+        Host_BotNav = w; /* dw2-pc-port test harness: read-only view for the bot's nav command */
+#endif
         do {
             if (Pad_State[0].down > 0) {                k = Stg20_AreaSelectFindDir(a, 0);                if (k != -1) {                    Snd_PlayById(0x12, 0);                    w->index = k;                }                w->redraw = 1;            } else if (Pad_State[0].left > 0) {                k = Stg20_AreaSelectFindDir(a, 1);                if (k != -1) {                    Snd_PlayById(0x12, 0);                    w->index = k;                }                w->redraw = 1;            } else if (Pad_State[0].up > 0) {                k = Stg20_AreaSelectFindDir(a, 2);                if (k != -1) {                    Snd_PlayById(0x12, 0);                    w->index = k;                }                w->redraw = 1;            } else if (Pad_State[0].right > 0) {                k = Stg20_AreaSelectFindDir(a, 3);                if (k != -1) {                    Snd_PlayById(0x12, 0);                    w->index = k;                }                w->redraw = 1;            } else if (Pad_State[0].cross > 0) {                if (w->recs[w->index].mode != 0x301) {                    goto play;                }                if (w->recs[w->index].arg != 2 || Flag_Test(0x12) != 0) {                play:                    Snd_PlayById(0xE, 0);                    Task_NextState0(a);                }            }            if (w->redraw != 0) {                w->redraw = 0;                Text_Close(&w->text);                Text_OpenPacked(&w->text, w->recs[w->index].text, 0, Stg20_AreaNamePos);            }        } while (0);
         break;
     case 2:
+#ifdef DW2_NATIVE
+        Host_BotNav = NULL;
+#endif
         switch (a->stateLevel1) {
         case 0:
         default:

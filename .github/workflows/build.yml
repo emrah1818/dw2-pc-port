@@ -61,7 +61,10 @@ jobs:
           if ($null -eq $icd) { Get-ChildItem -Recurse mesa | Select-Object -First 40 FullName; throw "no lavapipe ICD" }
           "VK_DRIVER_FILES=$($icd.FullName)" | Out-File $env:GITHUB_ENV -Append
           "VK_ICD_FILENAMES=$($icd.FullName)" | Out-File $env:GITHUB_ENV -Append
-          Copy-Item "$env:DW2_MINGW\bin\libvulkan-1.dll" build/native64_rel_nodisc/vulkan-1.dll
+          $vk = Get-ChildItem "$env:DW2_MINGW\bin" -Filter "*vulkan*.dll" | Select-Object -First 1
+          if ($null -eq $vk) { throw "no Vulkan loader DLL in $env:DW2_MINGW\bin" }
+          "Vulkan loader: $($vk.Name)"
+          Copy-Item $vk.FullName build/native64_rel_nodisc/vulkan-1.dll
 
       - name: Windows renderer test (software vs GPU/Vulkan, synthetic scene)
         shell: pwsh

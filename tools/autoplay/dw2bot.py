@@ -161,6 +161,14 @@ class Game:
         return {"cols": cols, "rows": rows, "x": x, "y": y, "floor": floor,
                 "grid": [cells[i * cols:(i + 1) * cols] for i in range(rows)], "ents": ents}
 
+    def nav(self):
+        """The open city / area map pick, or None: (index, [(id, mode, arg, x, y), ...])."""
+        r = self._call("nav").split()
+        if r[1] == "none":
+            return None
+        recs = [] if r[2] == "-" else [tuple(int(v, 0) for v in e.split(",")) for e in r[2].split(";")]
+        return int(r[1]), recs
+
     # ---- common state ----
     def mode(self):
         return self.s32("Sys_State", 0x18)

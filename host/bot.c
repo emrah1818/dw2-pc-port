@@ -279,6 +279,36 @@ void Host_BotTick(unsigned int wait) {
 #else
             reply("err devedit needs a dev build");
 #endif
+        } else if (strcmp(cmd, "nav") == 0) {
+            /* the open city / area map pick: "nav INDEX id,mode,arg,x,y;..." (shown destinations) */
+            extern void *Host_BotNav;
+            const unsigned char *w = Host_BotNav;
+            char recs[4096];
+            int len = 0, i;
+
+            if (w == NULL) {
+                reply("nav none");
+                continue;
+            }
+            recs[0] = 0;
+            for (i = 0; i < 64; i++) {
+                const unsigned char *r = w + 0x0C + i * 0x18;
+                short id, mode, x, y;
+
+                memcpy(&id, r, 2);
+                if (id == -1) {
+                    break;
+                }
+                memcpy(&mode, r + 0x10, 2);
+                memcpy(&x, r + 0x14, 2);
+                memcpy(&y, r + 0x16, 2);
+                len += snprintf(recs + len, sizeof(recs) - len, "%s%d,0x%X,%d,%d,%d", i ? ";" : "", id,
+                                (unsigned short)mode, r[0x12], x, y);
+                if (len >= (int)sizeof(recs) - 64) {
+                    break;
+                }
+            }
+            reply("nav %d %s", *(const int *)(w + 8), i ? recs : "-");
         } else if (strcmp(cmd, "quit") == 0) {
             reply("bye");
             Host_Quit("--bot quit");

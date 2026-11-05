@@ -30,7 +30,7 @@ Die Technik für weitere Texte steht bereit: deutsche Texte in die Spieldateien 
 - **Eigenes Launcher-Programm:** nicht umgesetzt. Die Startzentrale ist der F1-Reiter „Start“.
 - **Story-Bot über Mission 2 hinaus:** nicht weiterentwickelt.
 
-Alle Tests aus 1.1.0 gelten weiter (gleiche Codepfade im englischen Modus). Speicher- und Cheattest wurden für 1.2.0 nicht erneut ausgeführt.
+Alle Tests aus 1.1.0 gelten weiter (gleiche Codepfade im englischen Modus). Für 1.2.0 erneut ausgeführt: Referenzbilder (6/6 gleich) und Cheattest (7/7). Der Speichertest wurde für 1.2.0 nicht erneut ausgeführt.
 
 
 Alle Ergebnisse unten stammen aus tatsächlich ausgeführten Tests. Wo nichts getestet werden konnte,

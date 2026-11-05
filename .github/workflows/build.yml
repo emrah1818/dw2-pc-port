@@ -7,9 +7,13 @@ name: Build
 on:
   push:
     branches: [main]
-    tags: ["v*"]
     paths-ignore: ["**.md", "doc/**"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "release tag to publish (e.g. v1.1.0); empty = test build"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -200,10 +204,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            gh release delete "${GITHUB_REF_NAME}" --yes || true
-            gh release create "${GITHUB_REF_NAME}" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
-              --prerelease --verify-tag --title "DW2 PC-Port ${GITHUB_REF_NAME}" \
+          TAG="${{ github.event.inputs.release }}"
+          if [ -n "$TAG" ]; then
+            gh release delete "$TAG" --yes --cleanup-tag || true
+            gh release create "$TAG" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
+              --prerelease --target "${{ github.sha }}" --title "DW2 PC-Port $TAG" \
               --notes "Windows- und Linux-Version ohne Spieldaten: beim ersten Start wird dein eigenes Digimon World 2 (USA) Image importiert. Anleitung: README_PORT.md, Testbericht: TESTBERICHT.md (was getestet ist und was nicht). Vorabversion, weil Grafik, Ton und Controller auf echter Windows-Hardware noch nicht geprüft sind."
           else
             gh release delete test-build --yes --cleanup-tag || true

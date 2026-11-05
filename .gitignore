@@ -38,3 +38,7 @@ asm/USA/*/rodata/
 # dw2.pak: built from the player's own disc image (tools/dw2pack.py), never committed.
 *.pak
 *.pak.tmp
+
+# dw2-pc-port: German translations of game texts are derived from the game: never in the public repo
+Languages/German/texts.tsv
+Languages/German/report.txt

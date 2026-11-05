@@ -1,4 +1,51 @@
-# DW2 PC-Port – Testbericht (Version 1.2.0-port, 05.11.2026)
+# DW2 PC-Port – Testbericht (Version 1.3.0-port, 05.11.2026)
+
+## Neu in 1.3.0: Textinventur und deutsche Tabellentexte
+
+### Textinventur
+
+`dw2.exe --export-texts DIR` schreibt `texts_en.tsv` mit Schlüssel `DATEI:ZEIGER`, Kategorie und englischem Text. Steuercodes bleiben als Platzhalter erhalten (`{NL}`, `{PAGE}`, `{ARG1}`, `{B:..}`).
+
+Erfasst sind **1201 Texte**:
+
+| Kategorie | Anzahl |
+|---|---|
+| System, Kampf und Menüs (SYSTEXT) | 417 |
+| Itemnamen | 264 |
+| Itembeschreibungen | 264 |
+| Attackenbeschreibungen | 256 |
+
+Alle sind ohne Skriptbefehle und damit sicher übersetzbar.
+
+### Übersetzt und im Spiel getestet
+
+- **Umfang:** Übersetzt sind 879 dieser Texte, darunter alle Kampf-, Menü-, Fallen-, Bug-, Shop-, Speicherkarten-, Digitations- und Statustexte, die Itembeschreibungen, alle 189 verschiedenen Attackenbeschreibungen und die Itemnamen, für die es natürliche deutsche Namen mit höchstens 10 Zeichen gibt. Technische Teilenamen wie „Wolf EG-1“ oder „Ant RAM“ bleiben englisch.
+- **Integration:** Die Texte werden über `Languages/German/texts.tsv` eingespielt. Die Textbereiche werden dafür neu gepackt. Ergebnis: 879 von 879 eingesetzt, 0 Fehler. Jeder Text hat dieselben Steuercodes in derselben Reihenfolge wie das Original, das wird beim Bauen geprüft.
+- **Im Spiel gesehen:**
+  - Kampfmenü: „Befehle geben / Kanone / Fliehen“, „Angriff / Unterbrechen / Hilfe“, Beschreibung „Schießt einen Feuerball“
+  - Statusfenster: „Typ Serum / Stufe Rookie / Keins / Angriff / Abwehr / Tempo / Nächst. Lv“
+  - Hauptmenü: „Speichern“
+- **Gefundener Fehler:** „Nächstes Level“ wurde abgeschnitten und ist jetzt gekürzt.
+- **Englischer Modus:** Die 6 Referenzbilder sind unverändert.
+
+### Warum `texts.tsv` nicht im Repository liegt
+
+Die Übersetzung beruht auf den Texten des Spiels. Das Repository ist öffentlich, deshalb wird `texts.tsv` nicht veröffentlicht (`.gitignore`). Sie wurde dir direkt übergeben. Lege sie nach `Languages/German/` neben `dw2.exe`.
+
+### Noch offen (nicht umgesetzt)
+
+- **Dialoge und Story:** Sie stehen in Ereignisskripten mit den Befehlen F3, F4, F6 und F7. Deren Argumentlänge hängt von Unterbefehlen ab (`src/main/text.c`). Erst wenn sie exakt modelliert sind, können diese Texte sicher ersetzt werden. Inventur und Übersetzung der Dialoge fehlen daher noch.
+- **Wortgrafiken:** Begriffe wie „Specialty“, „Counter Attack“, „Battle“, „Digimon“ oder „Items“ sind fertig gezeichnete Wörter in der Schrift-Textur. Lösungsweg: Die Wörter aus den Spielglyphen neu zeichnen, so wie die Umlaute. Noch nicht gebaut.
+- **Weiteres:**
+  - Originalmenüs neu gestalten
+  - 3D-Studio im Spiel
+  - HD-Ersatztexturen
+  - Eigener Launcher
+  - Story-Bot über Mission 2 hinaus
+
+  Alles unverändert offen, siehe 1.2.0.
+- **Nicht wiederholt:** Speicher- und Domaintests liefen für 1.3.0 nicht erneut. Geändert wurde nur die Sprach-Ebene, im englischen Modus ist der Weg unverändert.
+
 
 ## Neu in 1.2.0: deutsche Spieltexte (Stand und Grenzen)
 

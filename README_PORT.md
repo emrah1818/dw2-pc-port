@@ -1,4 +1,4 @@
-# DW2 PC-Port (Version 1.2.0-port)
+# DW2 PC-Port (Version 1.3.0-port)
 
 Dies ist eine native PC-Fassung von **Digimon World 2 (USA, SLUS-01193)** für Windows x64 und Linux x64. Sie bietet:
 
@@ -74,6 +74,7 @@ Mit Deutsch ändert sich Folgendes:
   Stand: 43 von 182 Attacken haben einen deutschen Namen, alle 43 wurden im Spiel gefunden und ersetzt. Schaden, MP und IDs bleiben unverändert.
 - **Umlaute im Spiel:** Ä Ö Ü ä ö ü ß werden beim Start aus deiner eigenen Spielschrift erzeugt, in Zeichenzellen, die kein Text nutzt.
 - **Bericht:** Jeder Start auf Deutsch schreibt `Languages/German/report.txt`. Darin steht für jede Attacke im Spiel Englisch → Deutsch oder der Grund, warum sie englisch bleibt.
+- **Kampf-, Menü-, System-, Item- und Attackenbeschreibungstexte:** aus `Languages/German/texts.tsv`. Die Datei wird nicht veröffentlicht, weil sie auf den Spieltexten beruht. Eigene Texte gehen so: `dw2.exe --export-texts DIR` erzeugt die englische Inventur, dann zeilenweise `SCHLÜSSEL<Tab>Deutsch` eintragen.
 - **Noch englisch:** Dialoge, Story, Itemnamen und -beschreibungen, Attackenbeschreibungen, Kampfmeldungen und die übrigen Menüwörter des Spiels. Siehe TESTBERICHT.md, Abschnitt 1.2.0.
 - **Eigene Übersetzungen:** `attacks.csv` und `types.csv` sind einfache UTF-8-Dateien (`englisch;deutsch;...`). Du kannst sie bearbeiten, beim nächsten Start gelten sie.
 

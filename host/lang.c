@@ -245,6 +245,46 @@ static int encode(const char *s, uint8_t *out, int max, int umlauts) {
             g = 0x24 + c - 'a';
         } else if (c == ' ') {
             g = 0xFD;
+        } else if (c == '{') {
+            /* tokens of the text inventory (Lang_ExportTexts): control codes kept as they were */
+            const char *e = strchr(s, '}');
+            unsigned v = 0;
+            int t = -1;
+
+            if (e == NULL) {
+                return -1;
+            }
+            if (!strncmp(s, "{NL}", 4)) t = 0xFE;
+            else if (!strncmp(s, "{PAGE}", 6)) t = 0xFC;
+            else if (!strncmp(s, "{WAIT}", 6)) t = 0xFB;
+            else if (!strncmp(s, "{TAMER}", 7)) { out[n++] = 0xF0; t = 0x00; }
+            else if (!strncmp(s, "{BEETLE}", 8)) { out[n++] = 0xF0; t = 0x05; }
+            else if (sscanf(s, "{ARG%u}", &v) == 1 && v < 5) { out[n++] = 0xF0; t = (int)v; }
+            else if (sscanf(s, "{G:%x}", &v) == 1 && v < 0xEF) t = (int)v;
+            else if (!strncmp(s, "{B:", 3)) {
+                /* raw command bytes kept from the original (hex pairs) */
+                const char *h = s + 3;
+                while (h + 1 < e && n < max - 2) {
+                    unsigned b;
+                    if (sscanf(h, "%2x", &b) != 1) return -1;
+                    out[n++] = (uint8_t)b;
+                    h += 2;
+                }
+                s = e + 1;
+                continue;
+            }
+            else if ((sscanf(s, "{DIGI:%u}", &v) == 1 || sscanf(s, "{ITEM:%u}", &v) == 1) && v < 1000 && n + 4 < max) {
+                out[n++] = s[1] == 'D' ? 0xF1 : 0xF2;
+                out[n++] = (uint8_t)(v / 100);
+                out[n++] = (uint8_t)(v / 10 % 10);
+                t = (int)(v % 10);
+            }
+            if (t < 0 || n >= max - 1) {
+                return -1;
+            }
+            out[n++] = (uint8_t)t;
+            s = e + 1;
+            continue;
         } else if (c < 0x80) {
             static const char punct[] = "&?!/-,.'\";:%+=#";
             static const int codes[] = { 0x42, 0x44, 0x45, 0x46, 0x49, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D };
@@ -484,6 +524,344 @@ static void patch_types(uint8_t *d, int size, const char *dir, int umlauts) {
 }
 
 /* Main thread, after Host_PakOpen and DevData_InitConst, before the game thread. */
+
+/* ---- text inventory and the generic translation file ---- */
+
+/* game text at `o` -> UTF-8 with tokens; returns 1 = plain text, 2 = contains script commands
+ * (exported, not translatable yet), 0 = not text */
+static int tokenize(const uint8_t *d, int size, uint32_t o, char *out, int n) {
+    int len = 0, glyphs = 0, script = 0;
+
+#define PUT(str) do { const char *q_ = (str); while (*q_ && len < n - 1) out[len++] = *q_++; } while (0)
+    out[0] = 0;
+    for (uint32_t i = o; (int)i < size; i++) {
+        int c = d[i];
+        char tmp[48];
+
+        if (c == 0xFF) {
+            out[len] = 0;
+            return glyphs > 0 ? (script ? 2 : 1) : 0;
+        }
+        if (c < 10) { tmp[0] = (char)('0' + c); tmp[1] = 0; PUT(tmp); glyphs++; continue; }
+        if (c < 0x24) { tmp[0] = (char)('A' + c - 10); tmp[1] = 0; PUT(tmp); glyphs++; continue; }
+        if (c < 0x3E) { tmp[0] = (char)('a' + c - 0x24); tmp[1] = 0; PUT(tmp); glyphs++; continue; }
+        if (c <= 0x5D) {
+            static const char punct[] = "&?!/-,.'\";:%+=#";
+            static const int codes[] = { 0x42, 0x44, 0x45, 0x46, 0x49, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D };
+            int k;
+            for (k = 0; k < 15 && codes[k] != c; k++) {
+            }
+            if (k < 15) { tmp[0] = punct[k]; tmp[1] = 0; } else { snprintf(tmp, sizeof(tmp), "{G:%02X}", c); }
+            PUT(tmp);
+            glyphs++;
+            continue;
+        }
+        switch (c) {
+        case 0xFE: PUT("{NL}"); break;
+        case 0xFD: PUT(" "); break;
+        case 0xFC: PUT("{PAGE}"); break;
+        case 0xFB: PUT("{WAIT}"); break;
+        case 0xF0:
+            if ((int)i + 1 >= size) return 0;
+            c = d[++i];
+            if (c == 0) PUT("{TAMER}");
+            else if (c == 5) PUT("{BEETLE}");
+            else if (c < 5) { snprintf(tmp, sizeof(tmp), "{ARG%d}", c); PUT(tmp); }
+            else {
+                uint8_t w[3] = { 0xF0, (uint8_t)c, 0xFF };
+                DevData_Text(w, 3, NULL, tmp, sizeof(tmp)); /* the game's dictionary word, as text */
+                PUT(tmp);
+            }
+            glyphs++;
+            break;
+        case 0xF1:
+        case 0xF2:
+            if ((int)i + 3 >= size) return 0;
+            snprintf(tmp, sizeof(tmp), "{%s:%d}", c == 0xF1 ? "DIGI" : "ITEM", d[i + 1] * 100 + d[i + 2] * 10 + d[i + 3]);
+            PUT(tmp);
+            i += 3;
+            glyphs++;
+            break;
+        case 0xEF:
+            if ((int)i + 1 >= size) return 0;
+            snprintf(tmp, sizeof(tmp), "{G:%02X}", 0xF0 + d[++i]);
+            PUT(tmp);
+            break;
+        default:
+            if (c >= 0xE6 && c <= 0xEC) { /* umlaut glyphs (German layer) */
+                static const char *const um[] = { "\xC3\x84", "\xC3\x96", "\xC3\x9C", "\xC3\xA4", "\xC3\xB6", "\xC3\xBC", "\xC3\x9F" };
+                PUT(um[c - 0xE6]);
+                glyphs++;
+                break;
+            }
+            if (c == 0xF5) { PUT("{B:F5}"); break; } /* text.c: pause, no argument */
+            if ((c == 0xF8 || c == 0xFA) && (int)i + 1 < size) { /* choice / window: one argument */
+                snprintf(tmp, sizeof(tmp), "{B:%02X%02X}", c, d[i + 1]);
+                PUT(tmp);
+                i++;
+                break;
+            }
+            if (c == 0xF9 && (int)i + 1 < size) { /* model: k, and 3 digits when k is even */
+                int na = (d[i + 1] & 1) ? 1 : 4, k;
+                if ((int)i + na >= size) return 0;
+                PUT("{B:F9");
+                for (k = 1; k <= na; k++) { snprintf(tmp, sizeof(tmp), "%02X", d[i + k]); PUT(tmp); }
+                PUT("}");
+                i += (uint32_t)na;
+                break;
+            }
+            if (c >= 0xF3) { script = 1; snprintf(tmp, sizeof(tmp), "{CMD:%02X}", c); PUT(tmp); break; }
+            return 0; /* a byte text never has */
+        }
+    }
+    return 0;
+#undef PUT
+}
+
+typedef struct { int file; const char *what; int first, stride, ptr0, ptr1; } Table;
+
+/* the text tables found so far: record tables (pointers inside records) and pointer lists */
+static const Table k_tables[] = {
+    { 0x45E, "item", -1, 0x10, 8, 12 },        /* ITEMDATA: name, description */
+    { 0x25B, "attack", -1, 0x44, -1, 0x28 },   /* WAZADATA: description (names: attacks.csv) */
+    { 0x1FD, "system", 0, 0, 0, -1 },          /* SYSTEXT: pointer list at the start */
+};
+
+/* calls fn(ptr_at, category) for every text pointer of table t in file d */
+static void walk(const Table *t, const uint8_t *d, int size, void (*fn)(void *, const uint8_t *, int, uint32_t, const char *), void *ctx) {
+    char cat[32];
+
+    if (t->stride == 0) {
+        uint32_t first = rd32(d);
+        for (uint32_t a = 0; a + 4 <= first && a + 4 <= (uint32_t)size; a += 4) {
+            fn(ctx, d, size, a, t->what);
+        }
+        return;
+    }
+    for (uint32_t r = rd32(d); r + (uint32_t)t->stride <= (uint32_t)size; r += (uint32_t)t->stride) {
+        if ((int16_t)(d[r] | d[r + 1] << 8) == 0) {
+            break;
+        }
+        if (t->ptr0 >= 0) {
+            snprintf(cat, sizeof(cat), "%s name", t->what);
+            fn(ctx, d, size, r + (uint32_t)t->ptr0, cat);
+        }
+        if (t->ptr1 >= 0) {
+            snprintf(cat, sizeof(cat), "%s description", t->what);
+            fn(ctx, d, size, r + (uint32_t)t->ptr1, cat);
+        }
+    }
+}
+
+typedef struct { FILE *f; int file, n, script; } ExportCtx;
+
+static void export_one(void *vctx, const uint8_t *d, int size, uint32_t at, const char *cat) {
+    ExportCtx *x = vctx;
+    char text[2048];
+    uint32_t o = rd32(d + at);
+    int k;
+
+    if (o >= (uint32_t)size || (k = tokenize(d, size, o, text, sizeof(text))) == 0) {
+        return;
+    }
+    for (char *c = text; *c; c++) {
+        if (*c == '\t' || *c == '\n') *c = ' ';
+    }
+    fprintf(x->f, "%04X:%06X\t%s\t%s\t%s\n", x->file, at, cat, k == 2 ? "script" : "text", text);
+    x->n++;
+    x->script += k == 2;
+}
+
+/* --export-texts DIR: DIR/texts_en.tsv (key, category, kind, English). From the player's disc:
+ * stays on the player's PC. */
+int Lang_ExportTexts(const char *dir) {
+    char path[1024];
+    ExportCtx x = { 0 };
+
+    SDL_CreateDirectory(dir);
+    snprintf(path, sizeof(path), "%s/texts_en.tsv", dir);
+    x.f = fopen(path, "w");
+    if (x.f == NULL) {
+        return 1;
+    }
+    fprintf(x.f, "key\tcategory\tkind\tenglish\n");
+    for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
+        int size = 0;
+        uint8_t *d = Host_PakReadFile(k_tables[t].file, &size);
+
+        if (d == NULL) {
+            continue;
+        }
+        x.file = k_tables[t].file;
+        walk(&k_tables[t], d, size, export_one, &x);
+        free(d);
+    }
+    fclose(x.f);
+    printf("[lang] %d texts (%d with script commands) -> %s\n", x.n, x.script, path);
+    return 0;
+}
+
+/* All text pointers of table t (names too), into slots; returns the count. The end of the string
+ * area: the records' start for record tables, the end of the last string for pointer lists. */
+static int table_slots(const Table *t, const uint8_t *d, int size, uint32_t *slots, int max, uint32_t *area_end) {
+    int n = 0;
+
+    if (t->stride == 0) {
+        uint32_t first = rd32(d), end = 0;
+        for (uint32_t a = 0; a + 4 <= first && a + 4 <= (uint32_t)size && n < max; a += 4) {
+            uint32_t o = rd32(d + a);
+            if (o < (uint32_t)size) {
+                slots[n++] = a;
+                uint32_t e = o + (uint32_t)slot_len(d, size, o);
+                end = e > end ? e : end;
+            }
+        }
+        *area_end = end;
+        return n;
+    }
+    *area_end = rd32(d);
+    for (uint32_t r = rd32(d); r + (uint32_t)t->stride <= (uint32_t)size && n + 2 <= max; r += (uint32_t)t->stride) {
+        if ((int16_t)(d[r] | d[r + 1] << 8) == 0) {
+            break;
+        }
+        int name = t->file == 0x25B ? 0x24 : t->ptr0; /* WAZADATA names (attacks.csv) move too */
+        if (name >= 0) slots[n++] = r + (uint32_t)name;
+        if (t->ptr1 >= 0) slots[n++] = r + (uint32_t)t->ptr1;
+    }
+    return n;
+}
+
+/* Lays out every string of the table again (the new texts where there are, else the current
+ * bytes) from the start of the string area, then into the free tail; same strings share space.
+ * Returns the number of texts that did not fit (those keep their old string). */
+static int repack(const Table *t, uint8_t *d, int size, uint8_t **trans, int *tlen) {
+    static uint32_t slots[2048];
+    static uint8_t *str[2048];
+    static int len[2048];
+    uint32_t area_end, start = 0xFFFFFFFF, tail = tail_start(d, size), at;
+    int n = table_slots(t, d, size, slots, 2048, &area_end), lost = 0;
+
+    for (int i = 0; i < n; i++) {
+        uint32_t o = rd32(d + slots[i]);
+        start = o < start ? o : start;
+        if (trans[slots[i]] != NULL) {
+            str[i] = trans[slots[i]];
+            len[i] = tlen[slots[i]];
+        } else {
+            len[i] = slot_len(d, size, o);
+            str[i] = malloc((size_t)len[i]);
+            memcpy(str[i], d + o, (size_t)len[i]);
+        }
+    }
+    if (n == 0 || start >= area_end || tail < area_end) {
+        return -1;
+    }
+    memset(d + start, 0xFF, area_end - start);
+    memset(d + tail, 0, (size_t)size - tail);
+    at = start;
+    for (int i = 0; i < n; i++) {
+        int dup = -1;
+        for (int k = 0; k < i && dup < 0; k++) {
+            if (len[k] == len[i] && memcmp(str[k], str[i], (size_t)len[i]) == 0) dup = k;
+        }
+        if (dup >= 0) {
+            wr32(d + slots[i], rd32(d + slots[dup]));
+            continue;
+        }
+        if (at + (uint32_t)len[i] > area_end && at < tail) {
+            at = tail; /* the string area is full: on in the free tail */
+        }
+        if (at + (uint32_t)len[i] > (uint32_t)size) {
+            lost++;
+            str[i] = NULL;
+            continue;
+        }
+        memcpy(d + at, str[i], (size_t)len[i]);
+        wr32(d + slots[i], at);
+        at += (uint32_t)len[i];
+    }
+    for (int i = 0; i < n; i++) {
+        if (trans[slots[i]] == NULL && str[i] != NULL) free(str[i]);
+    }
+    return lost;
+}
+
+/* texts.tsv: key<TAB>German (lines starting with # are comments) */
+static void patch_texts(const char *dir, int umlauts) {
+    char path[1024];
+    size_t sz = 0;
+    char *data;
+    int ok = 0, bad = 0;
+
+    snprintf(path, sizeof(path), "%stexts.tsv", dir);
+    data = SDL_LoadFile(path, &sz);
+    if (data == NULL) {
+        note("no %s: item and system texts stay English%s", path, "");
+        return;
+    }
+    if (rep) fprintf(rep, "\n# texts.tsv\n");
+    for (unsigned t = 0; t < sizeof(k_tables) / sizeof(k_tables[0]); t++) {
+        int size = 0, count = 0;
+        uint8_t *d = Host_PakReadFileLayered(k_tables[t].file, &size);
+        uint8_t **trans;
+        int *tlen;
+        char *copy, *line, *next;
+
+        if (d == NULL) continue;
+        trans = calloc((size_t)size, sizeof(*trans));
+        tlen = calloc((size_t)size, sizeof(*tlen));
+        copy = SDL_strdup(data);
+        for (line = copy; line != NULL && *line; line = next) {
+            unsigned file = 0, at = 0;
+            char *tab, *de;
+            uint8_t enc[1024];
+            int len;
+
+            next = strchr(line, '\n');
+            if (next != NULL) *next++ = 0;
+            if (line[0] == '#' || sscanf(line, "%x:%x", &file, &at) != 2 || (int)file != k_tables[t].file ||
+                (tab = strchr(line, '\t')) == NULL || at + 4 > (unsigned)size) {
+                continue;
+            }
+            de = tab + 1;
+            for (char *e = de + strlen(de); e > de && e[-1] == '\r'; e--) e[-1] = 0;
+            len = encode(de, enc, sizeof(enc), umlauts);
+            if (len < 0) {
+                bad++;
+                if (rep) fprintf(rep, "%04X:%06X FAILED (a character without glyph or a bad token): %s\n", file, at, de);
+                continue;
+            }
+            free(trans[at]);
+            trans[at] = malloc((size_t)len);
+            memcpy(trans[at], enc, (size_t)len);
+            tlen[at] = len;
+            count++;
+        }
+        SDL_free(copy);
+        if (count > 0) {
+            int lost = repack(&k_tables[t], d, size, trans, tlen);
+            if (lost < 0) {
+                bad += count;
+                if (rep) fprintf(rep, "%04X: string area not understood, texts left English\n", k_tables[t].file);
+            } else {
+                ok += count - lost;
+                bad += lost;
+                if (rep && lost) fprintf(rep, "%04X: %d texts did not fit (file full), English kept\n", k_tables[t].file, lost);
+                Host_PakSetLayer(k_tables[t].file, d, size);
+            }
+        }
+        for (int i = 0; i < size; i++) free(trans[i]);
+        free(trans);
+        free(tlen);
+        free(d);
+    }
+    SDL_free(data);
+    char a[32], b[32];
+    snprintf(a, sizeof(a), "%d", ok);
+    snprintf(b, sizeof(b), "%d", bad);
+    note("texts.tsv: %s texts German, %s failed (see report.txt)", a, b);
+}
+
 /* --lang-dump DIR (tests): the patched font files as the game gets them */
 static const char *dump_dir;
 void Lang_SetDump(const char *dir) {
@@ -552,6 +930,7 @@ void Lang_Apply(void) {
         Host_PakSetLayer(F_SYSTEXT, d, size);
         free(d);
     }
+    patch_texts(dir, umlauts); /* after the types: texts.tsv may not touch the type entries */
     if (rep) {
         fclose(rep);
         rep = NULL;

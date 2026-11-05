@@ -136,6 +136,8 @@ static int start_mode;
 static const char *export_dir; /* dw2-pc-port --export-assets DIR */
 static const char *import_png; /* dw2-pc-port --import-texture PNG */
 static int cheats_at_start;
+static const char *export_texts;
+int Lang_ExportTexts(const char *dir);
 int Cheat_SetActive(int on);
 int Assets_ImportTexture(const char *png);
 int Assets_Export(const char *dir, void (*progress)(int done, int total, const char *what));
@@ -481,6 +483,8 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--lang-dump") == 0 && i + 1 < argc) {
             extern void Lang_SetDump(const char *dir);
             Lang_SetDump(argv[++i]); /* dw2-pc-port tests: write the patched font files */
+        } else if (strcmp(argv[i], "--export-texts") == 0 && i + 1 < argc) {
+            export_texts = argv[++i]; /* dw2-pc-port: text inventory (host/lang.c) and quit */
         } else if (strcmp(argv[i], "--no-mods") == 0) {
             Host_PakNoMods(); /* dw2-pc-port: Mods/files overrides off */
         } else if (strcmp(argv[i], "--import-texture") == 0 && i + 1 < argc) {
@@ -637,6 +641,12 @@ HOST_ENTRY int main(int argc, char **argv) {
         if (export_dir == NULL && import_png == NULL) {
             Lang_Apply();
         }
+    }
+    if (export_texts != NULL) {
+        int r = Lang_ExportTexts(export_texts);
+
+        SDL_Quit();
+        return r;
     }
     if (import_png != NULL) {
         int r = Assets_ImportTexture(import_png);

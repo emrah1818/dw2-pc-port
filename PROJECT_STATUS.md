@@ -1,6 +1,6 @@
 # PROJECT_STATUS – DW2 PC-Port
 
-Stand: 05.11.2026, Version **1.3.0-port** (Release `v1.3.0`, Commit siehe `git log`).
+Stand: 05.11.2026, **Zwischenstand 1.4.0-dev** auf `main` (letzter Release `v1.3.0`). Was in 1.4.0 fertig, getestet und offen ist: TESTBERICHT.md, Abschnitt „1.4.0 – Zwischenstand“.
 Dieses Dokument ist der Einstieg für die Fortsetzung in einem neuen Projekt. Einzelheiten stehen in:
 
 | Datei | Inhalt |
@@ -47,6 +47,8 @@ Native Windows/Linux-Fassung von Digimon World 2 (USA, SLUS-01193). Sie ist ein 
 | Einstellungen | `host/settings.c/.h` | u. a. `language`, `mute`, `fps_limit`, Profile |
 | Grafik und Ton | `backend/`, `host/sdl.c`, `host/audio.c` | Auto-Skalierung, 16:9/21:9, Filter, 2D-Glättung, Smooth Frames (Upstream), FPS-Grenze |
 | Test-Bot | `host/bot.c`, `tools/autoplay/` | `--bot IN OUT`. Befehle: `run`, `peek`, `poke`, `shot`, `dung`, `town`, `nav`, `devedit`, `cheatundo`. Skripte: `save_test.py`, `cheat_test.py`, `domains_test.py`, `story.py`, `navigate.py`, `town.py`, `policy.py` |
+| Skript-Layout, Ereignistabellen | `host/textscript.c/.h` | Befehlslängen F0–FF, Ereignistabellen (`Flag_SelectBranch`), Bereichsprüfung, sicheres Neupacken. Ohne SDL, Test `tests/textscript_test.c` |
+| Texturpakete | `backend/texrep.c/.h`, Haken in `backend/psxgpu.c` (Upload/Fill/Move) und `backend/psxgpu_hd.c` (`find_rep`, `rep_texel`) | Nur Software-HD-Pfad. Optionen `--dump-textures`, `--no-texture-packs`, Doku `doc/TEXTURPAKETE.md` |
 | i18n-Werkzeuge | `tools/i18n/build_attacks.py`, `tools/i18n/build_texts.py` | `texts.tsv` mit Prüfung der Steuercodes |
 | Windows-CI und Release | `.github/workflows/build.yml` | MSYS2 MinGW + SDL 3.4.8. Windows-Tests: hd_test Software/Vulkan (lavapipe über Registry), Import-Ablehnung. Release über `workflow_dispatch` mit Eingabe `release=vX.Y.Z` |
 | Nutzer-Testskript | `tools/wintest/DW2-Test.ps1/.bat` | Liegt in der Zip. Echte Windows-Ergebnisse stehen noch aus |
@@ -104,8 +106,8 @@ Siehe TESTBERICHT.md. Kurzfassung:
   | F8, FA | 1 Byte |
   | F9 | k (k ungerade: 1 Byte, sonst 4) |
   | F6/F7 | 9 Bytes |
-  | F4 | abhängig vom Unterbefehl k4 (<0x10, <0x20, <0x30, <0x40, sonst) – **noch nicht exakt modelliert** |
-  | F3 | noch nicht modelliert |
+  | F4 | k4 < 0x20: 4 Bytes (k4 + 3 Ziffern), sonst 1 Byte (k4) – seit 1.4.0 modelliert |
+  | F3 | 2 Bytes (Modus, Argument), beendet den Text – seit 1.4.0 modelliert |
 
 - **Schriften:** Datei 0x13A (klein, 17 Spalten, Zelle 7×10, Glyphe 7×9) und 0x110 (groß, 13 Spalten, Zelle 9×14, Seite 2 ab 0x88). TIM bei Offset 4, 4 Bit, Bild ab 0x44. Frei in beiden: 0xE6–0xEE. Die Codes 0x5E–0xE4 im kleinen Font sind Wortgrafiken („Digi-Beetle“, „Counter Attack“, „Specialty“ …).
 - **Tabellen** (Zeiger relativ zum Dateianfang):
@@ -125,7 +127,7 @@ Siehe TESTBERICHT.md. Kurzfassung:
 
 Reihenfolge nach Priorität des Nutzers:
 
-1. **Dialoge und Story auf Deutsch:**
+1. **Dialoge und Story auf Deutsch:** *Stand 1.4.0-dev: Befehle modelliert, Scanner für Ereignistabellen, Export, sicheres Neupacken fertig und mit Testdaten geprüft. Offen: Lauf mit echtem Image (`dialog_files.tsv` prüfen), Übersetzung, Ingame-Tests.*
    - F3/F4/F6/F7 in `src/main/text.c` exakt modellieren und den Tokenizer in `host/lang.c` erweitern (heute sind sie gesperrt).
    - Die Dateien mit Ereignistexten finden (Flag-Tabellen, `Flag_SelectBranch`, `Text_OpenMsgClearChoice` in `src/stag2000/walker.c`, Domain-Texte).
    - `k_tables` erweitern oder einen allgemeinen Zeigerlisten-Scanner bauen, dann `--export-texts`.
@@ -134,7 +136,7 @@ Reihenfolge nach Priorität des Nutzers:
 2. **Wortgrafiken lokalisieren:** Zellen 0x5E–0xE4 im kleinen Font (und entsprechende im großen) zur Laufzeit mit deutschen Wörtern aus Spielglyphen neu zeichnen, so wie `patch_font`. Zuordnung Code → Wort aus dem Font-Bild ermitteln. Breite beachten.
 3. **Originalmenüs modernisieren** (Remastered), mit Erhalt von Classic.
 4. **3D-Studio im Programm:** Modell und Animation aus der Modelldatei, Logik wie im Viewer (`dw2-viewer-android`, `native_gltf.py`/`native_model.py`), Anzeige in ImGui oder über den GPU-Renderer.
-5. **HD-Ersatztexturen im Remastered-Renderer** (`backend/psxgpu_hd.c`).
+5. **HD-Ersatztexturen** – *1.4.0-dev: im Software-Renderer fertig (Texturpakete), mit Testszene geprüft. Offen: GPU-Renderer (Shader müssten Ersatztexturen binden), Test mit echten Texturen.*
 6. **Eigenständiger Launcher** (heute F1-Reiter „Start“).
 7. **Story-Bot:** Leveln (fliehen bei Überzahl, gezielt Einzelgegner), Heilung, Taktik.
 8. **Regressionstests in DE und EN:** Speicher-, Domain- und Cheattest auch mit `--lang de`.
@@ -170,4 +172,5 @@ Reihenfolge nach Priorität des Nutzers:
 | 1.1.0 | Modding, Cheats, F1 DE/EN, Testbericht |
 | 1.2.0 | Attackennamen DE, Typen, Umlaute |
 | 1.3.0 | Textinventur, 879 Tabellentexte DE (Datei an den Nutzer), Neupacken |
+| 1.4.0-dev (Zwischenstand) | Skriptbefehle, Dialog-Inventur, sicheres Neupacken, Texturpakete (Software-Renderer). Ohne Image: keine Übersetzung, keine Ingame-Tests |
 | 1.4.0 (geplant) | Dialoge und Story DE, Wortgrafiken, dann Menüs, Studio, HD-Texturen, Launcher (Abschnitt 7) |

@@ -1,4 +1,83 @@
-# DW2 PC-Port – Testbericht (Version 1.3.0-port, 05.11.2026)
+# DW2 PC-Port – Testbericht (Stand: Zwischenstand 1.4.0-dev, 05.11.2026; letzter Release 1.3.0)
+
+## 1.4.0 – Zwischenstand (kein Release)
+
+**Warum kein Release:** In der Arbeitssitzung lagen weder das Disc-Image noch die bisherige `texts.tsv` vor. Ohne Image ließen sich keine Dialoge exportieren, nichts übersetzen und nichts im Spiel prüfen. Fertig ist alles, was ohne Spieldaten geht. Es ist mit erzeugten Testdaten geprüft.
+
+### Phase 1 – Ereignisskripte und Dialoge
+
+**Umgesetzt:**
+
+- **Befehlslängen** aus `Text_DrawAll` (`src/main/text.c`) exakt bestimmt, in `host/textscript.c`:
+
+  | Befehl | Länge (mit Befehlsbyte) | Wirkung |
+  |---|---|---|
+  | F3 m a | 3 | Abblenden, Spielmodus m (FC–FF Sonderfälle), Argument a; beendet den Text |
+  | F4 k … | 5 bei k < 0x20, sonst 2 | <0x10 Lauf-Animation, <0x20 Drehen (+ 3 Ziffern Digimon-ID); <0x30 Task; <0x40 Textfarbe; sonst Soundeffekt (4 = Bildschirmwackeln) |
+  | F6 / F7 + 9 Ziffern | 10 | Figur (ID) zu Feld x, y bewegen; F6 wartet |
+  | F9 k | 2 (k ungerade) / 5 | Porträt schließen / Bild (3 Ziffern) |
+  | F0 / F8 / FA / EF | 2 | Name/Argument/Wort, Ja-Nein-Auswahl, Fensterposition, Glyphe |
+  | F1 / F2 | 4 | Digimon-/Itemname |
+
+  Maßgeblich ist der Weg, den ein schon ausgeführter Befehl in jedem späteren Bild nimmt. Ein Argument darf 0xFF sein (F3 FF xx), das Textende wird deshalb skriptbewusst gesucht.
+- **Dialog-Quelle:** Gesprächstexte stehen in Ereignistabellen (`Flag_SelectBranch`, `src/main/flagtable.c`). Kopf: u32-Offsets. Einträge à 0x2C Byte bis Digimon-ID 0. Je Eintrag 6 Zweig-Offsets ab +0x14, relativ zum Dateianfang. Sprungadressen gibt es nur dort, nicht im Text selbst.
+- **Inventur:** `--export-texts` durchsucht alle Datendateien nach diesem Aufbau. Jede Datei muss vollständig passen: Endeintrag vorhanden, Zweig 0 belegt, jeder Offset ein gültiger Text. Schlüssel `DATEI:ZEIGERPOSITION`, Kategorie `dialog e<Eintrag> b<Zweig> digi<ID>`. Dazu `dialog_files.tsv` mit dem Befund je Datei.
+- **Sicheres Neupacken:**
+  - Ein Textbereich gilt nur als verstanden, wenn er lückenlos aus den bekannten Texten besteht (höchstens 3 Byte Füllung 00/FF) und kein Kopf-Offset hineinzeigt.
+  - Freier Platz am Dateiende wird nur benutzt, wenn der Textbereich der letzte Block ist.
+  - Jede Übersetzung wird als vollständiges Skript geprüft.
+  - Passt sie nicht, bleibt der englische Text. Passt nicht einmal der, wird die Datei nicht verändert.
+- **Behobener Fehler aus 1.3.0:** Passte ein Text nicht, zeigte sein Zeiger bisher in den neu beschriebenen Bereich (falscher Text). Das kann nicht mehr passieren.
+- **Wortgrafik-Codes** 0x5E–0xE5 erscheinen im Export als `{G:..}`, Texte mit ihnen wurden bisher übersprungen.
+
+**Getestet:** `tests/textscript_test.c` mit erzeugten Bytes, 85/85 (alle Befehlslängen, abgeschnittene Befehle, Ereignistabelle erkannt bzw. abgelehnt, Bereich mit fremden Daten abgelehnt, Neupacken mit längerer Übersetzung, kaputte Übersetzung abgewiesen, Daten hinter dem Bereich unberührt). Läuft in der CI.
+
+**Nicht getestet / offen:**
+
+- Ob die echten Gesprächsdateien den erwarteten Aufbau haben und wie viele Texte erfasst werden.
+- Übersetzung der Dialoge.
+- Ingame-Prüfung von Dialogfenstern, Seitenwechseln, Auswahl, Skriptfortschritt, Spielständen.
+- Die 879 Texte aus 1.3.0 müssen mit der neuen Neupack-Logik erneut eingespielt und geprüft werden. Die neue Logik hält vorsorglich Platz für nachfolgende Originaltexte frei und könnte einzelne lange Texte auf Englisch belassen (steht dann im Bericht).
+- Domain-Ereignisse (`src/stag4000/spawn.c`) nutzen dieselbe Tabellenform und werden vom selben Scanner erfasst. Bestätigt ist das erst mit Daten.
+
+### Phase 2 – Wortgrafiken
+
+Nicht umgesetzt: Die Zuordnung Code → Wort steht nur im Schriftbild der Disc.
+
+### Phase 3 – HD-Texturpakete
+
+**Umgesetzt** (`backend/texrep.c`, Anleitung `doc/TEXTURPAKETE.md`):
+
+- Stabile Textur-ID je VRAM-Upload (FNV-1a 64 über Größe und Pixel), bei 4/8 Bit wahlweise je Palette.
+- PNG laden, Faktor 1–16× geprüft, Transparenz über Alpha, Halbtransparenz vom Original-Texel.
+- Fehler protokolliert (`Mods/Textures/textures_log.txt`), Original als Rückfall, Speichergrenze 1 GiB.
+- `--dump-textures`, `--no-texture-packs`, Pakete als Ordner, Anzeige in F1 → Modding.
+- Abtastung pro HD-Pixel innerhalb des Original-Texels. Dadurch keine UV-Verschiebung und kein Ausbluten in Nachbartexturen.
+
+**Getestet** (`tests/hd_test.c`, erzeugte Szene, Linux und Windows-CI):
+
+- Dumpnamen für 4-, 8- und 16-Bit
+- 4×-Ersatz auf Sprites texelgenau: 0 von 12288 Pixeln abweichend, auch bei Skalierung 2
+- 3D-Polygon nutzt den Ersatz
+- defekte PNG und falsche Größe werden ignoriert und gemeldet
+- 1×-Bild bleibt bitgleich
+- Software = GPU-Vergleich weiter bestanden
+
+**Grenzen:**
+
+- Nur der Software-Renderer zeichnet Ersatztexturen.
+- Nur Polygone ganz innerhalb eines Uploads, ohne Texturfenster.
+- Spätere VRAM-Schreibzugriffe über einem Upload verwerfen den Ersatz.
+- Ausgabe in 15 Bit.
+- Mit echten Spieltexturen nicht geprüft.
+
+### Phase 4 und 5 – Windows-Port und PC-Oberfläche
+
+- **Regressionen:** Alle neuen Wege sind ohne Pakete und im englischen Modus inaktiv: kein Paket heißt kein Tracking, Englisch heißt keine Sprach-Ebene. Classic (Skalierung 1) zeichnet nie Ersatztexturen.
+- **CI:** Windows-Build (MinGW) und Renderer-Test grün, Linux grün.
+- **Nicht wiederholt (brauchen Image):** Referenzbilder, Speichertest 9/9, Cheattest 7/7, Domaintest.
+- **PC-Oberfläche:** Auflösung, Vollbild/Fenster, Grafik und Sprache gab es schon (F1). Neu ist der Bereich Texturpakete im Reiter Modding. Kein Klicktest auf echter Hardware.
+
 
 ## Neu in 1.3.0: Textinventur und deutsche Tabellentexte
 

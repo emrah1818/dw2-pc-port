@@ -75,7 +75,8 @@ Mit Deutsch ändert sich Folgendes:
 - **Umlaute im Spiel:** Ä Ö Ü ä ö ü ß werden beim Start aus deiner eigenen Spielschrift erzeugt, in Zeichenzellen, die kein Text nutzt.
 - **Bericht:** Jeder Start auf Deutsch schreibt `Languages/German/report.txt`. Darin steht für jede Attacke im Spiel Englisch → Deutsch oder der Grund, warum sie englisch bleibt.
 - **Kampf-, Menü-, System-, Item- und Attackenbeschreibungstexte:** aus `Languages/German/texts.tsv`. Die Datei wird nicht veröffentlicht, weil sie auf den Spieltexten beruht. Eigene Texte gehen so: `dw2.exe --export-texts DIR` erzeugt die englische Inventur, dann zeilenweise `SCHLÜSSEL<Tab>Deutsch` eintragen.
-- **Noch englisch:** Dialoge, Story, Itemnamen und -beschreibungen, Attackenbeschreibungen, Kampfmeldungen und die übrigen Menüwörter des Spiels. Siehe TESTBERICHT.md, Abschnitt 1.2.0.
+- **Dialoge und Story (ab 1.4.0, Technik fertig, Übersetzung offen):** `--export-texts DIR` erfasst jetzt auch die Ereignistabellen der Gespräche (Kategorie `dialog eN bN digiN`, Art `script`). Skriptbefehle stehen als `{B:..}` in der Zeile und müssen in der Übersetzung unverändert und in derselben Reihenfolge bleiben (`tools/i18n/build_texts.py` prüft das). Zusätzlich entsteht `dialog_files.tsv`: je Datei, ob ihr Textbereich sicher verstanden ist und wie viel Platz frei ist. Passt eine Übersetzung nicht, bleibt der englische Text; eine Datei mit nicht verstandenem Bereich wird gar nicht verändert.
+- **Noch englisch:** Dialoge und Story (Übersetzung folgt), Wortgrafiken in der Schrift („Specialty“, „Counter Attack“ …), technische Itemnamen. Siehe TESTBERICHT.md.
 - **Eigene Übersetzungen:** `attacks.csv` und `types.csv` sind einfache UTF-8-Dateien (`englisch;deutsch;...`). Du kannst sie bearbeiten, beim nächsten Start gelten sie.
 
 ## 4. Grafik
@@ -125,6 +126,8 @@ GameData/
 **Andere Dateien ersetzen:** Als `Mods\files\<ID>.bin` ablegen. Die Datei darf nicht größer sein als das Original.
 
 **Original wiederherstellen:** Die Datei in `Mods\files` löschen oder mit `--no-mods` starten. Das Datenpaket selbst wird nie verändert.
+
+**HD-Texturpakete (ab 1.4.0):** Eigene PNG-Texturen, auch in höherer Auflösung, ohne die Spieldateien zu verändern. Ordner `Mods\Textures\<Paket>\`, Dateinamen = Textur-ID. Die IDs erzeugst du mit `dw2.exe --dump-textures DIR`. Gezeichnet werden sie vom Software-Renderer ab Skalierung 2. Abschalten: `--no-texture-packs`. Anleitung: [doc/TEXTURPAKETE.md](doc/TEXTURPAKETE.md).
 
 **3D-Modelle als glTF mit Animationen:** Dafür gibt es den DW2 3D Viewer:
 

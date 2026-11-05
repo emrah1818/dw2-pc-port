@@ -126,8 +126,8 @@ void Host_PakOpen(const char *path, const char *disc, int no_window);
 int Host_PakSector(int lba, unsigned char *body);
 /* The file holding sector `lba` and its size in sectors, or -1 (and 0 sectors). */
 int Host_PakFileAt(int lba, int *sectors);
-#if DW2_DEV
-/* Dev tools, main thread: file `id` (Form 1) whole, malloc'd (free it); NULL if not readable. */
+/* Main thread (dev tools, dw2-pc-port cheat names and asset export): file `id` (Form 1) whole,
+ * malloc'd (free it); NULL if not readable. */
 void *Host_PakReadFile(int id, int *size);
 /* dw2-pc-port mod layer (host/pak.c): Mods/files/<id>.bin overrides */
 void Host_PakNoMods(void);
@@ -135,7 +135,6 @@ int Host_PakModCount(void);
 int Host_PakHasMod(int id);
 /* dw2-pc-port: the pack index, for the asset export (host/assets.c) */
 int Host_PakFileInfo(int id, int *lba, int *sectors, int *form2, unsigned long long *size);
-#endif
 
 /* host/card.c: memory card image files (raw 128 KB PS1 card images card1.mcd / card2.mcd in
  * the user data folder, or --save-dir). Host_CardLoad reads card `port` (0, 1) into buf: 1 read,

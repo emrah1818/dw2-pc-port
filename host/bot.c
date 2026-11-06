@@ -353,6 +353,30 @@ void Host_BotTick(unsigned int wait) {
             extern void Cheat_Undo(void);
             Cheat_Undo(); /* dw2-pc-port: the F1 "Undo all cheat changes" (tests) */
             reply("ok");
+        } else if (strcmp(cmd, "cheathold") == 0) {
+            extern void Cheat_SetHold(int mask);
+            int m = 0;
+            sscanf(line, "%*s %i", &m);
+            Cheat_SetHold(m); /* dw2-pc-port: the F1 held values (tests) */
+            reply("ok");
+        } else if (strcmp(cmd, "settings") == 0) {
+            /* dw2-pc-port: "settings TAB [SCROLL]" opens F1 at a tab (scrolled to SCROLL pixels),
+             * "settings off" closes it; with --ui-shots the next shot shows it (tests) */
+            extern void SettingsUi_SetTab(const char *name);
+            extern void SettingsUi_SetOpen(int on);
+            extern void SettingsUi_SetScroll(int y);
+            char tab[32] = "";
+            int sy = 0;
+
+            sscanf(line, "%*s %31s %d", tab, &sy);
+            if (strcmp(tab, "off") == 0) {
+                SettingsUi_SetOpen(0);
+            } else {
+                SettingsUi_SetTab(tab);
+                SettingsUi_SetScroll(sy);
+                SettingsUi_SetOpen(1);
+            }
+            reply("ok");
         } else if (strcmp(cmd, "quit") == 0) {
             reply("bye");
             Host_Quit("--bot quit");

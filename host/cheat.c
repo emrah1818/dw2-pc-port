@@ -16,6 +16,7 @@
 #include "common.h"
 #include "host/devedit.h"
 #include "main/156C.h"
+#include "stag3000/stag3000.h"
 
 #define GS_SIZE 0x1058
 
@@ -24,7 +25,7 @@ extern SysState Sys_State;
 const char *Host_CardDir(void);
 
 static SDL_Mutex *lock;
-static SDL_AtomicInt active, want_keep, want_undo, undo_result;
+static SDL_AtomicInt active, want_keep, want_undo, undo_result, hold;
 static unsigned char snap[GS_SIZE], kept[GS_SIZE];
 static int snap_ok, kept_ok, snap_mode;
 static char backup[1024];
@@ -47,6 +48,59 @@ static int copy_file(const char *from, const char *to) {
     return ok;
 }
 
+void Cheat_BeforeEdit(void);
+
+/* the held values of the cheat list (Infinite Bits / HP / MP / EP): the game thread writes them at
+ * each VBlank wait while cheats are on. HP and MP are refilled to the Digimon's own maximum (the
+ * list writes 999, which can be above it); a Digimon at 0 HP stays knocked out. */
+enum { HOLD_BITS = 1, HOLD_HP = 2, HOLD_MP = 4, HOLD_BEETLE_HP = 8, HOLD_BEETLE_EP = 16 };
+
+static void refill(DigiRosterEntry *d, int h) {
+    if (d->state == 0) {
+        return;
+    }
+    if ((h & HOLD_HP) && d->hp > 0 && d->hp < d->maxHp) {
+        d->hp = d->maxHp;
+    }
+    if ((h & HOLD_MP) && d->mp < d->maxMp) {
+        d->mp = d->maxMp;
+    }
+}
+
+static void apply_hold(int mode) {
+    int h = SDL_GetAtomicInt(&hold), table = mode >> 8;
+
+    if (h == 0 || table == 6) { /* not while the memory card scene copies the block */
+        return;
+    }
+    Cheat_BeforeEdit();
+    if ((h & HOLD_BITS) && Save_GameState.bits != 99999999) {
+        Save_GameState.bits = 99999999;
+    }
+    if ((h & HOLD_BEETLE_HP) && Save_GameState.hp > 0 && Save_GameState.hp < Save_GameState.maxHp) {
+        Save_GameState.hp = Save_GameState.maxHp;
+    }
+    if ((h & HOLD_BEETLE_EP) && Save_GameState.mp < Save_GameState.maxMp) {
+        Save_GameState.mp = Save_GameState.maxMp;
+    }
+    for (int i = 0; i < 3; i++) {
+        refill(&Save_GameState.elems[i], h);
+        if (table == 5) {
+            refill(&Stg30_Battle.digis[i], h); /* the battle works on its copies of the party */
+        }
+    }
+}
+
+void Cheat_SetHold(int mask) {
+    SDL_SetAtomicInt(&hold, mask);
+    printf("[cheat] hold 0x%02X\n", mask);
+    fflush(stdout);
+}
+
+int Cheat_Hold(void) {
+    return SDL_GetAtomicInt(&hold);
+}
+
 /* Game thread, at each VBlank wait (host/main.c) */
 void Cheat_GameTick(void) {
     int mode = Sys_State.gameMode;
@@ -54,6 +108,7 @@ void Cheat_GameTick(void) {
     if (lock == NULL || !SDL_GetAtomicInt(&active)) {
         return;
     }
+    apply_hold(mode);
     SDL_LockMutex(lock);
     memcpy(snap, &Save_GameState, GS_SIZE);
     snap_ok = 1;
@@ -117,6 +172,7 @@ int Cheat_SetActive(int on) {
         printf("[cheat] on\n");
     } else if (!on && SDL_GetAtomicInt(&active)) {
         DevEdit_SetAllowed(0);
+        SDL_SetAtomicInt(&hold, 0);
         SDL_SetAtomicInt(&active, 0);
         printf("[cheat] off\n");
     }

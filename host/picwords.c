@@ -193,6 +193,7 @@ typedef struct {
     int align;   /* 0 centre, -1 left, 1 right */
     int narrow;  /* letters of the small game font (narrow, like the title's pictures) */
     int grow;    /* width (texture pixels) the picture may grow to, 0 = keep */
+    int move;    /* 1: when it cannot grow in place, move it to an empty part of the texture */
 } Words;
 
 /* ---- letter shapes: the font of the battle status messages (file 0x22B, 12 x 15 cells, its
@@ -263,6 +264,25 @@ static int letter(const char *g, uint8_t out[15][16]) {
         }
         for (int y = 0; y < 15; y++) for (int x = 0; x < 16; x++) out[y][x] = (uint8_t)(b[y][x + 2] == 2);
     }
+    if (ch == 'M' || ch == 'N') {
+        /* this font's M (a closed arch with a short middle stem) and N (a one-pixel diagonal) read
+           as A and H once enlarged: the same 2-pixel strokes as the other capitals, with the
+           diagonals drawn out (rows 2..12 like the font's capitals) */
+        static const char *const gm[11] = {
+            ".##......##.", ".###....###.", ".####..####.", ".##.####.##.", ".##..##..##.", ".##......##.",
+            ".##......##.", ".##......##.", ".##......##.", ".##......##.", ".##......##." };
+        static const char *const gn[11] = {
+            ".##....##...", ".###...##...", ".####..##...", ".##.#..##...", ".##.##.##...", ".##..#.##...",
+            ".##..####...", ".##...###...", ".##....##...", ".##....##...", ".##....##..." };
+        const char *const *g2 = ch == 'M' ? gm : gn;
+        memset(out, 0, 15 * 16);
+        for (int y = 0; y < 11; y++) {
+            for (int x = 0; x < 12; x++) {
+                out[y + 2][x] = (uint8_t)(g2[y][x] == '#');
+            }
+        }
+    }
+
     if (dots) {
         /* the letter moved down to make room where needed, two dots above it */
         int top = 15, l = 12, r = -1;
@@ -343,6 +363,18 @@ static int letter_small(const char *g, uint8_t out[15][16], int *len) {
         for (int x = 0; x < 7; x++) {
             int gx = (c % 17) * 7 + x, gy = (c / 17) * 10 + y, o = TIM_IMG + gy * 64 + gx / 2;
             out[y][x] = (uint8_t)(o < smallfont_size && ((smallfont[o] >> ((gx & 1) * 4)) & 15) == ink);
+        }
+    }
+    if (c == 10 + 18 || c == 10 + 6) {
+        /* S and G: the font's corner pixels join with the outline into 8 and 0 once enlarged */
+        static const char *const gs[7] = { ".###.", "#....", "#....", ".###.", "....#", "....#", "####." };
+        static const char *const gg[7] = { ".###.", "#....", "#....", "#.###", "#...#", "#...#", ".###." };
+        const char *const *g2 = c == 10 + 18 ? gs : gg;
+        memset(out, 0, 15 * 16);
+        for (int y = 0; y < 7; y++) {
+            for (int x = 0; x < 5; x++) {
+                out[y + 1][x] = (uint8_t)(g2[y][x] == '#');
+            }
         }
     }
     return 1;
@@ -623,7 +655,11 @@ static int paint1(Tex *t, const Cell *c, int n, const Words *w, double min_sq) {
         memset(bold, 0, sizeof(bold));
         for (int y = 0; y < ch; y++) for (int x = 0; x < cw; x++) {
             int sx0 = x - (w->align < 0 ? r : w->align > 0 ? cw - r - width : (cw - width) / 2);
-            bold[y * CW + x] = (uint8_t)((sx0 >= 0 && sx0 < CW && text[y * CW + sx0]) || (sx0 >= 1 && sx0 - 1 < CW && text[y * CW + sx0 - 1]));
+            /* not into a one-column gap (N, M, W keep their inner strokes apart) */
+            int on = sx0 >= 0 && sx0 < CW && text[y * CW + sx0];
+            int left = sx0 >= 1 && sx0 - 1 < CW && text[y * CW + sx0 - 1];
+            int right = sx0 + 1 >= 0 && sx0 + 1 < CW && text[y * CW + sx0 + 1];
+            bold[y * CW + x] = (uint8_t)(on || (left && !right));
         }
         for (int i = 0; i < n; i++) {
             for (int y = 0; y < c[i].h; y++) {
@@ -708,7 +744,7 @@ static const Pic pics[] = {
     { 0x313, 6, 0, 1, { "NIEDERLAGE", 0, 0 } },         /* LOSE */
     /* battle result (file 0x25C) */
     { 0x25C, 10, 0, 1, { "SIEG", 0, 0 } },              /* WIN */
-    { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 0, 1 } },      /* LEVEL UP */
+    { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 0, 1, 124, 1 } },      /* LEVEL UP */
     /* title (file 0xB64) */
     { 0xB64, 1, 0, 0, { "STARTTASTE DRÜCKEN", 0, 0, 1 } }, /* PRESS START BUTTON (three pictures) */
     { 0xB64, 2, 0, 1, { "NEUES SPIEL", 0, 0, 1, 88 } },        /* NEW GAME */
@@ -829,6 +865,78 @@ static void grow_rect(Open *f, const Tex *t, Cell *c, int need) {
     }
 }
 
+/* any cell of the file (other than c itself) over texture pixel (x, y)? */
+static int cell_covers(Open *f, const Cell *c, int x, int y) {
+    int n = entries(f->d, f->size);
+    for (int e = 1; e < 4096; e++) {
+        uint32_t o = entry(f->d, f->size, e);
+        if (o == 0) {
+            if (e >= n) break;
+            continue;
+        }
+        if (rd32(f->d + o) == 0x10) continue;
+        for (int q = 0; o + 16 <= (uint32_t)f->size && f->d[o] != 0xFF && q < 64; q++, o += 16) {
+            int u = f->d[o], v = f->d[o + 1], w = f->d[o + 8], h = f->d[o + 9] ? f->d[o + 9] : 256;
+            if (u == c->u && v == c->v && w == c->w && h == c->h) continue;
+            if (x >= u && x < u + w && y >= v && y < v + h) return 1;
+        }
+    }
+    return 0;
+}
+
+/* when widening in place was not enough: move the picture to an empty part of the same texture
+   (all pixels transparent and under no other cell, one pixel of room around it), as wide as
+   `need`, centred where it was on screen */
+static void move_rect(Open *f, const Tex *t, Cell *c, int need) {
+    int n = entries(f->d, f->size), W = need, H = c->h;
+
+    if (getenv("DW2_PICDEBUG")) printf("[picwords] move %d,%d %dx%d -> %d wide, texture %dx%d\n", c->u, c->v, c->w, c->h, need, t->w, t->h);
+    if (c->w >= need || W + 2 > t->w || W > 255) {
+        return;
+    }
+    for (int v = t->h - H - 1; v >= 1; v--) {
+        for (int u = 1; u + W + 1 <= t->w && u + W <= 255; u++) {
+            int ok = 1;
+            for (int y = v - 1; y <= v + H && ok; y++) {
+                for (int x = u - 1; x <= u + W && ok; x++) {
+                    ok = tget(t, x, y) == 0 && !cell_covers(f, c, x, y);
+                }
+            }
+            if (!ok) continue;
+            for (int e = 1; e < 4096; e++) {
+                uint32_t o = entry(f->d, f->size, e);
+                if (o == 0) {
+                    if (e >= n) break;
+                    continue;
+                }
+                if (rd32(f->d + o) == 0x10) continue;
+                for (int q = 0; o + 16 <= (uint32_t)f->size && f->d[o] != 0xFF && q < 64; q++, o += 16) {
+                    int cu = f->d[o], cv = f->d[o + 1], cw = f->d[o + 8], chh = f->d[o + 9] ? f->d[o + 9] : 256;
+                    if (cu == c->u && cv == c->v && cw == c->w && chh == c->h) {
+                        int16_t x = (int16_t)(rd16(f->d + o + 2) - (W - c->w) / 2);
+                        f->d[o] = (uint8_t)u;
+                        f->d[o + 1] = (uint8_t)v;
+                        f->d[o + 8] = (uint8_t)W;
+                        memcpy(f->d + o + 2, &x, 2);
+                    }
+                }
+            }
+            if (getenv("DW2_PICDEBUG")) printf("[picwords] moved to %d,%d\n", u, v);
+            /* the original pixels come along (centred): the painter learns its colours from them */
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < c->w; x++) {
+                    tset((Tex *)t, u + (W - c->w) / 2 + x, v + y, tget(t, c->u + x, c->v + y));
+                }
+            }
+            c->x -= (W - c->w) / 2;
+            c->u = u;
+            c->v = v;
+            c->w = W;
+            return;
+        }
+    }
+}
+
 static int paint_pic(int file, int e, int first, int count, const Words *w) {
     Open *f = get_file(file);
     Cell c[MAX_CELLS];
@@ -847,6 +955,9 @@ static int paint_pic(int file, int e, int first, int count, const Words *w) {
     }
     if (count == 1 && w->grow > 0) {
         grow_rect(f, &t, &c[first], w->grow);
+        if (w->move) {
+            move_rect(f, &t, &c[first], w->grow);
+        }
     }
     {
         /* several separate pictures (with gaps between them on screen) and as many words: one word
@@ -907,6 +1018,15 @@ static void dump_files(void) {
     char path[1024];
     if (dir == NULL) {
         return;
+    }
+    if (font22 != NULL) { /* the letter font as read (to check the glyph positions) */
+        FILE *f;
+        snprintf(path, sizeof(path), "%s/022B_font.bin", dir);
+        f = fopen(path, "wb");
+        if (f != NULL) {
+            fwrite(font22, 1, (size_t)font22_size, f);
+            fclose(f);
+        }
     }
     for (int i = 0; i < nopen; i++) {
         if (open_files[i].d != NULL && open_files[i].changed) {

@@ -421,8 +421,9 @@ static void apply_digi(const DevEdit *e) {
             refuse(e, "unknown field");
             return;
         }
-        if (!clamp_ok(e->c, 0, 9999)) {
-            refuse(e, "stat 0..9999");
+        /* 999: the game's own limit (Digilab, the three-digit stat display; the cheat list's Max) */
+        if (!clamp_ok(e->c, 0, 999)) {
+            refuse(e, "stat 0..999");
             return;
         }
         old = *p;
@@ -699,12 +700,18 @@ static void apply(const DevEdit *e) {
         return;
     }
     case DEVEDIT_STORAGE:
-        if (!clamp_ok(e->a, 1, 0xFF) || !item_ok(e->a, &why) || !clamp_ok(e->b, 0, 999)) {
-            refuse(e, *why ? why : "storage: item id 1..255, count 0..999");
+        /* ids up to 0x108: the important items (Tamer-Lic. 0xED .. SeadraRing 0x108) are counted
+         * past the 0x100 declared counts, as the game does (Flag_Set ids 2000+, cheat list 0x8005F5CE) */
+        if (!clamp_ok(e->a, 1, 0x108) || !item_ok(e->a, &why) || !clamp_ok(e->b, 0, 999)) {
+            refuse(e, *why ? why : "storage: item id 1..0x108, count 0..999");
             return;
         }
-        old = Save_GameState.storageCounts[e->a];
-        Save_GameState.storageCounts[e->a] = (u16)e->b;
+        {
+            u16 *cnt = (u16 *)((u8 *)&Save_GameState + 0xDD4 + e->a * 2);
+
+            old = *cnt;
+            *cnt = (u16)e->b;
+        }
         LOG("storage 0x%02X %s: %d -> %d\n", vb, e->a, DevData_ItemName(e->a), old, e->b);
         return;
     case DEVEDIT_PART:

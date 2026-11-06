@@ -35,6 +35,8 @@ extern "C" int Cheat_Snapshot(unsigned char *out, int *mode);
 extern "C" void Cheat_Undo(void);
 extern "C" int Cheat_UndoResult(void);
 extern "C" int Cheat_UndoPending(void);
+extern "C" void Cheat_SetHold(int mask);
+extern "C" int Cheat_Hold(void);
 extern "C" const char *Host_CardDir(void);
 extern "C" int Host_PakModCount(void);
 extern "C" int TexRep_Count(void);
@@ -188,6 +190,26 @@ const Tr k_tr[] = {
     { "Values are checked against the game's limits before they are written at the next frame.",
       "Werte werden gegen die Grenzen des Spiels geprüft und beim nächsten Bild geschrieben." },
     { "Add", "Hinzufügen" }, { "Open download page", "Download-Seite öffnen" }, { "Item", "Item" }, { "EP", "EP" }, { "Max EP", "Max. EP" },
+    { "Max", "Max" }, { "Infinite Bits (held at 99,999,999)", "Unendlich Bits (bleibt bei 99.999.999)" },
+    { "Infinite HP (party, also in battle)", "Unendlich HP (Team, auch im Kampf)" },
+    { "Infinite MP (party, also in battle)", "Unendlich MP (Team, auch im Kampf)" },
+    { "Infinite HP (Digi-Beetle)", "Unendlich HP (Digi-Beetle)" }, { "Infinite EP (Digi-Beetle)", "Unendlich EP (Digi-Beetle)" },
+    { "Held values are written again at every frame while cheats are on. A Digimon at 0 HP stays knocked out.",
+      "Gehaltene Werte werden bei jedem Bild neu geschrieben, solange Cheats an sind. Ein Digimon mit 0 HP bleibt besiegt." },
+    { "Max: EXP 9,999,999, HP / MP / Attack / Defense / Speed 999 (values of the cheat list)",
+      "Max: EXP 9.999.999, HP / MP / Angriff / Verteidigung / Tempo 999 (Werte der Cheat-Liste)" },
+    { "Max: HP and EP 9999", "Max: HP und EP 9999" }, { "Max all", "Alle maximal" },
+    { "Digimon details", "Digimon-Details" }, { "Digimon", "Digimon" }, { "Species", "Art" }, { "Level limit", "Level-Grenze" },
+    { "Attacks (slots 1-12)", "Attacken (Platz 1-12)" }, { "Slot %d", "Platz %d" }, { "(none)", "(keine)" },
+    { "Changing the species keeps the attacks of the old form; a digivolution learns the new form's attack.",
+      "Eine neue Art behält die Attacken der alten Form; erst eine Digitation lernt die Attacke der neuen Form." },
+    { "Important items", "Wichtige Items" },
+    { "Story items: having one too early can skip or break events. Keep the backup.",
+      "Story-Items: Wer eines zu früh hat, kann Ereignisse überspringen oder blockieren. Sicherung aufheben." },
+    { "Bag slots", "Taschenplätze" }, { "Clear", "Leeren" }, { "empty", "leer" },
+    { "The bag has as many slots as the tool box part allows (at most 48); the cheat list's slots 49-64 are other data and are not offered.",
+      "Die Tasche hat so viele Plätze wie das Werkzeugkasten-Teil erlaubt (höchstens 48); die Plätze 49-64 der Cheat-Liste sind andere Daten und fehlen deshalb." },
+    { "Held values", "Gehaltene Werte" },
 };
 
 void language_combo(void);
@@ -229,6 +251,7 @@ bool g_open;
 int g_cap_bit = -1, g_cap_slot;
 bool g_pad_quiet; /* no gamepad navigation until every pad button is up again */
 char g_msg[96];
+int g_scroll_req = -1; /* bot "settings TAB SCROLL": scroll the tab once (headless shots) */
 char g_start_tab[16]; /* --settings-tab: selected in the first frame (headless shots) */
 
 const char *key_label(int sc) {
@@ -973,6 +996,16 @@ void cheats_tab(void) {
     static int edit_bits = -1, item_sel = 0;
     static int vals[0x24][9];
     static bool have_vals[0x24];
+    static int scroll_frames;
+
+    if (g_scroll_req >= 0) {
+        if (scroll_frames++ < 10) {
+            ImGui::SetScrollY((float)g_scroll_req);
+        } else {
+            g_scroll_req = -1;
+            scroll_frames = 0;
+        }
+    }
     bool on = Cheat_Active() != 0;
     int mode = 0;
 
@@ -1019,10 +1052,33 @@ void cheats_tab(void) {
     ImGui::Text("%s: %d", T("Bits"), rd32s(gs + 0x08));
     ImGui::SetNextItemWidth(160);
     ImGui::InputInt("##bits", &edit_bits, 100, 1000);
-    edit_bits = clampi(edit_bits, 0, 9999999);
+    edit_bits = clampi(edit_bits, 0, 99999999);
     ImGui::SameLine();
     if (ImGui::Button(TL("Set", "setbits"))) {
         push_edit(DEVEDIT_BITS, edit_bits, 0, 0);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(TL("Max", "maxbits"))) {
+        push_edit(DEVEDIT_BITS, 99999999, 0, 0);
+    }
+
+    ImGui::SeparatorText(T("Held values"));
+    {
+        static const char *const names[5] = { "Infinite Bits (held at 99,999,999)", "Infinite HP (party, also in battle)",
+                                               "Infinite MP (party, also in battle)", "Infinite HP (Digi-Beetle)",
+                                               "Infinite EP (Digi-Beetle)" };
+        int h = Cheat_Hold();
+
+        for (int k = 0; k < 5; k++) {
+            bool v = (h & (1 << k)) != 0;
+            char id[16];
+
+            snprintf(id, sizeof(id), "hold%d", k);
+            if (ImGui::Checkbox(TL(names[k], id), &v)) {
+                Cheat_SetHold(v ? h | (1 << k) : h & ~(1 << k));
+            }
+        }
+        ui_hint(T("Held values are written again at every frame while cheats are on. A Digimon at 0 HP stays knocked out."));
     }
 
     ImGui::SeparatorText(T("Digi-Beetle"));
@@ -1031,13 +1087,24 @@ void cheats_tab(void) {
         push_edit(DEVEDIT_BEETLE, 0, rd16s(gs + 0x26), 0);
         push_edit(DEVEDIT_BEETLE, 2, rd16s(gs + 0x2A), 0);
     }
+    ImGui::SameLine();
+    if (ImGui::Button(TL("Max", "maxbeetle"))) {
+        push_edit(DEVEDIT_BEETLE, 1, 9999, 0);
+        push_edit(DEVEDIT_BEETLE, 0, 9999, 0);
+        push_edit(DEVEDIT_BEETLE, 3, 9999, 0);
+        push_edit(DEVEDIT_BEETLE, 2, 9999, 0);
+    }
+    ImGui::SameLine();
+    ui_hint(T("Max: HP and EP 9999"));
 
     ImGui::SeparatorText(T("Party and server"));
     static const char *const cols[9] = { "Level", "EXP", "HP", "Max HP", "MP", "Max MP", "Attack", "Defense", "Speed" };
     static const int fields[9] = { DEVDIGI_LEVEL, DEVDIGI_EXP, DEVDIGI_HP, DEVDIGI_MAXHP, DEVDIGI_MP, DEVDIGI_MAXMP,
                                    DEVDIGI_ATTACK, DEVDIGI_DEFENSE, DEVDIGI_SPEED };
     static const int offs[9] = { 0x0D, 0x10, 0x16, 0x14, 0x1A, 0x18, 0x1C, 0x1E, 0x20 };
-    static const int lo[9] = { 1, 0, 0, 1, 0, 1, 1, 1, 1 }, hi[9] = { 99, 9999999, 9999, 9999, 9999, 9999, 999, 999, 999 };
+    static const int lo[9] = { 1, 0, 0, 1, 0, 1, 1, 1, 1 }, hi[9] = { 99, 99999999, 999, 999, 999, 999, 999, 999, 999 };
+    /* the cheat list's Max values; level stays */
+    static const int maxv[9] = { -1, 9999999, 999, 999, 999, 999, 999, 999, 999 };
     if (ImGui::Button(TL("Heal all", "healall"))) {
         for (int i = 0; i < 0x24; i++) {
             const unsigned char *d = gs + 0xE4 + i * 0x5C;
@@ -1077,6 +1144,14 @@ void cheats_tab(void) {
             ImGui::Text("%d", i);
             ImGui::TableNextColumn();
             ImGui::Text("%s L%d", DevData_DigiName(d[1]), d[0x0D]);
+            ImGui::SameLine();
+            if (ImGui::SmallButton(T("Max"))) {
+                for (int k = 1; k < 9; k++) { /* max HP / MP before HP / MP (the order of fields[]) */
+                    int kk = k == 2 ? 3 : k == 3 ? 2 : k == 4 ? 5 : k == 5 ? 4 : k;
+                    push_edit(DEVEDIT_DIGI, i, fields[kk], maxv[kk]);
+                }
+            }
+            ImGui::SameLine();
             if (ImGui::SmallButton(T("Apply"))) {
                 for (int k = 0; k < 9; k++) {
                     vals[i][k] = clampi(vals[i][k], lo[k], hi[k]);
@@ -1095,6 +1170,161 @@ void cheats_tab(void) {
             ImGui::PopID();
         }
         ImGui::EndTable();
+    }
+
+    ui_hint(T("Max: EXP 9,999,999, HP / MP / Attack / Defense / Speed 999 (values of the cheat list)"));
+
+    ImGui::SeparatorText(T("Digimon details"));
+    {
+        static int sel = 0, lim = 0, lim_seen = -1;
+        char label[96];
+
+        sel = clampi(sel, 0, 0x23);
+        if (gs[0xE4 + sel * 0x5C] == 0) {
+            for (int i = 0; i < 0x24; i++) {
+                if (gs[0xE4 + i * 0x5C] != 0) {
+                    sel = i;
+                    break;
+                }
+            }
+        }
+        const unsigned char *d = gs + 0xE4 + sel * 0x5C;
+        snprintf(label, sizeof(label), "%d: %s L%d", sel, d[0] ? DevData_DigiName(d[1]) : "-", d[0x0D]);
+        ImGui::SetNextItemWidth(260);
+        if (ImGui::BeginCombo(TL("Digimon", "dsel"), label)) {
+            for (int i = 0; i < 0x24; i++) {
+                const unsigned char *x = gs + 0xE4 + i * 0x5C;
+                char l2[96];
+
+                if (x[0] == 0) {
+                    continue;
+                }
+                snprintf(l2, sizeof(l2), "%d: %s L%d", i, DevData_DigiName(x[1]), x[0x0D]);
+                if (ImGui::Selectable(l2, i == sel)) {
+                    sel = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (d[0] != 0 && DevData_Ready()) {
+            /* species: every DIGIMNDT Digimon with base data */
+            snprintf(label, sizeof(label), "0x%02X %s", d[1], DevData_DigiName(d[1]));
+            ImGui::SetNextItemWidth(260);
+            if (ImGui::BeginCombo(TL("Species", "dspec"), label)) {
+                for (int i = 0; i < DevData_DigiCount(); i++) {
+                    const DevDigi *x = DevData_DigiAt(i);
+                    char l2[96];
+
+                    if (!x->hasBase) {
+                        continue;
+                    }
+                    snprintf(l2, sizeof(l2), "0x%02X %s", x->id, x->name);
+                    if (ImGui::Selectable(l2, x->id == d[1])) {
+                        push_edit(DEVEDIT_DIGI, sel, DEVDIGI_SPECIES, x->id);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ui_hint(T("Changing the species keeps the attacks of the old form; a digivolution learns the new form's attack."));
+            if (lim_seen != sel * 256 + d[0x0F]) {
+                lim_seen = sel * 256 + d[0x0F];
+                lim = d[0x0F];
+            }
+            ImGui::SetNextItemWidth(120);
+            ImGui::InputInt(TL("Level limit", "dlim"), &lim, 1, 10);
+            lim = clampi(lim, 1, 99);
+            ImGui::SameLine();
+            if (ImGui::Button(TL("Set", "dlimset"))) {
+                push_edit(DEVEDIT_DIGI, sel, DEVDIGI_MAXLEVEL, lim);
+            }
+            ImGui::TextUnformatted(T("Attacks (slots 1-12)"));
+            for (int k = 0; k < 12; k++) {
+                int cur = d[0x22 + k];
+                char l2[96], id[24];
+
+                snprintf(id, sizeof(id), "%s###sk%d", "", k);
+                snprintf(label, sizeof(label), "%s", cur ? DevData_SkillName(cur) : T("(none)"));
+                ImGui::PushID(k);
+                ImGui::Text(T("Slot %d"), k + 1);
+                ImGui::SameLine(90);
+                ImGui::SetNextItemWidth(220);
+                if (ImGui::BeginCombo("##sk", label)) {
+                    if (ImGui::Selectable(T("(none)"), cur == 0)) {
+                        push_edit(DEVEDIT_SKILL, sel, k, 0);
+                    }
+                    for (int i = 0; i < DevData_SkillCount(); i++) {
+                        const DevSkill *x = DevData_SkillAt(i);
+
+                        snprintf(l2, sizeof(l2), "0x%02X %s", x->id, x->name);
+                        if (ImGui::Selectable(l2, x->id == cur)) {
+                            push_edit(DEVEDIT_SKILL, sel, k, x->id);
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::PopID();
+            }
+        }
+    }
+
+    ImGui::SeparatorText(T("Important items"));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.35f, 1.0f));
+    ImGui::TextWrapped("%s", T("Story items: having one too early can skip or break events. Keep the backup."));
+    ImGui::PopStyleColor();
+    if (DevData_Ready() && ImGui::BeginTable("keyitems", 2)) {
+        for (int id = 0xED; id <= 0x108; id++) {
+            bool have = rd16s(gs + 0xDD4 + id * 2) != 0;
+
+            if (DevData_Item(id) == NULL) {
+                continue;
+            }
+            ImGui::TableNextColumn();
+            ImGui::PushID(id);
+            if (ImGui::Checkbox(DevData_ItemName(id), &have)) {
+                push_edit(DEVEDIT_STORAGE, id, have ? 1 : 0, 0);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::SeparatorText(T("Bag slots"));
+    ui_hint(T("The bag has as many slots as the tool box part allows (at most 48); the cheat list's slots 49-64 are other data and are not offered."));
+    if (DevData_Ready() && DevData_ItemCount() > 0) {
+        static int bag_item = 0;
+        for (int b = 0; b < 0x30; b++) {
+            int cur = rd16s(gs + 0x66 + b * 2) & 0xFFFF;
+
+            if (cur == 0 && (b == 0 || (rd16s(gs + 0x66 + (b - 1) * 2) & 0xFFFF) == 0)) {
+                break; /* the bag has no holes: the first empty slot ends it */
+            }
+            ImGui::PushID(0x1000 + b);
+            ImGui::Text("%2d", b + 1);
+            ImGui::SameLine(40);
+            ImGui::SetNextItemWidth(240);
+            char label[80];
+            snprintf(label, sizeof(label), "%s", cur ? DevData_ItemName(cur) : T("empty"));
+            if (ImGui::BeginCombo("##bs", label)) {
+                for (int i = 0; i < DevData_ItemCount(); i++) {
+                    const DevItem *x = DevData_ItemAt(i);
+                    char l2[80];
+
+                    snprintf(l2, sizeof(l2), "0x%03X %s", x->id, x->name);
+                    if (ImGui::Selectable(l2, x->id == cur)) {
+                        bag_item = x->id;
+                        push_edit(DEVEDIT_BAG, b, bag_item, 0);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (cur != 0) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton(T("Clear"))) {
+                    push_edit(DEVEDIT_BAG, b, 0, 0);
+                }
+            }
+            ImGui::PopID();
+        }
     }
 
     ImGui::SeparatorText(T("Add item to the bag"));
@@ -1138,6 +1368,10 @@ void cheats_tab(void) {
 } // namespace
 
 extern "C" {
+
+void SettingsUi_SetScroll(int y) {
+    g_scroll_req = y;
+}
 
 void SettingsUi_SetTab(const char *name) {
     SDL_strlcpy(g_start_tab, name, sizeof(g_start_tab));

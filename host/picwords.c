@@ -1,4 +1,4 @@
-/* dw2-pc-port: German words in the game's ready-made word pictures (no game data here).
+/* dw2-pc-port: modern fonts in the game's word pictures (no game data here).
  *
  * Battle banners ("BATTLE", "Attack", "Damage", "WIN" ...), the title menu ("PRESS START BUTTON",
  * "NEW GAME" ...) and the big attack names in the battle effects are pictures in the textures of
@@ -10,9 +10,8 @@
  *   - the look is learned from the original picture: for every row and every distance from the
  *     picture's outer edge (0 = edge pixel, 1, 2 ...) the most common palette index is taken (the
  *     outline, the gradient inside and the drop shadow are all such distance / row patterns),
- *   - the German text is set from the big game font (the German layer's umlauts included), scaled
- *     to the picture's height, squeezed to its width when needed, slanted for italic pictures, and
- *     grown by the learned outline width,
+ *   - current DE/EN text is rasterized from the embedded Orbitron Bold instance,
+ *     reduced uniformly to fit, then grown by the learned outline width,
  *   - every pixel gets the learned index for its row and distance.
  * The timing, the animation and the palette of the pictures stay as they are.
  *
@@ -25,6 +24,8 @@
 #include <string.h>
 
 #include "host/host.h"
+#include "host/fonts.h"
+#include "host/devdata.h"
 
 void *Host_PakReadFileLayered(int id, int *size);
 void Host_PakSetLayer(int id, const uint8_t *data, int size);
@@ -204,326 +205,16 @@ static int font22_size;
 static Tex font22_tex;
 static int status_glyph(int ch, int *u, int *v);
 
-/* glyph g of the text as a 12 x 15 mask; 0 when there is none */
-static int letter(const char *g, uint8_t out[15][16]) {
-    int ch = (unsigned char)g[0], u, v, dots = 0;
-
-    memset(out, 0, 15 * 16);
-    if (ch == 0xC3) { /* UTF-8 umlauts */
-        static const char base[] = { 'A', 'O', 'U', 'a', 'o', 'u' };
-        static const unsigned char cod[] = { 0x84, 0x96, 0x9C, 0xA4, 0xB6, 0xBC };
-        for (int k = 0; k < 6; k++) {
-            if ((unsigned char)g[1] == cod[k]) {
-                ch = base[k];
-                dots = 1;
-            }
-        }
-        if (!dots) {
-            return 0;
-        }
-    }
-    if (ch == '!' || ch == '-' || ch == '.' || ch == '?' || ch == ':') {
-        for (int y = 2; y < 13; y++) {
-            for (int x = 4; x < 8; x++) {
-                int on = 0;
-                if (ch == '!') on = y < 9 || y >= 11;
-                if (ch == '-') on = y >= 6 && y < 9;
-                if (ch == '.') on = y >= 10;
-                if (ch == ':') on = (y >= 4 && y < 6) || y >= 10;
-                if (ch == '?') on = (y < 4) || (x >= 6 && y < 7) || (y >= 6 && y < 8 && x < 7) || y >= 10;
-                out[y][x] = (uint8_t)on;
-            }
-        }
-        return 1;
-    }
-    if (font22_tex.d == NULL || !status_glyph(ch, &u, &v)) {
-        return 0;
-    }
-    {
-        /* the letter body (indices 3, 4) connected to the middle of its cell: wide letters (M, W)
-           run past the 12-column cell, the neighbours stay out */
-        uint8_t b[15][20];
-        int changed = 1;
-        memset(b, 0, sizeof(b));
-        for (int y = 0; y < 15; y++) {
-            for (int x = 0; x < 20; x++) {
-                int k = tget(&font22_tex, u - 2 + x, v + y);
-                b[y][x] = (uint8_t)(k == 3 || k == 4);
-            }
-        }
-        for (int y = 0; y < 15; y++) for (int x = 4; x < 12; x++) if (b[y][x]) b[y][x] = 2;
-        while (changed) {
-            changed = 0;
-            for (int y = 0; y < 15; y++) for (int x = 0; x < 20; x++) {
-                if (b[y][x] != 1) continue;
-                for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
-                    int yy = y + dy, xx = x + dx;
-                    if (yy >= 0 && yy < 15 && xx >= 0 && xx < 20 && b[yy][xx] == 2 && b[y][x] == 1) { b[y][x] = 2; changed = 1; }
-                }
-            }
-        }
-        for (int y = 0; y < 15; y++) for (int x = 0; x < 16; x++) out[y][x] = (uint8_t)(b[y][x + 2] == 2);
-    }
-    if (ch == 'a' || ch == 'g' || ch == 'i') {
-        /* the font's a (a closed loop like o), g (like 9) and i (its dot joins the stem once
-           outlined) in the same strokes, rows 2..14 of the cell */
-        static const char *const ga[13] = { "", "", "", "", ".#######....", ".......##...", "..#######...",
-                                            ".##....##...", ".##....##...", ".##...###...", "..#####.##..", "", "" };
-        static const char *const gg[13] = { "", "", "", "", "..#######...", ".##....##...", ".##....##...",
-                                            ".##....##...", "..#######...", ".......##...", ".......##...",
-                                            ".##....##...", "..######...." };
-        static const char *const gi[13] = { "...##.......", "...##.......", "", "", "...##.......", "...##.......",
-                                            "...##.......", "...##.......", "...##.......", "...##.......", "...##.......",
-                                            "", "" };
-        const char *const *g2 = ch == 'a' ? ga : ch == 'g' ? gg : gi;
-        memset(out, 0, 15 * 16);
-        for (int y = 0; y < 13; y++) {
-            for (int x = 0; g2[y][x] && x < 12; x++) {
-                out[y + 2][x] = (uint8_t)(g2[y][x] == '#');
-            }
-        }
-    }
-    if (ch == 'm' || ch == 'w' || ch == 'W') {
-        /* three strokes with one-pixel gaps (m, w, W): enlarged, the gaps close and m reads as o;
-           the same strokes two pixels apart (m: rows 6..12 like the font's small letters) */
-        static const char *const gm[7] = { ".##########.", ".##..##..##.", ".##..##..##.", ".##..##..##.",
-                                           ".##..##..##.", ".##..##..##.", ".##..##..##." };
-        static const char *const gw[7] = { ".##..##..##.", ".##..##..##.", ".##..##..##.", ".##..##..##.",
-                                           ".##..##..##.", ".##..##..##.", ".##########." };
-        memset(out, 0, 15 * 16);
-        if (ch == 'W') {
-            for (int y = 2; y <= 12; y++) {
-                for (int x = 0; x < 12; x++) {
-                    out[y][x] = (uint8_t)((y < 12 ? gw[0][x] : gw[6][x]) == '#');
-                }
-            }
-        } else {
-            for (int y = 0; y < 7; y++) {
-                for (int x = 0; x < 12; x++) {
-                    out[y + 6][x] = (uint8_t)((ch == 'm' ? gm : gw)[y][x] == '#');
-                }
-            }
-        }
-    }
-    if (ch == 'M' || ch == 'N') {
-        /* this font's M (a closed arch with a short middle stem) and N (a one-pixel diagonal) read
-           as A and H once enlarged: the same 2-pixel strokes as the other capitals, with the
-           diagonals drawn out (rows 2..12 like the font's capitals) */
-        static const char *const gm[11] = {
-            ".##......##.", ".###....###.", ".####..####.", ".##.#..#.##.", ".##.####.##.", ".##..##..##.",
-            ".##..##..##.", ".##......##.", ".##......##.", ".##......##.", ".##......##." };
-        static const char *const gn[11] = {
-            ".##....##...", ".###...##...", ".####..##...", ".##.#..##...", ".##.##.##...", ".##..#.##...",
-            ".##..####...", ".##...###...", ".##....##...", ".##....##...", ".##....##..." };
-        const char *const *g2 = ch == 'M' ? gm : gn;
-        memset(out, 0, 15 * 16);
-        for (int y = 0; y < 11; y++) {
-            for (int x = 0; x < 12; x++) {
-                out[y + 2][x] = (uint8_t)(g2[y][x] == '#');
-            }
-        }
-    }
-
-    if (dots) {
-        /* the letter moved down to make room where needed, two dots above it */
-        int top = 15, l = 12, r = -1;
-        for (int y = 0; y < 15; y++) {
-            for (int x = 0; x < 16; x++) {
-                if (out[y][x]) {
-                    top = y < top ? y : top;
-                    l = x < l ? x : l;
-                    r = x > r ? x : r;
-                }
-            }
-        }
-        if (top < 4) { /* a capital: squeeze it into the rows below 4 */
-            uint8_t t[15][16];
-            int bottom = 0;
-            for (int y = 0; y < 15; y++) {
-                for (int x = 0; x < 16; x++) {
-                    if (out[y][x]) bottom = y;
-                }
-            }
-            memset(t, 0, sizeof(t));
-            for (int y = 4; y <= bottom; y++) {
-                int sy = top + (y - 4) * (bottom - top + 1) / (bottom - 3);
-                memcpy(t[y], out[sy > bottom ? bottom : sy], 12);
-            }
-            memcpy(out, t, sizeof(t));
-            top = 4;
-        }
-        for (int y = top - 3; y < top - 1; y++) {
-            for (int x = 0; x < 16; x++) {
-                if (y >= 0 && ((x >= l + 1 && x < l + 3) || (x > r - 3 && x <= r - 1))) {
-                    out[y][x] = 1;
-                }
-            }
-        }
-    }
-    return 1;
-}
-
-static uint8_t *smallfont;
-static int smallfont_size;
-
-/* a letter of the small game font (7 x 10 cells, German layer included) as a 12 x 15 mask in its
-   top left 7 x 10 */
-static int letter_small(const char *g, uint8_t out[15][16], int *len) {
-    uint8_t codes[8];
-    int n, c, ink = 1;
-    const int TIM_IMG = 4 + 8 + 44 + 12;
-    char one[8] = { 0 };
-
-    *len = ((unsigned char)*g & 0xE0) == 0xC0 ? 2 : 1;
-    memcpy(one, g, (size_t)*len);
-    memset(out, 0, 15 * 16);
-    n = Lang_Encode(one, codes, 8);
-    if (n != 2 || smallfont == NULL) {
-        return 0;
-    }
-    c = codes[0];
-    {
-        static int found = -1;
-        if (found < 0) {
-            int cnt[16] = { 0 };
-            for (int k = 0x0A; k < 0x24; k++) for (int y = 0; y < 10; y++) for (int x = 0; x < 7; x++) {
-                int gx = (k % 17) * 7 + x, gy = (k / 17) * 10 + y, o = TIM_IMG + gy * 64 + gx / 2;
-                if (o < smallfont_size) cnt[(smallfont[o] >> ((gx & 1) * 4)) & 15]++;
-            }
-            /* the letter colour, not its shadow: the top-left corner of E (code 0x0E) */
-            {
-                int gx = (0x0E % 17) * 7, gy = (0x0E / 17) * 10 + 1, o = TIM_IMG + gy * 64 + gx / 2;
-                found = o < smallfont_size ? (smallfont[o] >> ((gx & 1) * 4)) & 15 : 1;
-                if (found == 0) found = 1;
-            }
-            (void)cnt;
-        }
-        ink = found;
-    }
-    for (int y = 0; y < 10; y++) {
-        for (int x = 0; x < 7; x++) {
-            int gx = (c % 17) * 7 + x, gy = (c / 17) * 10 + y, o = TIM_IMG + gy * 64 + gx / 2;
-            out[y][x] = (uint8_t)(o < smallfont_size && ((smallfont[o] >> ((gx & 1) * 4)) & 15) == ink);
-        }
-    }
-    if (c == 10 + 18 || c == 10 + 6) {
-        /* S and G: the font's corner pixels join with the outline into 8 and 0 once enlarged */
-        static const char *const gs[7] = { ".###.", "#....", "#....", ".###.", "....#", "....#", "####." };
-        static const char *const gg[7] = { ".###.", "#....", "#....", "#.###", "#...#", "#...#", ".###." };
-        const char *const *g2 = c == 10 + 18 ? gs : gg;
-        memset(out, 0, 15 * 16);
-        for (int y = 0; y < 7; y++) {
-            for (int x = 0; x < 5; x++) {
-                out[y + 1][x] = (uint8_t)(g2[y][x] == '#');
-            }
-        }
-    }
-    return 1;
-}
-
 /* text mask into m (cw x ch): letters scaled so the font's 15-row cell is cell_h rows, starting at
    row `top`; squeezed to maxw; returns the width used or -1 */
 static int set_text(const char *text, uint8_t *m, int cw, int ch, int top, int cell_h, int maxw, int italic, int gap_px, double min_sq, int narrow) {
-    uint8_t g[48][15][16];
-    int x0[48], x1[48], sp[48], n = 0, total = 0;
-    double s, sx;
-
-    for (const char *p = text; *p && n < 48;) {
-        int len = ((unsigned char)*p & 0xE0) == 0xC0 ? 2 : 1;
-        sp[n] = *p == ' ';
-        if (narrow && !sp[n]) {
-            if (letter_small(p, g[n], &len)) {
-                x0[n] = 99;
-                x1[n] = -1;
-                for (int y = 0; y < 10; y++) for (int x = 0; x < 7; x++) if (g[n][y][x]) { x0[n] = x < x0[n] ? x : x0[n]; x1[n] = x > x1[n] ? x : x1[n]; }
-                n++;
-            }
-            p += len;
-            continue;
-        }
-        if (!sp[n] && !letter(p, g[n])) {
-            if (*p == (char)0xC3 && (unsigned char)p[1] == 0x9F) { /* ß: ss */
-                letter("s", g[n]);
-                x0[n] = 99;
-                x1[n] = -1;
-                for (int y = 0; y < 15; y++) for (int x = 0; x < 16; x++) if (g[n][y][x]) { x0[n] = x < x0[n] ? x : x0[n]; x1[n] = x > x1[n] ? x : x1[n]; }
-                memcpy(g[n + 1], g[n], sizeof(g[n]));
-                x0[n + 1] = x0[n];
-                x1[n + 1] = x1[n];
-                sp[n + 1] = 0;
-                n += 2;
-                p += len;
-                continue;
-            }
-            p += len;
-            continue;
-        }
-        x0[n] = 99;
-        x1[n] = -1;
-        for (int y = 0; y < 15; y++) {
-            for (int x = 0; x < 16; x++) {
-                if (g[n][y][x]) {
-                    x0[n] = x < x0[n] ? x : x0[n];
-                    x1[n] = x > x1[n] ? x : x1[n];
-                }
-            }
-        }
-        n++;
-        p += len;
-    }
-    for (int i = 0; i < n; i++) {
-        total += sp[i] ? 5 : (x1[i] >= 0 ? x1[i] - x0[i] + 2 : 0);
-    }
-    if (total == 0) {
-        return -1;
-    }
-    s = (double)cell_h / (narrow ? 10.0 : 15.0);
-    sx = narrow ? 1.0 : s; /* the small font: tall narrow letters, its own width */
-    {
-        int slant = italic ? cell_h / 4 : 0;
-        if (total * sx + n * gap_px + slant > maxw) {
-            sx = (double)(maxw - slant - n * gap_px) / total;
-        }
-    }
-    if (sx < 0.3 || sx < s * min_sq) {
-        return -1;
-    }
-    memset(m, 0, (size_t)cw * ch);
-    {
-        double x = 0;
-        int right = 0;
-        for (int i = 0; i < n; i++) {
-            int gw;
-            if (sp[i]) {
-                x += 5 * sx;
-                continue;
-            }
-            if (x1[i] < 0) {
-                continue;
-            }
-            gw = x1[i] - x0[i] + 1;
-            for (int py = 0; py < cell_h; py++) {
-                int sy0 = (int)(py / s), sy1 = (int)((py + 1) / s - 1e-6);
-                int slant = italic ? (cell_h - 1 - py) / 4 : 0;
-                for (int px = 0; px < (int)(gw * sx + 0.999); px++) {
-                    /* every source pixel the output pixel covers counts (thin strokes stay) */
-                    int a0 = x0[i] + (int)(px / sx), a1 = x0[i] + (int)((px + 1) / sx - 1e-6), on = 0;
-                    int X = (int)(x + 0.5) + px + slant, Y = top + py;
-                    for (int yy = sy0; yy <= sy1 && yy < (narrow ? 10 : 15) && !on; yy++) {
-                        for (int xx = a0; xx <= a1 && xx <= x1[i] && !on; xx++) {
-                            on = g[i][yy][xx];
-                        }
-                    }
-                    if (on && X >= 0 && X < cw && Y >= 0 && Y < ch) {
-                        m[Y * cw + X] = 1;
-                        right = X + 1 > right ? X + 1 : right;
-                    }
-                }
-            }
-            x += (gw + 1) * sx + gap_px;
-        }
-        return right;
-    }
+    (void)italic; (void)gap_px; (void)min_sq; (void)narrow;
+    if(top<0 || cell_h<1 || top+cell_h>ch || maxw<1 || maxw>cw)return -1;
+    memset(m,0,(size_t)cw*ch);
+    int width=Fonts_Mask(FONT_DISPLAY,text,m+top*cw,cw,maxw,cell_h);
+    if(width<0)return -1;
+    for(int y=0;y<ch;y++)for(int x=0;x<cw;x++)m[y*cw+x]=m[y*cw+x]>=80;
+    return width;
 }
 
 /* paint `w` over the rectangles `c[0..n)` of texture t */
@@ -857,7 +548,7 @@ typedef struct {
     uint8_t *d;
 } Open;
 
-#define MAX_OPEN 192
+#define MAX_OPEN 512
 static Open open_files[MAX_OPEN];
 static int nopen;
 
@@ -1151,20 +842,48 @@ static void dump_files(void) {
     }
 }
 
+static int german = -1;
+static void restyle_status(Tex *t);
+static void collect_skill_names(void) {
+    int size=0;
+    uint8_t *d=Host_PakReadFileLayered(0x25B,&size);
+    nskillpics=0;
+    if(!d || size<0x44){free(d);return;}
+    for(uint32_t r=rd32(d);r<=(uint32_t)size-0x44;r+=0x44) {
+        if(rd16(d+r)==0)break;
+        uint32_t np=rd32(d+r+0x24);
+        char name[64];
+        if(np>=(uint32_t)size)continue;
+        DevData_Text(d+np,size-(int)np,NULL,name,sizeof(name));
+        /* Decode the name from the current layer, never infer a translation. */
+        if(*name && !strchr(name,'{'))PicWords_AddSkill((int32_t)rd32(d+r+0x0C),name);
+    }
+    free(d);
+}
+
 void PicWords_Apply(void) {
     int ok = 0, bad = 0, sk_ok = 0, sk_bad = 0;
     char a[64], b[64];
 
-    smallfont = Host_PakReadFileLayered(0x13A, &smallfont_size);
+    collect_skill_names();
     font22 = Host_PakReadFileLayered(0x22B, &font22_size);
     if (font22 == NULL || !tex_open(&font22_tex, font22, font22_size)) {
         free(font22);
         font22 = NULL;
-        Lang_Note("word pictures: no letter font (file 0x22B), they stay English%s", "", "");
+        memset(&font22_tex, 0, sizeof(font22_tex));
+        Lang_Note("word pictures: no file 0x22B, restyling unavailable%s", "", "");
         return;
     }
+    static const char *const en[] = {
+        "Missed","Attack","Counter","Interrupt","Assist","Guard","Do you want to","interrupt?","Yes","No",
+        "Damage","TARGET","SELECT","BATTLE","Run Away","Unable to","FIGHT","GAME OVER","LOSE",
+        "WIN","LEVEL UP","PRESS START BUTTON","NEW GAME","CONTINUE GAME","BATTLE MODE"
+    };
+    _Static_assert(sizeof(en)/sizeof(en[0]) == sizeof(pics)/sizeof(pics[0]), "picture texts");
     for (size_t i = 0; i < sizeof(pics) / sizeof(pics[0]); i++) {
-        if (paint_pic(pics[i].file, pics[i].entry, pics[i].first, pics[i].count, &pics[i].w)) {
+        Words word=pics[i].w;
+        if(german!=1)word.text=en[i];
+        if (paint_pic(pics[i].file, pics[i].entry, pics[i].first, pics[i].count, &word)) {
             ok++;
         } else {
             bad++;
@@ -1180,14 +899,14 @@ void PicWords_Apply(void) {
     }
     dump_files();
     flush_files();
+    restyle_status(&font22_tex);
+    Host_PakSetLayer(0x22B,font22,font22_size);
     free(font22);
     font22 = NULL;
-    free(smallfont);
-    smallfont = NULL;
     memset(&font22_tex, 0, sizeof(font22_tex));
     snprintf(a, sizeof(a), "%d of %d", ok, ok + bad);
     snprintf(b, sizeof(b), "%d of %d attack names", sk_ok, sk_ok + sk_bad);
-    Lang_Note("word pictures German: %s, %s", a, b);
+    Lang_Note("modern word pictures: %s, %s", a, b);
 }
 
 /* ---- status messages of the battle: German letter-cell lists (file 0x22B) ---- */
@@ -1288,6 +1007,20 @@ static int status_glyph(int ch, int *u, int *v) {
     return 0;
 }
 
+static void restyle_status(Tex *t) {
+    extern int Fonts_Cell(int role,int cp,uint8_t *out,int w,int h);
+    for(int cp='A';cp<='z';cp++) {
+        int u,v;
+        uint8_t mask[12*15];
+        if(!status_glyph(cp,&u,&v) || !Fonts_Cell(FONT_DISPLAY,cp,mask,12,15))continue;
+        for(int y=0;y<15;y++)for(int x=0;x<12;x++)tset(t,u+x,v+y,mask[y*12+x]>=80?3:0);
+    }
+    int u,v;
+    uint8_t mask[12*15];
+    if(status_glyph('&',&u,&v) && Fonts_Cell(FONT_DISPLAY,'&',mask,12,15))
+        for(int y=0;y<15;y++)for(int x=0;x<12;x++)tset(t,u+x,v+y,mask[y*12+x]>=80?3:0);
+}
+
 static uint8_t status_cells[NSTATUS + 1][64 * 16 + 16];
 static uint8_t status_built[NSTATUS + 1];
 static int status_ready = -1;
@@ -1324,7 +1057,7 @@ static void build_status(void) {
                 continue;
             }
             uint8_t *c = status_cells[e] + n * 16;
-            int16_t xx = (int16_t)x, yy = (int16_t)(strchr("gjpqy", s[i]) ? -4 : -8);
+            int16_t xx = (int16_t)x, yy = -8; /* modern font cells share one baseline */
             memcpy(c, proto, 16);
             c[0] = (uint8_t)u;
             c[1] = (uint8_t)v;
@@ -1341,7 +1074,6 @@ static void build_status(void) {
     status_ready = 1;
 }
 
-static int german = -1;
 void PicWords_SetGerman(int on) {
     german = on;
 }

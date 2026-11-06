@@ -1,0 +1,20 @@
+[
+  {
+    "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/exo2/Exo2%5Bwght%5D.ttf",
+    "upstream_sha256": "205a448676a2586f9c57c25f3d5c58ca8db7e6cf5edf7506783a010c6fe2bfb5",
+    "weight": 500,
+    "file": "DW2Interface.ttf"
+  },
+  {
+    "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/orbitron/Orbitron%5Bwght%5D.ttf",
+    "upstream_sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+    "weight": 700,
+    "file": "DW2Display.ttf"
+  },
+  {
+    "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/robotomono/RobotoMono%5Bwght%5D.ttf",
+    "upstream_sha256": "66a80e79d17e4c7cabd162e2916578a4cc08fd19eef6e2a643305eae9c567b2b",
+    "weight": 500,
+    "file": "DW2Telemetry.ttf"
+  }
+]

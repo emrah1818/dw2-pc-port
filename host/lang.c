@@ -1177,6 +1177,44 @@ static const char *word_override(const char *dir, int code, char *buf, int size)
     return res;
 }
 
+/* Restyle word cells without changing their spelling. Honour words.tsv, including
+ * an empty override (which previously meant keep the English word image). */
+void Lang_RestyleWords(uint8_t *d, int size) {
+    static const struct { int code, cells; const char *en; } words[] = {
+        {0x5E,8,"Digi-Beetle"},{0x66,7,"Digimon"},{0x6D,7,"Condition"},
+        {0x77,7,"Transfer"},{0x7E,10,"Digi-Line"},{0x88,7,"Digivolve"},
+        {0x8F,9,"DNA Digivolve"},{0x99,7,"Auto Pilot"},{0xA0,5,"Button"},
+        {0xA5,5,"Parents"},{0xAA,7,"Generation"},{0xB1,7,"Specialty"},
+        {0xBB,7,"Important"},{0xC2,10,"Counter Attack"},{0xCC,5,"Battle"},
+        {0xD1,5,"Cannon"},{0xD6,5,"Choose"},{0xDD,6,"Assemble"},
+    };
+    const char *base=SDL_GetBasePath();
+    char dir[1024];
+    extern int Fonts_Mask(int,const char *,uint8_t *,int,int,int);
+    snprintf(dir,sizeof(dir),"%sLanguages/German/",base?base:"");
+    if(size<TIM_IMG+256*64)return;
+    for(size_t i=0;i<sizeof(words)/sizeof(words[0]);i++) {
+        uint8_t mask[70*9];
+        char override[128];
+        const char *text=words[i].en;
+        if(Settings_Get(SET_LANGUAGE)==SET_LANG_DE) {
+            for(int k=0;k<NWORDS;k++) if(WORDS[k].code==words[i].code)text=WORDS[k].de;
+            const char *custom=word_override(dir,words[i].code,override,sizeof(override));
+            if(custom)text=*custom?custom:words[i].en;
+        }
+        int width=words[i].cells*7;
+        if(Fonts_Mask(0,text,mask,width,width,9)<0) {
+            printf("[fonts] word %02X not restyled: %s\n",words[i].code,text);
+            continue;
+        }
+        for(int c=0;c<words[i].cells;c++) {
+            int code=words[i].code+c, x0=(code%17)*7,y0=(code/17)*10;
+            for(int y=0;y<10;y++)for(int x=0;x<7;x++)
+                setpx(d,x0+x,y0+y,y<9 && mask[y*width+c*7+x]>=80?1:0);
+        }
+    }
+}
+
 /* returns the number of words drawn */
 static int patch_words(uint8_t *d, const Font *f, const char *dir, int umlauts) {
     int done = 0;
@@ -1255,6 +1293,10 @@ void Lang_Apply(void) {
     uint8_t *d;
 
     if (Settings_Get(SET_LANGUAGE) != SET_LANG_DE) {
+        extern void Fonts_ApplyGame(void);
+        Fonts_ApplyGame();
+        PicWords_SetGerman(0);
+        PicWords_Apply();
         return;
     }
     snprintf(dir, sizeof(dir), "%sLanguages/German/", base != NULL ? base : "");
@@ -1287,6 +1329,10 @@ void Lang_Apply(void) {
         umlauts = ok;
     }
     g_umlauts = umlauts;
+    {
+        extern void Fonts_ApplyGame(void);
+        Fonts_ApplyGame();
+    }
     PicWords_SetGerman(1);
     d = Host_PakReadFileLayered(F_WAZADATA, &size);
     if (d != NULL) {
@@ -1294,7 +1340,6 @@ void Lang_Apply(void) {
         Host_PakSetLayer(F_WAZADATA, d, size);
         free(d);
     }
-    PicWords_Apply(); /* host/picwords.c: battle banners, title menu, attack names */
     d = Host_PakReadFileLayered(F_SYSTEXT, &size);
     if (d != NULL) {
         patch_types(d, size, dir, umlauts);
@@ -1303,6 +1348,7 @@ void Lang_Apply(void) {
     }
     load_dict(dir, umlauts);
     patch_texts(dir, umlauts); /* after the types: texts.tsv may not touch the type entries */
+    PicWords_Apply(); /* after all text changes: render exactly the current names */
     if (rep) {
         fclose(rep);
         rep = NULL;

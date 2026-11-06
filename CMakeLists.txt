@@ -146,6 +146,9 @@ set_source_files_properties(${UPDATE_LIB_SRC} PROPERTIES COMPILE_OPTIONS "-w")
 set_source_files_properties(${CMAKE_SOURCE_DIR}/host/miniz/miniz.c ${CMAKE_SOURCE_DIR}/host/update.c
     ${CMAKE_SOURCE_DIR}/host/assets.c PROPERTIES COMPILE_DEFINITIONS "${MINIZ_DEFS}")
 list(APPEND HOST_SRC ${UPDATE_LIB_SRC})
+set_source_files_properties(${CMAKE_SOURCE_DIR}/host/fonts.c PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/misc/fonts/DW2Interface.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2Display.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2Telemetry.ttf"
+    COMPILE_OPTIONS "-Wno-unused-function")
 # Emulated PS1 hardware (backend/psxgpu.c: the GPU).
 file(GLOB BACKEND_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/backend/*.c)
 
@@ -235,6 +238,15 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/psyq/snd_hw.c PROPERTIES
     OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/assets/main/retail_rodata.bin;${CMAKE_SOURCE_DIR}/assets/main/retail_data.bin")
 
 # dw2-pc-port text/script layout test (tests/textscript_test.c): made-up bytes, no game data.
+add_executable(fonts_test ${CMAKE_SOURCE_DIR}/tests/fonts_test.c ${CMAKE_SOURCE_DIR}/host/fonts.c
+    ${CMAKE_SOURCE_DIR}/host/fontnumbers.c)
+target_include_directories(fonts_test PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fonts_test PRIVATE DW2_NATIVE)
+target_compile_options(fonts_test PRIVATE -UNDEBUG "-Wa,-I${CMAKE_SOURCE_DIR}")
+if(NOT WIN32)
+    target_link_libraries(fonts_test PRIVATE m)
+endif()
+
 add_executable(textscript_test ${CMAKE_SOURCE_DIR}/tests/textscript_test.c ${CMAKE_SOURCE_DIR}/host/textscript.c)
 target_include_directories(textscript_test PRIVATE ${CMAKE_SOURCE_DIR})
 

@@ -352,7 +352,7 @@ static TextBox *Text_NativeNeighbour(TextBoxWork *wk, TextBox *r, s32 x, s32 y, 
     for (i = 0; i < 0x32; i++) {
         TextBox *b = &wk->rec[i];
         s32 dy;
-        if (b->inUse == 0 || b == r) {
+        if (b->inUse == 0 || b == r || b->text == 0) {
             continue;
         }
         dy = y - b->y;
@@ -371,8 +371,7 @@ static TextBox *Text_NativeNeighbour(TextBoxWork *wk, TextBox *r, s32 x, s32 y, 
     return best;
 }
 
-/* a line: measured as set; a text box right of it is moved aside (Modern, when its window has
-   room); when the line still does not fit (after growing its window) it is set close and measured
+/* a line: measured as set; a text box right of it is moved aside (when its window has room); when the line still does not fit (after growing its window) it is set close and measured
    again; returns the spacing scale for what is still missing */
 static s32 Text_NativeLine(TextBoxWork *wk, TextBox *r, const u8 *s, s32 x, s32 y) {
     s32 scale, w, nx, saveTable = Text_NativeTable;
@@ -396,7 +395,7 @@ static s32 Text_NativeLine(TextBoxWork *wk, TextBox *r, const u8 *s, s32 x, s32 
             printf("\n");
         }
     }
-    if (nb != NULL && UiText_Modern() && x + w > nb->x - 4) { /* against its own place: asked again each frame */
+    if (nb != NULL && x + w > nb->x - 4) { /* against its own place: asked again each frame */
         s32 need = x + w + 4 - nb->x, rt, nw;
         Text_NativeTable = 0;
         nw = Text_NativeMeasure(nb, (const u8 *)nb->text);

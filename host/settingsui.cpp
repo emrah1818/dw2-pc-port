@@ -103,8 +103,8 @@ const Tr k_tr[] = {
     { "Language of these PC menus and, after a restart, of the game texts. German game texts come from the files in Languages/German (texts.tsv, dictionary.txt), made from your own disc; without them the game stays English.",
       "Sprache dieser PC-Menüs und, nach einem Neustart, der Spieltexte. Deutsche Spieltexte kommen aus den Dateien in Languages/German (texts.tsv, dictionary.txt), erstellt aus deiner eigenen Disc; ohne sie bleibt das Spiel englisch." },
     { "Game windows", "Spielfenster" }, { "Modern", "Modern" }, { "Classic (PS1)", "Klassisch (PS1)" },
-    { "Modern: letters set by their own width, windows grow when a text needs more room, so longer (German) texts stay inside their windows. Classic: the PS1 picture; a line that does not fit its window is set closer. Takes effect at once.",
-      "Modern: Buchstaben nach eigener Breite, Fenster wachsen, wenn ein Text mehr Platz braucht, so bleiben längere (deutsche) Texte in ihren Fenstern. Klassisch: das PS1-Bild; eine Zeile, die nicht in ihr Fenster passt, wird enger gesetzt. Wirkt sofort." },
+    { "Modern: letters set by their own width (easier to read, more room). Classic: the PS1 letter cells. In both, a window grows or the text next to it moves when a (German) text needs more room, so no text runs past its window; English texts look as on the PS1. Takes effect at once.",
+      "Modern: Buchstaben nach eigener Breite (besser lesbar, mehr Platz). Klassisch: die festen PS1-Zeichenzellen. In beiden wächst ein Fenster oder rückt der Text daneben, wenn ein (deutscher) Text mehr Platz braucht, so ragt kein Text über sein Fenster; englische Texte sehen aus wie auf der PS1. Wirkt sofort." },
     { "Renderer", "Renderer" }, { "GPU (Vulkan)", "GPU (Vulkan)" }, { "Software", "Software" },
     { "Takes effect at the next start. Running now: %s.", "Gilt ab dem nächsten Start. Läuft jetzt: %s." },
     { "Some values come from the command line for this run and are not saved.",
@@ -802,7 +802,7 @@ void language_combo(void) {
         if (ImGui::Combo(TL("Game windows", "uistyle"), &style, styles, 2)) {
             Settings_Set(SET_UI_STYLE, style);
         }
-        ui_hint(T("Modern: letters set by their own width, windows grow when a text needs more room, so longer (German) texts stay inside their windows. Classic: the PS1 picture; a line that does not fit its window is set closer. Takes effect at once."));
+        ui_hint(T("Modern: letters set by their own width (easier to read, more room). Classic: the PS1 letter cells. In both, a window grows or the text next to it moves when a (German) text needs more room, so no text runs past its window; English texts look as on the PS1. Takes effect at once."));
     }
 }
 

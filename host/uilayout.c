@@ -10,9 +10,11 @@
  *     numbers stay aligned).
  *   - windows (UiLayout_NotePart): every visible part drawn in a frame is noted as a rectangle.
  *   - fitting (UiLayout_FitLine): text.c measures each line before drawing it. When the line would
- *     end past the inner edge of the window it starts in, Modern UI grows that window to the right
- *     (as far as the screen and the next window allow); what is still missing is taken from the
- *     letter spacing of that line, in both modes. Classic UI keeps the PS1 picture otherwise.
+ *     end past the inner edge of the window it starts in, that window grows to the right (as far
+ *     as the screen and the next window allow); a text box right of the line is moved aside when
+ *     there is room; what is still missing is taken from the letter spacing of that line (set
+ *     close, then narrower). Both modes do this; English texts fit the PS1 windows, so with the
+ *     Classic UI an English game looks exactly like the PS1 one.
  *   - growing (UiLayout_PartCells): a grown window is drawn with its middle tile repeated and its
  *     right edge moved; the same for its shadow (a second part of the same size next to it).
  * The rectangles of the previous frame are used (windows stay put between frames).
@@ -400,7 +402,7 @@ int UiLayout_FitLine(int x, int y, int width, int limit) {
     if (need <= 0) {
         return 0x10000;
     }
-    if (w != NULL && !w->seg && UiText_Modern()) {
+    if (w != NULL && !w->seg) {
         int room = room_right(w);
         grow = need < room ? need : room;
         if (grow > 0) {
@@ -457,7 +459,7 @@ const void *UiLayout_PartCells(const void *part, const void *cells) {
     int g, n = 0, xs[64], nx = 0, stretch = -99999, sw = 0, rightmost = -99999;
     uint8_t *out;
 
-    if (p == NULL || e == NULL || !UiText_Modern() || ngrow[0] + ngrow[1] == 0 || !part_rect(p, e, &r) ||
+    if (p == NULL || e == NULL || ngrow[0] + ngrow[1] == 0 || !part_rect(p, e, &r) ||
         !is_window(&r) || (g = grow_for(&r)) <= 0) {
         return cells;
     }
@@ -557,9 +559,6 @@ void UiLayout_RequestShift(int x, int top, int bottom, int shift) {
 int UiLayout_ColumnShift(int x, int y) {
     int best = 0;
 
-    if (!UiText_Modern()) {
-        return 0;
-    }
     for (int b = 0; b < 2; b++) {
         for (int i = 0; i < nshift[b]; i++) {
             if (shifts[b][i].x == x && y >= shifts[b][i].top && y < shifts[b][i].bottom && shifts[b][i].shift > best) {
@@ -576,7 +575,7 @@ int UiLayout_MaxRight(int x, int y) {
     if (w == NULL) {
         return 0xA0; /* the screen edge */
     }
-    return w->x + w->w + (!w->seg && UiText_Modern() ? room_right(w) : 0);
+    return w->x + w->w + (!w->seg ? room_right(w) : 0);
 }
 
 void UiLayout_Stats(int *lines, int *grown, int *squeezed) {

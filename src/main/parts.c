@@ -22,6 +22,9 @@ GfxPartRotCache Gfx_PartRotCache = {
 };
 
 void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
+#ifdef DW2_NATIVE
+    s32 wdx = 0;
+#endif
     GfxPartCell *e;
     GfxPartTexSlot *t;
     GfxPartPkt *p;
@@ -39,6 +42,12 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
     }
 #endif
     p = (GfxPartPkt *)Sys_State.packet.addr;
+#ifdef DW2_NATIVE
+    {
+        extern int UiLayout_PartShift(const void *part);
+        wdx = UiLayout_PartShift(s); /* dw2-pc-port: a battle window in the wide margin */
+    }
+#endif
     for (; e->u != 0xFF; e++) {
         if (e->frame != s->partGroup) {
             continue;
@@ -52,7 +61,11 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
         } else {
             tpage = t->tpage;
         }
+#ifdef DW2_NATIVE
+        p->s.x0 = e->x + s->x + wdx;
+#else
         p->s.x0 = e->x + s->x;
+#endif
         p->s.u0 = e->u + t->u;
         p->s.w = e->w;
         p->s.y0 = e->y + s->y;
@@ -89,6 +102,9 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
     s32 i;
     s32 u;
     s32 y;
+#ifdef DW2_NATIVE
+    s32 wdx = 0;
+#endif
 
     e = (GfxPartCell *)Cd_GetFileEntry(((GfxPartSprite *)arg0)->fileId);
     t = (GfxPartTexSlot *)Gfx_FindOrLoadTexSlot(((GfxPartSprite *)arg0)->fileId & 0xFFFF0000);
@@ -101,6 +117,12 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
     }
 #endif
     p = (GfxPartPolyFT4 *)Sys_State.packet.addr;
+#ifdef DW2_NATIVE
+    {
+        extern int UiLayout_PartShift(const void *part);
+        wdx = UiLayout_PartShift(arg0); /* dw2-pc-port: a battle window in the wide margin */
+    }
+#endif
     for (; e->u != 0xFF; e++) {
         if (e->frame != ((GfxPartSprite *)arg0)->partGroup) {
             continue;
@@ -121,7 +143,11 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
         sv[0].vz = sv[1].vz = sv[2].vz = sv[3].vz = 0;
         for (i = 0; i < 4; i++) {
             ApplyMatrixSV(arg1, &sv[i], &out);
+#ifdef DW2_NATIVE
+            p->v[i].x = out.vx + ((GfxPartSprite *)arg0)->x + wdx;
+#else
             p->v[i].x = out.vx + ((GfxPartSprite *)arg0)->x;
+#endif
             p->v[i].y = out.vy + ((GfxPartSprite *)arg0)->y;
         }
         u = e->u + t->u;
@@ -263,6 +289,8 @@ void Gfx_DrawPartsEx(void *arg0, s32 arg1) {
 #ifdef DW2_NATIVE
         if (s2->visible != 0) {
             extern void UiLayout_NotePart(const void *part, const void *cells);
+            extern void UiLayout_SetWideScene(int battle);
+            UiLayout_SetWideScene((Sys_State.gameMode >> 8) == 5); /* dw2-pc-port: wide battle HUD */
             UiLayout_NotePart(s2, Cd_GetFileEntry(s2->fileId));
         }
 #endif

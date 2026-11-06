@@ -650,6 +650,8 @@ static int tokenize(const uint8_t *d, int size, uint32_t o, char *out, int n) {
 #undef PUT
 }
 
+static void dump(int id, const uint8_t *d, int size);
+
 typedef struct { int file; const char *what; int first, stride, ptr0, ptr1; } Table;
 
 /* the text tables found so far: record tables (pointers inside records) and pointer lists */
@@ -1033,6 +1035,7 @@ static void patch_texts(const char *dir, int umlauts) {
                     if (rep && fell) fprintf(rep, "%04X: %d texts did not fit (file full) or are invalid, English kept\n", id, fell);
                     if (rep && unknown) fprintf(rep, "%04X: %d keys are no text pointer of this file, ignored\n", id, unknown);
                     Host_PakSetLayer(id, d, size);
+                    dump(id, d, size);
                 }
             }
         }

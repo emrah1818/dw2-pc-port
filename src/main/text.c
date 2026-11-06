@@ -474,7 +474,7 @@ void Text_UpdateAllBoxes(Actor *a0) {
     Obj6A8C0 *h;
     PadState *tb;
 #ifdef DW2_NATIVE
-    s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0, uiShift = 0;
+    s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0, uiShift = 0, uiWide = 0;
 #define UI_LINE(p)                                                                                           \
     (uiAcc = 0, uiX0 = pos.field_0, uiCells = 0, uiSpaces = 0,                                               \
      uiScale = Text_NativeLine(wk, r, (p), pos.field_0, pos.field_2))
@@ -503,6 +503,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
 #ifdef DW2_NATIVE
             uiShift = UiLayout_ColumnShift(r->x, r->y);
             pos.field_0 += uiShift;
+            {
+                extern int UiLayout_TextShift(int x, int y);
+                uiWide = UiLayout_TextShift(r->x, r->y); /* drawn moved with its window (wide battle HUD) */
+            }
 #endif
             nF4d = 0;
             ot = Sys_State.otLayers.u[r->otIndex];
@@ -1007,7 +1011,7 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pkt->tag.b.len = 9;
                     pkt->c.code = 0x2C;
 #ifdef DW2_NATIVE
-                    pkt->x0 = pkt->x2 = pos.field_0 - Text_NativeInkLeft(r, uiCode);
+                    pkt->x0 = pkt->x2 = pos.field_0 - Text_NativeInkLeft(r, uiCode) + uiWide;
 #else
                     pkt->x0 = pkt->x2 = pos.field_0;
 #endif

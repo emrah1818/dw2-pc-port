@@ -153,11 +153,15 @@ static int cur;
 static int log_parts = -1;
 static int fit_lines, grown_lines, squeezed_lines; /* stats for the log */
 
+static int nwwin[2], nwpart[2]; /* wide HUD: windows moved / parts moved this frame (below) */
+
 void UiLayout_Flip(void) {
     cur ^= 1;
     nrect[cur] = 0;
     ngrow[cur] = 0;
     nshift[cur] = 0;
+    nwwin[cur] = 0;
+    nwpart[cur] = 0;
 }
 
 /* GfxPartSprite (include/main/156C.h): fileId 0, x 4, y 6, partGroup 0xD; cells 0x10 each:
@@ -263,6 +267,122 @@ static void note_segments(const uint8_t *p, const uint8_t *e) {
     }
 }
 
+/* ---- wide HUD (Modern UI, 16:9 / 21:9, battle): the battle windows use the width ----
+ *
+ * The PS1 battle screen puts its windows into the 4:3 picture; in a wide picture they would sit in
+ * the middle band over the Digimon. With the Modern UI their frames move into the side margins:
+ * a window left of the middle moves left by the margin, one right of it moves right, one in the
+ * middle stays (enemy name box, attack description row). Everything drawn inside a moved window
+ * (its texts, digits, cursor, highlight) moves with it; what belongs to the 3D scene (target
+ * marker, damage numbers, word banners) never does. The windows of a frame decide for the next
+ * (they stay put between frames, like the rest of this file). Classic UI and 4:3: no change. */
+extern int PsxHd_Wide(void);
+extern int PsxHd_Margin(int w);
+
+#define MAX_WWIN 32
+#define MAX_WPART 256
+static struct {
+    Rect r;
+    int dx;
+} wwin[2][MAX_WWIN];
+static struct {
+    const void *part;
+    int dx;
+} wpart[2][MAX_WPART];
+static int wide_scene;
+
+void UiLayout_SetWideScene(int battle) {
+    wide_scene = battle;
+}
+
+static int wide_on(void) {
+    return wide_scene && PsxHd_Wide() > 0 && UiText_Modern();
+}
+
+/* the battle window frames of file 0x13B that may move (command menus, attack lists, party
+   status boxes); the attack description row (3D, 3F, 41, 43, 44, 45) and the enemy box stay */
+static int wide_window_entry(int entry) {
+    switch (entry) {
+    case 0x01: case 0x2A: case 0x32: case 0x33: case 0x3B: case 0x3C: case 0x40: case 0x42: case 0x46: case 0x4A: case 0x4B:
+        return 1;
+    }
+    return 0;
+}
+
+/* parts tied to the 3D scene: target / select markers, damage number, damage digits */
+static int wide_scene_entry(int entry) {
+    return entry == 2 || entry == 3 || entry == 22 || (entry >= 0x0B && entry <= 0x0F);
+}
+
+static int wide_dx_at(const Rect *r) {
+    const int prev = cur ^ 1;
+    int best = 0, area = 1 << 30;
+
+    for (int b = 0; b < 2; b++) {
+        int k = b == 0 ? prev : cur;
+        for (int i = 0; i < nwwin[k]; i++) {
+            const Rect *w = &wwin[k][i].r;
+            if (r->x >= w->x - 2 && r->y >= w->y - 2 && r->x + r->w <= w->x + w->w + 2 && r->y + r->h <= w->y + w->h + 2 &&
+                w->w * w->h < area) {
+                area = w->w * w->h;
+                best = wwin[k][i].dx;
+            }
+        }
+    }
+    return best;
+}
+
+static void wide_note(const uint8_t *p, const Rect *r) {
+    uint32_t id;
+    int file, entry, dx = 0;
+
+    if (!wide_on() || nwpart[cur] >= MAX_WPART) {
+        return;
+    }
+    memcpy(&id, p, 4);
+    file = (int)(id >> 16);
+    entry = (int)(id & 0xFFFF);
+    if (file != 0x13B || wide_scene_entry(entry)) {
+        return;
+    }
+    if (wide_window_entry(entry)) {
+        int cx = r->x + r->w / 2, m = PsxHd_Margin(320);
+        dx = cx < -40 ? -m : cx > 40 ? m : 0;
+        if (dx != 0 && nwwin[cur] < MAX_WWIN) {
+            wwin[cur][nwwin[cur]].r = *r;
+            wwin[cur][nwwin[cur]].dx = dx;
+            nwwin[cur]++;
+        }
+    } else {
+        dx = wide_dx_at(r);
+    }
+    if (dx != 0) {
+        wpart[cur][nwpart[cur]].part = p;
+        wpart[cur][nwpart[cur]].dx = dx;
+        nwpart[cur]++;
+    }
+}
+
+/* parts.c: how far this part is drawn moved (0: where the game puts it) */
+int UiLayout_PartShift(const void *part) {
+    for (int i = nwpart[cur] - 1; i >= 0; i--) {
+        if (wpart[cur][i].part == part) {
+            return wpart[cur][i].dx;
+        }
+    }
+    return 0;
+}
+
+/* text.c: how far a text box starting at x, y is drawn moved (the window it is in) */
+int UiLayout_TextShift(int x, int y) {
+    Rect r = { x, y, 1, 1, 0 };
+
+    if (!wide_on()) {
+        return 0;
+    }
+    return wide_dx_at(&r);
+}
+
 void UiLayout_NotePart(const void *part, const void *cells) {
     const uint8_t *p = part;
     Rect r;
@@ -303,6 +423,7 @@ void UiLayout_NotePart(const void *part, const void *cells) {
         rects[cur][nrect[cur]++] = r;
     }
     note_segments(p, cells);
+    wide_note(p, &r);
 }
 
 /* a window a text can be in: big enough for a line, not a full-screen picture */

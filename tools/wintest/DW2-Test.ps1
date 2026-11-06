@@ -49,7 +49,7 @@ if ($null -eq $pak) {
 
     # 4. Deterministischer Lauf (Software-Renderer, ohne Fenster): Bilder muessen den Linux-Referenzen gleichen
     $det = Join-Path $out "deterministisch"
-    $args1 = @("--pak", $pak, "--no-window", "--fast", "--renderer", "soft", "--no-update-check",
+    $args1 = @("--pak", $pak, "--no-window", "--fast", "--renderer", "soft", "--no-update-check", "--settings-set", "ui_style=classic",
                "--save-dir", (Join-Path $out "saves1"), "--shot-dir", $det,
                "--shot-vb", "300", "--shot-vb", "700", "--shot-vb", "1100", "--shot-vb", "1500", "--shot-vb", "2500") + $press + @("--vblanks", "2600")
     & .\dw2.exe @args1 > (Join-Path $out "deterministisch.log") 2>&1

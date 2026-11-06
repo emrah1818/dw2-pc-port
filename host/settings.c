@@ -47,21 +47,22 @@ static const char *const int_keys[SET_COUNT] = {
     "scale", "wide", "pgxp", "renderer", "volume", "stick_dpad", "window_mode", "fullscreen_display", "window_maximized",
     "sharpen", "title_hint", "speed", "update_check", "smooth",
     "select_hold_menu", "music_volume", "sfx_volume", "voice_volume", "ui_scale", "texture_filter", "stick_deadzone",
-    "vsync", "smooth_2d", "language", "mute", "fps_limit",
+    "vsync", "smooth_2d", "language", "mute", "fps_limit", "ui_style",
 };
 static const int int_default[SET_COUNT] = { 1, 0, 0, SET_RENDERER_GPU, 100, 1, SET_WINDOW_WINDOWED, 0, 0, 0, 1, 3, 1, 1, 1,
-                                             100, 100, 100, 0, SET_TEXF_NEAREST, 50, 0, 0, SET_LANG_EN, 0, 0 };
-static const int int_min[SET_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0 };
+                                             100, 100, 100, 0, SET_TEXF_NEAREST, 50, 0, 0, SET_LANG_EN, 0, 0, SET_UI_MODERN };
+static const int int_min[SET_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0 };
 static const int int_max[SET_COUNT] = { 12, 2, 1, 1, 100, 1, 2, 16, 1, 100, 1, 8, 1, 1, 1, 100, 100, 100, 300, 1, 90, 1, 1,
-                                        1, 1, 360 };
+                                        1, 1, 360, 1 };
 static const char *const renderer_names[] = { "gpu", "soft", NULL };
 static const char *const window_names[] = { "windowed", "borderless", "exclusive", NULL };
 static const char *const filter_names[] = { "nearest", "bilinear", NULL };
 static const char *const language_names[] = { "en", "de", NULL };
+static const char *const ui_names[] = { "classic", "modern", NULL };
 /* values written as names instead of numbers */
 static const char *const *const int_names[SET_COUNT] = {
     [SET_RENDERER] = renderer_names, [SET_WINDOW_MODE] = window_names, [SET_TEX_FILTER] = filter_names,
-    [SET_LANGUAGE] = language_names,
+    [SET_LANGUAGE] = language_names, [SET_UI_STYLE] = ui_names,
 };
 
 /* Known keys: 0..SET_COUNT-1 the values, then the PR.3 window keys with two or three numbers,
@@ -132,9 +133,9 @@ void Settings_ResetControls(void) {
 /* dw2-pc-port profiles. Classic: the PS1 picture. Remastered: fits the window, 16:9, no wobble,
  * smooth frames, light sharpening, bilinear 3D textures. */
 int Settings_ProfileValue(int p, int id) {
-    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
-    static const int classic[] = { 1, 0, 0, 0, 0, SET_TEXF_NEAREST, 0 };
-    static const int remastered[] = { 0, 1, 1, 25, 1, SET_TEXF_BILINEAR, 1 };
+    static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D, SET_UI_STYLE };
+    static const int classic[] = { 1, 0, 0, 0, 0, SET_TEXF_NEAREST, 0, SET_UI_CLASSIC };
+    static const int remastered[] = { 0, 1, 1, 25, 1, SET_TEXF_BILINEAR, 1, SET_UI_MODERN };
     int i;
 
     for (i = 0; i < (int)(sizeof(ids) / sizeof(ids[0])); i++) {
@@ -749,7 +750,7 @@ static int save(void) {
         SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_RENDERER, SET_VOLUME, SET_STICK_DPAD, SET_SELECT_HOLD,
         SET_TITLE_HINT, SET_SPEED, SET_UPDATE_CHECK, SET_WINDOW_MODE, SET_FS_DISPLAY, K_FSMODE, K_WINSIZE, K_WINPOS, SET_WIN_MAX,
         SET_MUSIC_VOL, SET_SFX_VOL, SET_VOICE_VOL, SET_UI_SCALE, SET_TEX_FILTER, SET_DEADZONE, SET_VSYNC, SET_SMOOTH2D,
-        SET_LANGUAGE, SET_MUTE, SET_FPS_LIMIT,
+        SET_LANGUAGE, SET_MUTE, SET_FPS_LIMIT, SET_UI_STYLE,
     };
     char seen[K_COUNT] = { 0 };
     char *tmp = NULL;

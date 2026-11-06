@@ -156,6 +156,201 @@ extern s32 Stg40_IsTextObjCmdBusy(void);
 #endif
 extern void Stg20_StartBgShake(void);
 
+#ifdef DW2_NATIVE
+/* dw2-pc-port: PC-side layout (host/uilayout.c). Each line is measured before it is drawn, the
+ * same way the loop below walks it (names, words and arguments included), so a line that would end
+ * past its window can grow the window (Modern UI) or get narrower spacing. With the Classic UI and
+ * a line that fits, every advance stays the cell width of the PS1 game. */
+extern int UiText_Advance(int big, int c, int cell);
+extern int UiText_SpaceAdvance(int big, int cell);
+extern int UiText_InkLeft(int big, int c);
+extern int UiLayout_FitLine(int x, int y, int width, int limit);
+
+extern int UiText_TightAdvance(int big, int c, int cell);
+extern int UiText_TightInkLeft(int big, int c);
+static s32 Text_NativeTight; /* the line being measured / drawn is set close (it did not fit) */
+/* the box being drawn has a run of spaces (a table: columns, the name entry grid): it keeps the
+   PS1 cells unless a line does not fit */
+static s32 Text_NativeTable;
+
+static s32 Text_NativeAdv(TextBox *r, s32 c) {
+    s32 def = r->charAdvance == (r->bigFont ? 9 : 7);
+    if (!def || (Text_NativeTable && !Text_NativeTight)) {
+        return r->charAdvance;
+    }
+    return Text_NativeTight ? UiText_TightAdvance(r->bigFont != 0, c, r->charAdvance)
+                            : UiText_Advance(r->bigFont != 0, c, r->charAdvance);
+}
+
+static s32 Text_NativeInkLeft(TextBox *r, s32 c) {
+    if (r->charAdvance != (r->bigFont ? 9 : 7) || (Text_NativeTable && !Text_NativeTight)) {
+        return 0;
+    }
+    return Text_NativeTight ? UiText_TightInkLeft(r->bigFont != 0, c) : UiText_InkLeft(r->bigFont != 0, c);
+}
+
+static s32 Text_NativeSpace(TextBox *r) {
+    s32 def = r->charAdvance == (r->bigFont ? 9 : 7);
+    if (def && Text_NativeTight) {
+        return r->bigFont ? 5 : 4;
+    }
+    if (Text_NativeTable) {
+        return r->charAdvance;
+    }
+    return def ? UiText_SpaceAdvance(r->bigFont != 0, r->charAdvance) : r->charAdvance;
+}
+
+
+/* the width of the line starting at s (up to the next line or page break or the end) */
+/* Modern UI: texts laid out in columns with spaces (shop lists, the name entry grid, tables: a
+   box with two spaces in a row somewhere) keep their columns: after a space, the line goes on at the
+   latest at the position the fixed cells would give (text.c draws the same way). */
+static s32 Text_NativeSnap(TextBox *r, s32 w, s32 cells, s32 spaces, s32 c) {
+    if (Text_NativeTable && spaces > 0 && w < cells * r->charAdvance) {
+        return cells * r->charAdvance;
+    }
+    return w;
+}
+
+/* a table: two spaces in a row somewhere in the box's text (commands skipped by their length) */
+static s32 Text_NativeIsTable(const u8 *s) {
+    s32 guard = 0;
+
+    while (*s != 0xFF && *s != 0xF3 && guard++ < 4096) {
+        u8 b = *s;
+        if (b == 0xFD && s[1] == 0xFD) {
+            return 1;
+        }
+        s += b == 0xF6 || b == 0xF7 ? 10 : b == 0xF1 || b == 0xF2 ? 4 : b == 0xF4 ? (s[1] < 0x20 ? 5 : 2)
+           : b == 0xF9 ? ((s[1] & 1) ? 2 : 5) : b == 0xF0 || b == 0xF8 || b == 0xFA || b == 0xEF ? 2 : 1;
+    }
+    return 0;
+}
+
+static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
+    const u8 *stack[4];
+    s32 depth = 0, w = 0, guard = 0, cells = 0, spaces = 0;
+
+    while (guard++ < 2048) {
+        u8 b = *s;
+        if (b == 0xFF) {
+            if (depth == 0) {
+                break;
+            }
+            s = stack[--depth];
+            continue;
+        }
+        if (b == 0xFE || b == 0xFC || b == 0xF3) {
+            break;
+        }
+        switch (b) {
+        case 0xFD:
+            w += Text_NativeSpace(r);
+            cells++;
+            spaces++;
+            s++;
+            break;
+        case 0xFB:
+            w += r->charAdvance; /* the blinking wait mark */
+            s++;
+            break;
+        case 0xF8:
+            w += r->charAdvance; /* the choice cursor or its place */
+            cells++;
+            spaces = 0;
+            s += 2;
+            break;
+        case 0xFA:
+            s += 2;
+            break;
+        case 0xF9:
+            s += (s[1] & 1) ? 2 : 5;
+            break;
+        case 0xF6:
+        case 0xF7:
+            s += 10;
+            break;
+        case 0xF4:
+            s += s[1] < 0x20 ? 5 : 2;
+            break;
+        case 0xF5:
+            s++;
+            break;
+        case 0xF1:
+        case 0xF2:
+        case 0xF0: {
+            const u8 *sub = NULL;
+            if (b == 0xF0) {
+                u8 k = s[1];
+                if (k == 0) {
+                    sub = (const u8 *)Save_GameState.playerName;
+                } else if (k == 5) {
+                    sub = (const u8 *)Save_GameState.beetleName;
+                } else if (k <= 4) {
+                    sub = (const u8 *)(&r->strArg0)[k - 1];
+                } else if (k - 6 < 250) {
+                    sub = Text_BuiltinStrings[k - 6];
+                }
+                s += 2;
+            } else {
+                s32 n = s[1] * 100 + s[2] * 10 + s[3];
+                sub = b == 0xF2 ? (const u8 *)Item_GetNameText(n) : (const u8 *)Digi_GetDefaultName(n);
+                s += 4;
+            }
+            if (sub != NULL && depth < 4) {
+                stack[depth++] = s;
+                s = sub;
+            }
+            break;
+        }
+        case 0xEF:
+            w = Text_NativeSnap(r, w, cells, spaces, s[1] + 0xF0) + Text_NativeAdv(r, s[1] + 0xF0);
+            cells++;
+            spaces = 0;
+            s += 2;
+            break;
+        default:
+            w = Text_NativeSnap(r, w, cells, spaces, b) + Text_NativeAdv(r, b);
+            cells++;
+            spaces = 0;
+            s++;
+            break;
+        }
+    }
+    return w;
+}
+
+/* a line: measured as set; when it does not fit (after growing its window), set close and
+   measured again; returns the spacing scale for what is still missing */
+static s32 Text_NativeLine(TextBox *r, const u8 *s, s32 x, s32 y, s32 limit) {
+    s32 scale;
+
+    Text_NativeTight = 0;
+    scale = UiLayout_FitLine(x, y, Text_NativeMeasure(r, s), limit);
+    if (scale < 0x10000) {
+        Text_NativeTight = 1;
+        scale = UiLayout_FitLine(x, y, Text_NativeMeasure(r, s), limit);
+    }
+    return scale;
+}
+
+/* the start of the next text box on the same line to the right (menus with options side by side) */
+static s32 Text_NativeRightLimit(TextBoxWork *wk, TextBox *r, s32 x, s32 y) {
+    s32 lim = 0x7FFF, i;
+
+    for (i = 0; i < 0x32; i++) {
+        TextBox *b = &wk->rec[i];
+        if (b->inUse == 0 || b == r || b->y - y > 4 || y - b->y > 4 || b->x <= x + 4) {
+            continue;
+        }
+        if (b->x < lim) {
+            lim = b->x;
+        }
+    }
+    return lim;
+}
+#endif
+
 void Text_UpdateAllBoxes(Actor *a0) {
     GfxTexSlot *font[2];
     Pair54 glyph;
@@ -196,6 +391,13 @@ void Text_UpdateAllBoxes(Actor *a0) {
     u8 mode2;
     Obj6A8C0 *h;
     PadState *tb;
+#ifdef DW2_NATIVE
+    s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0;
+#define UI_LINE(p)                                                                                           \
+    (uiAcc = 0, uiX0 = pos.field_0, uiCells = 0, uiSpaces = 0,                                               \
+     uiScale = Text_NativeLine(r, (p), pos.field_0, pos.field_2, Text_NativeRightLimit(wk, r, pos.field_0, pos.field_2)))
+#define UI_ADV(a) (uiAcc += (a) * uiScale, uiStep = uiAcc >> 16, uiAcc -= uiStep << 16, pos.field_0 += uiStep)
+#endif
 
     pkt = (TextGlyphPoly *)Sys_State.packet.addr;
     slots = (TextBoxKids *)a0->u34.children;
@@ -247,6 +449,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
             Text_ReturnStack.count = 0;
             stop = 0;
             grew = 0;
+#ifdef DW2_NATIVE
+            Text_NativeTable = Text_NativeIsTable(s);
+            UI_LINE(s);
+#endif
             do {
                 switch (*s) {
                 case 0xFF:
@@ -263,9 +469,18 @@ void Text_UpdateAllBoxes(Actor *a0) {
                 case 0xFE:
                     pos.field_0 = r->x;
                     pos.field_2 += r->lineAdvance;
+#ifdef DW2_NATIVE
+                    UI_LINE(s + 1);
+#endif
                     break;
                 case 0xFD:
+#ifdef DW2_NATIVE
+                    UI_ADV(Text_NativeSpace(r));
+                    uiCells++;
+                    uiSpaces++;
+#else
                     pos.field_0 += r->charAdvance;
+#endif
                     if (grew == 0 && line + 1 >= r->visibleChars) {
                         grew = 1;
                         r->visibleChars++;
@@ -273,6 +488,9 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     break;
                 case 0xFC:
                     r->text = (s32)(s + 1);
+#ifdef DW2_NATIVE
+                    UI_LINE(s + 1);
+#endif
                     r->visibleChars = 0;
                     r->cmdFADone = 0;
                     r->cmdFBDone = 0;
@@ -438,7 +656,13 @@ void Text_UpdateAllBoxes(Actor *a0) {
                             break;
                         }
                     }
+#ifdef DW2_NATIVE
+                    UI_ADV(r->charAdvance);
+                    uiCells++;
+                    uiSpaces = 0;
+#else
                     pos.field_0 += r->charAdvance;
+#endif
                     break;
                 case 0xF6:
                 case 0xF7:
@@ -673,6 +897,17 @@ void Text_UpdateAllBoxes(Actor *a0) {
                 default:
                     c = *s;
                 draw:
+#ifdef DW2_NATIVE
+                    uiCode = c; /* the code before the big font's page split (metrics) */
+                    {
+                        s32 snap = Text_NativeSnap(r, pos.field_0 - uiX0, uiCells, uiSpaces, c);
+                        if (snap != pos.field_0 - uiX0) {
+                            pos.field_0 = uiX0 + (s32)(((s64)snap * uiScale) >> 16);
+                            uiAcc = 0;
+                        }
+                    }
+                    uiSpaces = 0;
+#endif
                     if (r->bigFont != 0) {
                         if ((s16)c >= 0x88) {
                             c -= 0x88;
@@ -684,7 +919,11 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pkt->c = *(Col1A9C8 *)&Gfx_NeutralRgb;
                     pkt->tag.b.len = 9;
                     pkt->c.code = 0x2C;
+#ifdef DW2_NATIVE
+                    pkt->x0 = pkt->x2 = pos.field_0 - Text_NativeInkLeft(r, uiCode);
+#else
                     pkt->x0 = pkt->x2 = pos.field_0;
+#endif
                     pkt->x1 = pkt->x3 = pkt->x0 + glyph.field_0;
                     pkt->y0 = pkt->y1 = pos.field_2;
                     pkt->y2 = pkt->y3 = pkt->y0 + glyph.field_2;
@@ -709,7 +948,12 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pkt->tag.word = (pkt->tag.word & 0xFF000000) | (*ot & 0xFFFFFF);
                     *ot = (*ot & 0xFF000000) | ((u32)pkt & 0xFFFFFF);
                     pkt++;
+#ifdef DW2_NATIVE
+                    UI_ADV(Text_NativeAdv(r, uiCode));
+                    uiCells++;
+#else
                     pos.field_0 += r->charAdvance;
+#endif
                     if (grew == 0 && line + 1 >= r->visibleChars) {
                         grew = 1;
                         r->visibleChars++;

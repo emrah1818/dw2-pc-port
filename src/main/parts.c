@@ -30,6 +30,12 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
 
     e = (GfxPartCell *)Cd_GetFileEntry(s->fileId);
     t = (GfxPartTexSlot *)Gfx_FindOrLoadTexSlot(s->fileId & 0xFFFF0000);
+#ifdef DW2_NATIVE
+    {
+        extern const void *UiLayout_PartCells(const void *part, const void *cells);
+        e = (GfxPartCell *)UiLayout_PartCells(s, e); /* dw2-pc-port: a window grown for its text */
+    }
+#endif
     p = (GfxPartPkt *)Sys_State.packet.addr;
     for (; e->u != 0xFF; e++) {
         if (e->frame != s->partGroup) {
@@ -84,6 +90,12 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
 
     e = (GfxPartCell *)Cd_GetFileEntry(((GfxPartSprite *)arg0)->fileId);
     t = (GfxPartTexSlot *)Gfx_FindOrLoadTexSlot(((GfxPartSprite *)arg0)->fileId & 0xFFFF0000);
+#ifdef DW2_NATIVE
+    {
+        extern const void *UiLayout_PartCells(const void *part, const void *cells);
+        e = (GfxPartCell *)UiLayout_PartCells(arg0, e); /* dw2-pc-port: a window grown for its text */
+    }
+#endif
     p = (GfxPartPolyFT4 *)Sys_State.packet.addr;
     for (; e->u != 0xFF; e++) {
         if (e->frame != ((GfxPartSprite *)arg0)->partGroup) {
@@ -244,6 +256,12 @@ void Gfx_DrawPartsEx(void *arg0, s32 arg1) {
     }
     do {
         s4 = Sys_State.otLayers.addr[s2->otLayer];
+#ifdef DW2_NATIVE
+        if (s2->visible != 0) {
+            extern void UiLayout_NotePart(const void *part, const void *cells);
+            UiLayout_NotePart(s2, Cd_GetFileEntry(s2->fileId));
+        }
+#endif
         if (s2->visible != 0) {
             if (s2->unscaled != 0) {
                 if (s3 != 0) {

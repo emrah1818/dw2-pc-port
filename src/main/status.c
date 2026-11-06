@@ -56,6 +56,11 @@ void Menu_StatusTask(Actor *a0) {
             w->textArgs[2] = (s32)Save_GameStatePtr->beetleName;
             p = &w->textArgs[3];
             for (i = 0; i < w->digiCount; i++) {
+#ifdef DW2_NATIVE
+                if (w->digiList[i] == NULL) {
+                    continue; /* dw2-pc-port: a party with a gap (edited save) */
+                }
+#endif
                 *p++ = (s32)w->digiList[i]->name;
             }
             *p = 0;
@@ -121,7 +126,11 @@ void Menu_StatusDraw(Actor *actor) {
             Gfx_SetPartsNumber(obj, 8, 4, Save_GameStatePtr->hp);
             Gfx_SetPartsNumber(obj, 0x10, 4, Save_GameStatePtr->maxMp);
             Gfx_SetPartsNumber(obj, 0x20, 4, Save_GameStatePtr->mp);
-        } else if (i - 1 < w->digiCount) {
+        } else if (i - 1 < w->digiCount
+#ifdef DW2_NATIVE
+                   && w->digiList[i - 1] != NULL /* dw2-pc-port: a party with a gap (edited save) */
+#endif
+        ) {
             rec = w->digiList[i - 1];
             Gfx_SetPartsNumber(obj, 2, 3, rec->maxHp);
             Gfx_SetPartsNumber(obj, 4, 3, rec->hp);

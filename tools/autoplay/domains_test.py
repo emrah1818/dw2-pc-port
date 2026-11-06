@@ -40,9 +40,11 @@ def one(exe, pak, work, card, n, waits, extra):
             g.devedit("adddigi=%d,40,99,999,999,700,700,700" % sp)
             g.run(10)
         g.run(20)
+        pos = 3  # party positions 3, 4, 5 (state = 3 + place in the party, Digi_ListByState)
         for slot in range(3):
             if g.u8("Save_GameState", 0xE4 + slot * 0x5C) != 0:
-                g.poke("Save_GameState", 0xE4 + slot * 0x5C, bytes([3]))
+                g.poke("Save_GameState", 0xE4 + slot * 0x5C, bytes([pos]))
+                pos += 1
         g.run(30)
         rec["party"] = [g.u8("Save_GameState", 0xE4 + i * 0x5C + 1) for i in range(3)
                         if g.u8("Save_GameState", 0xE4 + i * 0x5C) >= 3]

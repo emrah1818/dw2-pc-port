@@ -686,7 +686,9 @@ HOST_ENTRY int main(int argc, char **argv) {
 
         DevData_InitConst();
         if (export_dir == NULL && import_png == NULL) {
+            extern void UiText_Init(void);
             Lang_Apply();
+            UiText_Init(); /* dw2-pc-port: glyph metrics for the PC text layout (host/uilayout.c) */
         }
     }
     if (export_texts != NULL) {

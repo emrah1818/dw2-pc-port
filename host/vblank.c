@@ -87,7 +87,9 @@ static void run_vblank(void) {
     Psyq_VBlank();
     fired++;
     if (flip_pending && !Sys_FlipPending) {
+        extern void UiLayout_Flip(void);
         flips++;
+        UiLayout_Flip(); /* dw2-pc-port: window rectangles per frame (host/uilayout.c) */
     }
     if (fired - window_fired >= RATE_LOG_EVERY) {
         Uint64 now = SDL_GetTicksNS();

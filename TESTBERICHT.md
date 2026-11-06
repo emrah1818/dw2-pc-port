@@ -1,5 +1,57 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## Nach dem Zusammenführen von PR #1 (moderne Schrift), für 1.6.0
+
+Ausgangspunkt: PR #1 (`codex/modern-fonts`, Exo 2 / Orbitron Bold / Roboto Mono) ist in `main` (Merge 6ee0f01). Getestet auf Linux x64 mit echtem Image und dem privaten deutschen Sprachpaket (nicht im Repository). Ergebnisse gelten für den genannten Commit; Ergebnisse früherer Commits sind als solche gekennzeichnet.
+
+### Erledigt und geprüft
+
+| Punkt | Änderung | Commit | Prüfung |
+|---|---|---|---|
+| Windows-Build | `host/lang.c` rief `Fonts_Enabled` ohne Deklaration auf (MinGW GCC 14: Fehler, Linux GCC 13 nur Warnung). Jetzt `#include "host/fonts.h"` statt lokaler `extern`-Zeilen; Host- und Backend-C baut überall mit `-Werror=implicit-function-declaration`, damit Linux denselben Fehler meldet. Decomp-Code behält seine Flags. | 120b19c | CI-Lauf [42300190175](https://github.com/emrah1818/dw2-pc-port/actions/runs/42300190175): windows-x64, linux-x64 und release (nur Test-Build) erfolgreich. Windows-Paket geprüft: keine png/tsv/bin/tim/pak/mcd, keine `texts.tsv`. |
+| Classic-Schutz | Classic UI + Englisch malt keine modernen Schriften (`Fonts_SetEnabled`), `--profile classic` setzt auch `ui_style`. | 8102fff | Referenzbilder 6/6 bitgleich |
+| Wortbilder dunkel | Der Maler aus PR #1 färbte mit dem dunklen Rand des Originals (KAMPF, Attacke, Hilfe fast schwarz). Jetzt eine Farbe je Bild: die Körperfarbe des Originals. Ein Zwischenstand mit Farbe je Zeile legte dunkle Querbänder über die Buchstaben („Verfehlt“ las sich „Verfehit“). | 8102fff, f1b3a5c | im Spiel, siehe unten |
+| Unterbrechungsfrage | „Willst du unterbrechen?“ als eine Zeile über beide Zellen; vorher je Zelle ein Wort, „unterbrechen?“ viel kleiner. | f1b3a5c | gerenderte Textur |
+| Titelhintergrund | Der laufende Programmcode hinter dem Titel (0x269) in Exo 2, 19 von 25 Zellen. | f1b3a5c | im Spiel, DE/EN, 4:3/16:9/21:9 |
+| Absturz Entwicklermodus 0x101 | Ursache per gdb: `Stg00_LineupBuildList` sortiert 203 Modelle in Felder für 200 und überschreibt `count`, `scrollTop`, `layout` (203/202/201). Danach liest die Aufstellung ID 0, und `Digi_GetModelFile(0)` greift über NULL zu (`digidata.c:58` ← `digimodel.c:30` ← `lineup.c:52`). Das ist ein Fehler des Originalcodes; die PS1 liest dort harmlos Kernel-RAM, nativ ist es SIGSEGV. Mit dem Fontwechsel hat er nichts zu tun. Nativ behält die Liste die 200 kleinsten Sortierwerte. | 9b5fefd | vorher: 0x101 Segfault reproduziert, 0x104 lief. Nachher (Entwickler-Build): 0x101 3000 VBlanks mit Scrollen bis ans Listenende (`count` 200, `scrollTop` 191), 0x104 3000 VBlanks, beide Exit 0 |
+
+### Wortbilder im laufenden Spiel (Commit f1b3a5c bzw. direkter Vorgänger)
+
+`battle_words.py`, deutscher Testkampf mit umgeschriebenen Zügen (`--poke-turns 3:a0,2:82,4:b9`), Aufnahmen alle 6–12 Waits:
+
+| Format | Gesehen, lesbar, nicht abgeschnitten, ohne Überlappung |
+|---|---|
+| 4:3 | KAMPF, ZIEL, LOS!, Hilfe, Attacke, Verfehlt, Abwehr, Schaden, SIEG, Kleine Flamme, Nadelfeuer, „wurde giftig“, Ergebnisfenster; verlorener Kampf: SPIEL VORBEI |
+| 16:9 (HD) | ZIEL, LOS!, Hilfe, Attacke, Verfehlt, Nadelfeuer, Schaden, Befehlsfenster |
+| 21:9 (HD) | LOS!, Abwehr, Attacke, Kleine Flamme, Schaden, SIEG, Ergebnisfenster |
+| Englisch Modern UI 4:3 | TARGET, FIGHT, Assist, Attack, Missed, Guard, Damage, Fungus Cruncher, Needle Spray, „became poisonous“ (vor dem Farbfix waren Attack und BATTLE fast schwarz) |
+
+**Nicht im Spiel ausgelöst:** Konter Attacke, Unterbrechen, die Unterbrechungsfrage mit Ja/Nein, NIEDERLAGE. Grund: Die Frage erscheint nur, wenn ein Gegner mit eigenem Zugtyp ≠ 2 handelt, während ein Spieler-Digimon Typ 3 hat (`skilleffect.c`). Das hat der Bot auch mit umgeschriebenen Zügen nicht erreicht. NIEDERLAGE gehört nicht zum normalen Game Over. Diese Bilder wurden aus den gemalten Dateien (`DW2_PICDUMP`) mit ihren Zellen gerendert und neben dem Original geprüft: Form, Größe und Abschneiden sind korrekt; die Farbe im Spiel ist dort nicht geprüft.
+
+**Bewusst unverändert:** Markenlogo (Titel, Bootbild), die gedrehten Binärspalten im Titelhintergrund, die 6 schmalen Codefragmente unter 16 Texeln, ins Video eingebrannte Filmschrift, der eingemalte Code im Bootbild. Details: [GRAFIKTEXTE.md](GRAFIKTEXTE.md).
+
+### Regressionstests
+
+| Test | Commit 120b19c (frisch ausgeführt) | Commit f1b3a5c (frisch ausgeführt) |
+|---|---|---|
+| Referenzbilder Classic (Englisch) | 6/6 | 6/6 |
+| `fonts_test` | bestanden | bestanden |
+| `textscript_test` | 90/90 | 90/90 |
+| `hd_test` | 0 Fehler, GPU-Teil übersprungen (hier kein Vulkan); in der CI auf lavapipe | 0 Fehler, GPU-Teil übersprungen |
+| `save_test` | 9/9 | läuft (Ergebnis folgt) |
+| `cheat_test` (exe, pak, card, work) | 31/31 | läuft (Ergebnis folgt) |
+| `domains_test` | nicht verwertbar: mit dem Release-Build gestartet; der Test warpt über `--devedit`, das gibt es nur im Entwickler-Build (alle 33 Domänen „no dungeon after the warp“) | läuft mit dem Entwickler-Build (Ergebnis folgt) |
+
+Frühere Ergebnisse (8102fff, vor dieser Runde): Referenzbilder 6/6, `fonts_test`, textscript 90/90, Speichertest 9/9, Cheattest 31/31.
+
+### Weiter offen
+
+- **Echte Windows-Hardware:** `dw2.exe` wurde nicht mit echten Spieldaten unter Windows gestartet; hier gibt es weder Windows noch Wine. Die Windows-CI baut und führt `hd_test` aus (Software-Vulkan lavapipe), das ist kein Test auf echter Grafikkarte. Benötigt: Start mit Image, Titel, Kampf, Speichern/Laden, F1-Fenster, Vollbild, Controller, GPU-Renderer mit Texturpaket, Audio-Aussetzer-Log.
+- Konter, Unterbrechen, Unterbrechungsfrage und NIEDERLAGE im laufenden Spiel (nur als Textur geprüft).
+- Englische Wortbilder in 16:9/21:9 nicht eigens aufgenommen (gleicher Code wie Deutsch).
+- Shops, Speicher- und Statusfenster: in dieser Runde nicht erneut aufgenommen.
+- PGXP-Mischpolygone (≈0,1 %), kein 3D-Clipping; Erholung der automatischen Auflösung und Audio auf echter Hardware.
+
 ## Entwicklung nach 1.5.0 (für 1.6.0)
 
 Getestet wie in 1.5.0: Linux x64, Release-Build ohne Disc-Daten, echtes Image, Testbot und Bildschirmfotos (HD, 2×, 4:3, 16:9, 21:9).

@@ -652,6 +652,13 @@ static int paint1(Tex *t, const Cell *c, int n, const Words *w, double min_sq) {
         /* thin letters: bold by one column, the letter in the picture's body colour of its row,
            a one-pixel ring in its outline colour */
         static uint8_t bold[CW * CH];
+        /* bold only with room for it: under about 8.5 pixels per letter the extra column closes
+           the letters' gaps (E, N, S of a squeezed title label) */
+        int letters = 0, thick;
+        for (const char *q = w->text; *q; q++) {
+            letters += ((unsigned char)*q & 0xC0) != 0x80;
+        }
+        thick = letters == 0 || cw * 2 >= letters * 17;
         memset(bold, 0, sizeof(bold));
         for (int y = 0; y < ch; y++) for (int x = 0; x < cw; x++) {
             int sx0 = x - (w->align < 0 ? r : w->align > 0 ? cw - r - width : (cw - width) / 2);
@@ -659,7 +666,7 @@ static int paint1(Tex *t, const Cell *c, int n, const Words *w, double min_sq) {
             int on = sx0 >= 0 && sx0 < CW && text[y * CW + sx0];
             int left = sx0 >= 1 && sx0 - 1 < CW && text[y * CW + sx0 - 1];
             int right = sx0 + 1 >= 0 && sx0 + 1 < CW && text[y * CW + sx0 + 1];
-            bold[y * CW + x] = (uint8_t)(on || (left && !right));
+            bold[y * CW + x] = (uint8_t)(on || (thick && left && !right));
         }
         for (int i = 0; i < n; i++) {
             for (int y = 0; y < c[i].h; y++) {
@@ -747,9 +754,9 @@ static const Pic pics[] = {
     { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 0, 1, 124, 1 } },      /* LEVEL UP */
     /* title (file 0xB64) */
     { 0xB64, 1, 0, 0, { "STARTTASTE DRÜCKEN", 0, 0, 1 } }, /* PRESS START BUTTON (three pictures) */
-    { 0xB64, 2, 0, 1, { "NEUES SPIEL", 0, 0, 1, 88 } },        /* NEW GAME */
+    { 0xB64, 2, 0, 1, { "NEUES SPIEL", 0, 0, 1, 100, 1 } },        /* NEW GAME */
     { 0xB64, 3, 0, 1, { "FORTSETZEN", 0, 0, 1, 100 } },         /* CONTINUE GAME */
-    { 0xB64, 4, 0, 1, { "KAMPFMODUS", 0, 0, 1, 100 } },         /* BATTLE MODE */
+    { 0xB64, 4, 0, 1, { "KAMPFMODUS", 0, 0, 1, 100, 1 } },         /* BATTLE MODE */
 };
 
 /* the attack names of the battle effects, set by host/lang.c (skill table) */

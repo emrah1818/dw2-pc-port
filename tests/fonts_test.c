@@ -34,6 +34,23 @@ void Lang_RestyleWords(uint8_t* data, int size)
     (void)data;
     (void)size;
 }
+/* the runtime atlas source the fonts register (backend/texrep.c in the game) */
+#include "backend/texrep.h"
+static TexRepIndexFn src_fn;
+static void*         src_ctx;
+static int           src_w, src_h, src_tw, src_th, src_count;
+void TexRep_AddIndexSource(const uint16_t* words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void* ctx)
+{
+    assert(words && mode == 0);
+    src_fn  = fn;
+    src_ctx = ctx;
+    src_w   = w;
+    src_h   = h;
+    src_tw  = tw;
+    src_th  = th;
+    src_count++;
+}
+void Fonts_RegisterHd(int big, const uint8_t* data, int size);
 
 int main(int argc, char** argv)
 {
@@ -103,6 +120,41 @@ int main(int argc, char** argv)
         assert(!memcmp(data + 68 + 224 * 64, before + 68 + 224 * 64, 32 * 64 + 16));
         assert(memcmp(data + 68, before + 68, 224 * 64));
         assert(!Fonts_PatchGameFont(data, 80, big));
+        /* runtime glyphs: the atlas registered as an index source (32 x 256 words, glyph cells) */
+        data[64] = 32;
+        data[65] = 0;
+        data[66] = 0;
+        data[67] = 1;
+        Fonts_PatchGameFont(data, sizeof(data) - 16, big);
+        int before_count = src_count;
+        Fonts_RegisterHd(big, data, sizeof(data) - 16);
+        assert(src_count == before_count + 1 && src_w == 32 && src_h == 256);
+        assert(src_tw == (big ? 9 : 7) && src_th == (big ? 14 : 10));
+        for (int k = 2; k <= 12; k += 5) {
+            /* the cell of 'A' (code 10; big atlas: its cell 10 holds code 0x92) */
+            const int cw = big ? 9 : 7, ch = big ? 14 : 10, cols = big ? 13 : 17, gw = big ? 8 : 7, gh = big ? 13 : 9;
+            int       x0 = (10 % cols) * cw, y0 = (10 / cols) * ch, ink = 0, outside = 0;
+            uint8_t*  idx = calloc((size_t)cw * k * ch * k, 1);
+            assert(idx);
+            src_fn(src_ctx, k, x0, y0, cw, ch, idx);
+            for (int y = 0; y < ch * k; y++)
+                for (int x = 0; x < cw * k; x++) {
+                    assert(idx[y * cw * k + x] <= 1);
+                    ink += idx[y * cw * k + x];
+                    if (x >= gw * k || y >= gh * k)
+                        outside += idx[y * cw * k + x];
+                }
+            /* ink in proportion to the 1x cell (at least a third of k*k per 1x ink texel), none
+               outside the glyph box */
+            int ink1 = 0;
+            for (int y = 0; y < gh; y++)
+                for (int x = 0; x < gw; x++) {
+                    int gx = x0 + x;
+                    ink1 += (data[68 + (y0 + y) * 64 + gx / 2] >> ((gx & 1) * 4) & 15) == 1;
+                }
+            assert(outside == 0 && ink1 > 0 && ink * 3 > ink1 * k * k && ink < ink1 * k * k * 3);
+            free(idx);
+        }
     }
     uint8_t out[32];
     memset(out, 0xA5, sizeof(out));

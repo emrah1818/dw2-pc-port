@@ -34,6 +34,7 @@ typedef struct {
 typedef struct {
     int x, y, w, h;
     uint64_t hash;
+    int src; /* index source (TexRep_AddIndexSource) with these pixels, or -1 */
 } Upload;
 
 #define MAX_ENTRIES 65536
@@ -246,8 +247,11 @@ const char *TexRep_PackName(int i) {
     return i >= 0 && i < npacks ? packs[i] : "";
 }
 
+static int nsrcs;
+static int out_scale = 1; /* the HD renderer's scale (TexRep_SetScale) */
+
 int TexRep_Active(void) {
-    return !disabled && (nentries > 0 || dump_dir != NULL);
+    return !disabled && (nentries > 0 || dump_dir != NULL || nsrcs > 0);
 }
 
 void TexRep_Stats(int *loaded, int *failed, int *uses) {
@@ -263,6 +267,138 @@ static int has_hash(uint64_t h) {
         hashes_sorted = 1;
     }
     return bsearch(&h, hashes, (size_t)nhashes, sizeof(*hashes), cmp_u64) != NULL;
+}
+
+/* ---- index sources (see texrep.h) ---- */
+#define MAX_SRCS 256
+#define IDX_TABLE 32768
+#define IDX_MEM_LIMIT ((size_t)256 << 20)
+typedef struct {
+    uint64_t hash;
+    int w, h, mode, tw, th;
+    TexRepIndexFn fn;
+    void *ctx;
+} IdxSrc;
+typedef struct {
+    int src, ox, oy, rw, rh, k;
+    uint32_t clut;
+    TexRepImg *img;
+} IdxTile;
+static IdxSrc srcs[MAX_SRCS];
+static IdxTile *idx_tab;
+static int idx_tiles;
+static size_t idx_bytes;
+static int idx_full_logged;
+
+void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx) {
+    int dims[2] = { w, h };
+    uint64_t hv;
+
+    if (words == NULL || w <= 0 || h <= 0 || fn == NULL || mode < 0 || mode > 1 || nsrcs == MAX_SRCS) return;
+    hv = fnv(0xCBF29CE484222325ull, dims, sizeof(dims));
+    hv = fnv(hv, words, (size_t)w * (size_t)h * 2);
+    for (int i = 0; i < nsrcs; i++) {
+        if (srcs[i].hash == hv && srcs[i].w == w && srcs[i].h == h) {
+            srcs[i].fn = fn; /* the same pixels again (language switch): the newer drawing */
+            srcs[i].ctx = ctx;
+            return;
+        }
+    }
+    srcs[nsrcs].hash = hv;
+    srcs[nsrcs].w = w;
+    srcs[nsrcs].h = h;
+    srcs[nsrcs].mode = mode;
+    srcs[nsrcs].tw = tw > 0 ? tw : w * (mode == 0 ? 4 : 2);
+    srcs[nsrcs].th = th > 0 ? th : h;
+    srcs[nsrcs].fn = fn;
+    srcs[nsrcs].ctx = ctx;
+    nsrcs++;
+}
+
+/* Sources only: the tiles already made stay (a primitive of the current frame may use one). */
+void TexRep_ClearIndexSources(void) {
+    nsrcs = 0;
+    for (int i = 0; i < nuploads; i++) uploads[i].src = -1;
+}
+
+void TexRep_IndexStats(int *sources, int *tiles, int *kib) {
+    *sources = nsrcs;
+    *tiles = idx_tiles;
+    *kib = (int)(idx_bytes >> 10);
+}
+
+static int src_of(uint64_t hv, int w, int h) {
+    for (int i = 0; i < nsrcs; i++) {
+        if (srcs[i].hash == hv && srcs[i].w == w && srcs[i].h == h) return i;
+    }
+    return -1;
+}
+
+static uint32_t argb_of(uint16_t c) {
+    uint32_t r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+    return 0xFF000000u | (r << 19 | (r >> 2) << 16) | (g << 11 | (g >> 2) << 8) | (b << 3 | b >> 2);
+}
+
+/* the tile of source si covering texels [ox, ox+rw) x [oy, oy+rh) at k for the palette pal */
+static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const uint16_t *pal, uint32_t clut) {
+    uint32_t h = (uint32_t)fnv(fnv(0xCBF29CE484222325ull, &si, sizeof(si)), &clut, sizeof(clut));
+    int key[5] = { ox, oy, rw, rh, k };
+    size_t n = (size_t)rw * k * (size_t)rh * k;
+    uint8_t *idx;
+    TexRepImg *img;
+
+    h = (uint32_t)fnv(h, key, sizeof(key)) % IDX_TABLE;
+    if (idx_tab == NULL) {
+        idx_tab = calloc(IDX_TABLE, sizeof(*idx_tab));
+        if (idx_tab == NULL) return NULL;
+    }
+    for (int probe = 0; probe < IDX_TABLE; probe++, h = (h + 1) % IDX_TABLE) {
+        IdxTile *t = &idx_tab[h];
+        if (t->img == NULL) break;
+        if (t->src == si && t->ox == ox && t->oy == oy && t->rw == rw && t->rh == rh && t->k == k && t->clut == clut)
+            return t->img;
+    }
+    if (idx_tab[h].img != NULL || idx_tiles >= IDX_TABLE / 2 || idx_bytes + n * 5 > IDX_MEM_LIMIT) {
+        if (!idx_full_logged) {
+            idx_full_logged = 1;
+            tlog("runtime fonts: tile memory full (%d tiles, %zu MiB), further text stays at the game's size\n",
+                 idx_tiles, idx_bytes >> 20);
+        }
+        return NULL;
+    }
+    idx = calloc(n, 1);
+    img = calloc(1, sizeof(*img));
+    uint32_t *px = malloc(n * 4);
+    if (idx == NULL || img == NULL || px == NULL) {
+        free(idx);
+        free(img);
+        free(px);
+        return NULL;
+    }
+    srcs[si].fn(srcs[si].ctx, k, ox, oy, rw, rh, idx);
+    for (size_t i = 0; i < n; i++) {
+        uint16_t c = pal[idx[i] & (srcs[si].mode == 0 ? 15 : 255)];
+        px[i] = idx[i] == 0 || c == 0 ? 0u : argb_of(c); /* index 0 and colour 0: transparent, as on the PS1 */
+    }
+    free(idx);
+    img->w = rw * k;
+    img->h = rh * k;
+    img->px = px;
+    img->nlev = 1;
+    img->lev[0].w = img->w;
+    img->lev[0].h = img->h;
+    img->lev[0].px = px;
+    idx_tab[h].src = si;
+    idx_tab[h].ox = ox;
+    idx_tab[h].oy = oy;
+    idx_tab[h].rw = rw;
+    idx_tab[h].rh = rh;
+    idx_tab[h].k = k;
+    idx_tab[h].clut = clut;
+    idx_tab[h].img = img;
+    idx_tiles++;
+    idx_bytes += n * 4;
+    return img;
 }
 
 static int overlaps(const Upload *u, int x, int y, int w, int h) {
@@ -288,7 +424,8 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     if (x + w > PSXGPU_VRAM_W || y + h > PSXGPU_VRAM_H) return; /* wrapping uploads: not tracked */
     hv = fnv(0xCBF29CE484222325ull, dims, sizeof(dims));
     hv = fnv(hv, src, (size_t)w * (size_t)h * 2);
-    if (dump_dir == NULL && !has_hash(hv)) return;
+    int si = src_of(hv, w, h);
+    if (dump_dir == NULL && si < 0 && !has_hash(hv)) return;
     if (nuploads == MAX_UPLOADS) {
         memmove(uploads, uploads + 1, sizeof(uploads[0]) * (MAX_UPLOADS - 1)); /* drop the oldest */
         nuploads--;
@@ -298,6 +435,7 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     uploads[nuploads].w = w;
     uploads[nuploads].h = h;
     uploads[nuploads].hash = hv;
+    uploads[nuploads].src = si;
     nuploads++;
 }
 
@@ -587,6 +725,31 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
         TexRepImg *img;
 
         if (umin + du < 0 || umax + du >= bw || vmin + dv < 0 || vmax + dv >= bh) continue;
+        if (u->src >= 0 && u->src < nsrcs && srcs[u->src].mode == mode && out_scale >= 2) {
+            const IdxSrc *s = &srcs[u->src];
+            uint16_t pal[256];
+            int n = mode == 0 ? 16 : 256, k = out_scale > 16 ? 16 : out_scale;
+            int tx0 = (umin + du) / s->tw, tx1 = (umax + du) / s->tw, ty0 = (vmin + dv) / s->th, ty1 = (vmax + dv) / s->th;
+            int ox = tx0 * s->tw, oy = ty0 * s->th, rw = (tx1 - tx0 + 1) * s->tw, rh = (ty1 - ty0 + 1) * s->th;
+            TexRepImg *ti;
+
+            if (ox + rw > bw) rw = bw - ox;
+            if (oy + rh > bh) rh = bh - oy;
+            if (rw > 256 || rh > 256) return 0;
+            for (int j = 0; j < n; j++) pal[j] = vram(cx + j, cy);
+            ti = idx_tile(u->src, ox, oy, rw, rh, k, pal, (uint32_t)fnv(0xCBF29CE484222325ull, pal, (size_t)n * 2));
+            if (ti == NULL) return 0;
+            use->img = ti;
+            use->k = k;
+            use->du = du - ox;
+            use->dv = dv - oy;
+            use->umin = umin;
+            use->umax = umax;
+            use->vmin = vmin;
+            use->vmax = vmax;
+            stat_uses++;
+            return 1;
+        }
         snprintf(base, sizeof(base), "%016llx_%dx%d", (unsigned long long)u->hash, u->w, u->h);
         if (mode < 2) {
             uint16_t pal[256];
@@ -624,7 +787,6 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
 /* dw2-pc-port: the HD renderer's scale. A replacement k times the texture drawn at scale S < k
  * gives each output pixel about k / S replacement pixels: they are averaged (at most 4 x 4), so a
  * large PNG does not shimmer at a lower internal resolution. */
-static int out_scale = 1;
 
 void TexRep_SetScale(int s) {
     out_scale = s < 1 ? 1 : s;

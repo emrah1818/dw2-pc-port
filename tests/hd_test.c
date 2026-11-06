@@ -126,6 +126,17 @@ static void load_textures(void) {
             t15[y][x] = (uint16_t)(rgb15(x * 4, y * 4, ((x / 4 + y / 4) & 1) * 200) | 0x0001);
         }
     }
+    {
+        /* the index-source test texture (runtime fonts): 16 x 16 texels of index 1 at (512, 64),
+           CLUT (0, 482): index 1 red, 2 blue */
+        static uint16_t ti[16][4], ci[16];
+        for (y = 0; y < 16; y++)
+            for (x = 0; x < 4; x++) ti[y][x] = 0x1111;
+        ci[1] = rgb15(248, 0, 0);
+        ci[2] = rgb15(0, 0, 248);
+        PsxGpu_LoadImage(512, 64, 4, 16, &ti[0][0]);
+        PsxGpu_LoadImage(0, 482, 16, 1, ci);
+    }
     PsxGpu_LoadImage(512, 0, 16, 64, &t4[0][0]);
     PsxGpu_LoadImage(640, 0, 32, 64, &t8[0][0]);
     PsxGpu_LoadImage(768, 0, 64, 64, &t15[0][0]);
@@ -178,6 +189,31 @@ static void scene(void) {
                  16, u + 16, 16, CLUT(0, 480), tp4, 0);
         sprite(180 + i * 34, 195, 16, 16, u, 16, CLUT(0, 480));
     }
+    /* the index-source sprite (texture page 512, 0: v 64..79) */
+    sprite(296, 200, 16, 16, 0, 64, CLUT(0, 482));
+}
+
+/* ---- runtime index sources (texrep.h TexRep_AddIndexSource, the modern fonts) ---- */
+static int idx_calls;
+static void checker_index(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx) {
+    (void)ctx;
+    (void)x0;
+    (void)y0;
+    idx_calls++;
+    for (int y = 0; y < h * k; y++)
+        for (int x = 0; x < w * k; x++) idx[y * w * k + x] = (uint8_t)(((x + y) & 1) ? 1 : 2);
+}
+
+/* the sprite at (296, 200): a checker of output pixels in the palette's red and blue */
+static int checker_off(const uint32_t *px, int w, int scale) {
+    int bad = 0;
+    for (int Y = 200 * scale; Y < 216 * scale; Y++)
+        for (int X = 296 * scale; X < 312 * scale; X++) {
+            uint32_t p = px[(size_t)Y * w + X];
+            int red = ((X - 296 * scale) + (Y - 200 * scale)) & 1, r = (p >> 16) & 255, b = p & 255;
+            if (red ? (r < 240 || b > 8) : (b < 240 || r > 8)) bad++;
+        }
+    return bad;
 }
 
 
@@ -472,6 +508,22 @@ int main(int argc, char **argv) {
 
     texture_pack_tests(scale, soft[0], w);
     {
+        static uint16_t ti[16][4];
+        uint32_t *a;
+        int bad;
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 4; x++) ti[y][x] = 0x1111;
+        check(checker_off(soft[0], w, scale) > 0, "index source: without it the sprite is plain index 1");
+        TexRep_AddIndexSource(&ti[0][0], 4, 16, 0, 16, 16, checker_index, NULL);
+        a = render(0, 0, 0, scale, &w, &h);
+        bad = a != NULL ? checker_off(a, w, scale) : -1;
+        snprintf(what, sizeof(what), "index source (soft): drawn at output resolution through the game palette (%d of %d pixels off, %d tile(s) made)",
+                 bad, 256 * scale * scale, idx_calls);
+        check(bad == 0 && idx_calls == 1, what);
+        if (a != NULL) write_bmp("soft_index_source", a, w, h);
+        free(a);
+    }
+    {
         int bad = TexRep_SelfTestAverage();
         char what[160];
         snprintf(what, sizeof(what), "textures: a 16x replacement averaged at scale 4, exact at scale 16 (%d of 32 samples off)", bad);
@@ -567,6 +619,12 @@ int main(int argc, char **argv) {
                 snprintf(what, sizeof(what), "gpu: sprites drawn from the 4x replacement, texel-exact (%d of %d pixels off)", bad,
                          opaque);
                 check(bad == 0 && opaque > 0, what);
+            }
+            if (gp != NULL && w2 == w && h2 == h) {
+                int bad = checker_off(gp, w, scale);
+                snprintf(what, sizeof(what), "index source (gpu): drawn at output resolution through the game palette (%d of %d pixels off)",
+                         bad, 256 * scale * scale);
+                check(bad == 0, what);
             }
             free(gp);
         }

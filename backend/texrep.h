@@ -14,8 +14,8 @@
  * them private). Packs: Mods/Textures/<pack>/ next to the exe or in the data folder; every pack
  * is used, a later one (by name) wins; a folder whose name starts with '_' is skipped.
  *
- * Only the software HD path (scale >= 2 or wide, renderer "soft") draws replacements; the GPU
- * renderer and the 1x picture (classic) stay original. A replacement is used only for polygons
+ * The HD paths (scale >= 2) of both renderers draw replacements (the GPU renderer through its
+ * replacement pool, backend/psxgpu_hw.c); the 1x picture (classic) stays original. A replacement is used only for polygons
  * whose texture area lies inside one upload, without texture window; a later VRAM write over an
  * upload (palette change, fill, copy) drops its replacement (back to the original). */
 #ifndef BACKEND_TEXREP_H
@@ -67,5 +67,17 @@ int TexRep_SelfTestLoader(const char *png, int bw, int bh); /* 0 = loader thread
 void TexRep_SetSyncLoad(int on); /* tests: decode PNGs on the calling thread (default: loader thread) */
 int TexRep_Pending(void);         /* replacements still being decoded */ /* tests: wrong samples of the averaging (0 = right) */
 int TexRep_Sample(const TexRepUse *use, int fu, int fv);
+
+/* dw2-pc-port: runtime index sources (modern fonts, sharp at any scale). The host registers the
+ * pixels of a 4-bit (mode 0) or 8-bit (mode 1) upload it knows (a game font atlas, a painted word
+ * picture) and a function that draws any texel rectangle of it k times larger as palette indices
+ * (k = the HD renderer's scale, 2..16), e.g. letters rasterized from the TrueType outlines at the
+ * output pixel size. The renderers then sample those indices through the game's palette of each
+ * primitive: the game's text colours, palette cycling, order, clipping and fades stay. Tiles of
+ * tw x th texels (a glyph cell) are made on first use, one per palette, and kept. */
+typedef void (*TexRepIndexFn)(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx);
+void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx);
+void TexRep_ClearIndexSources(void);
+void TexRep_IndexStats(int *sources, int *tiles, int *kib);
 
 #endif

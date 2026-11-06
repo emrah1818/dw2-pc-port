@@ -33,6 +33,8 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
 #ifdef DW2_NATIVE
     {
         extern const void *UiLayout_PartCells(const void *part, const void *cells);
+        extern const void *Lang_PartCells(s32 file_id, const void *cells);
+        e = (GfxPartCell *)Lang_PartCells(s->fileId, e); /* dw2-pc-port: German letter lists */
         e = (GfxPartCell *)UiLayout_PartCells(s, e); /* dw2-pc-port: a window grown for its text */
     }
 #endif
@@ -93,6 +95,8 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
 #ifdef DW2_NATIVE
     {
         extern const void *UiLayout_PartCells(const void *part, const void *cells);
+        extern const void *Lang_PartCells(s32 file_id, const void *cells);
+        e = (GfxPartCell *)Lang_PartCells(((GfxPartSprite *)arg0)->fileId, e); /* dw2-pc-port: German letter lists */
         e = (GfxPartCell *)UiLayout_PartCells(arg0, e); /* dw2-pc-port: a window grown for its text */
     }
 #endif

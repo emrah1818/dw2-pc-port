@@ -230,6 +230,19 @@ static int patch_font(uint8_t *d, int size, const Font *f, const char *name) {
 
 /* ---- text ---- */
 
+static int encode(const char *s, uint8_t *out, int max, int umlauts);
+static int g_umlauts;
+/* host/picwords.c */
+void PicWords_AddSkill(int32_t parts_entry, const char *de);
+void PicWords_Apply(void);
+void PicWords_SetGerman(int on);
+int Lang_Encode(const char *s, uint8_t *out, int max) {
+    return encode(s, out, max, g_umlauts);
+}
+void Lang_Note(const char *fmt, const char *a, const char *b) {
+    note(fmt, a, b);
+}
+
 /* UTF-8 -> game text (0xFF ends); -1 when a character has no glyph */
 static int encode(const char *s, uint8_t *out, int max, int umlauts) {
     int n = 0;
@@ -485,6 +498,7 @@ static void patch_attacks(uint8_t *d, int size, const char *dir, int umlauts) {
             continue;
         }
         if (rep) fprintf(rep, "0x%02X: %s -> %s\n", id, en, pairs[k].de);
+        PicWords_AddSkill((int32_t)rd32(d + r + 0x0C), pairs[k].de); /* the big name in the effect */
         done++;
     }
     if (rep) {
@@ -1269,12 +1283,15 @@ void Lang_Apply(void) {
         }
         umlauts = ok;
     }
+    g_umlauts = umlauts;
+    PicWords_SetGerman(1);
     d = Host_PakReadFileLayered(F_WAZADATA, &size);
     if (d != NULL) {
         patch_attacks(d, size, dir, umlauts);
         Host_PakSetLayer(F_WAZADATA, d, size);
         free(d);
     }
+    PicWords_Apply(); /* host/picwords.c: battle banners, title menu, attack names */
     d = Host_PakReadFileLayered(F_SYSTEXT, &size);
     if (d != NULL) {
         patch_types(d, size, dir, umlauts);
@@ -1288,4 +1305,15 @@ void Lang_Apply(void) {
         rep = NULL;
     }
     fflush(stdout);
+}
+
+/* dw2-pc-port: a texture slot (src/main/texslot.c) gets a picture; DW2_TEXSLOT_LOG=1 prints them */
+void Lang_TexSlotLoaded(int32_t id, int32_t slot, int32_t vx, int32_t vy) {
+    static int log = -1;
+    if (log < 0) {
+        log = getenv("DW2_TEXSLOT_LOG") != NULL;
+    }
+    if (log) {
+        printf("[texslot] %08X -> slot %d at %d,%d\n", (unsigned)id, (int)slot, (int)vx, (int)vy);
+    }
 }

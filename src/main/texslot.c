@@ -139,6 +139,12 @@ GfxTexSlot *Gfx_FindOrLoadTexSlot(s32 id) {
         e->uOffset <<= 7;
     }
     e->tpage = (tp << 7) | ((e->vramY & 0x100) >> 4) | ((e->vramX & 0x3FF) >> 6) | ((e->vramY & 0x200) << 2);
+#ifdef DW2_NATIVE
+    {
+        extern void Lang_TexSlotLoaded(s32 id, s32 slot, s32 vx, s32 vy);
+        Lang_TexSlotLoaded(id, e->index, e->vramX, e->vramY); /* dw2-pc-port: German pictures */
+    }
+#endif
     Gfx_LoadTexSlotImage(e);
     return e;
 }

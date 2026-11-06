@@ -534,6 +534,10 @@ void Host_SetWide(int on) {
 /* dw2-pc-port: the render scale for a scale setting (0 = auto: the smallest scale whose picture
  * is at least as tall as the window's picture, 240 lines per step: 720 -> 3, 1080 -> 5,
  * 1440 -> 6, 2160 -> 9). Before the window shows a frame, auto uses the display height. */
+/* dw2-pc-port: auto scale with the software renderer drops a step when the game thread stays late
+ * even with the smooth pictures paused (vblank.c): game speed first, then resolution */
+static int perf_cap = PSXHD_MAX_SCALE;
+
 int Host_ResolveScale(int setting) {
     int h;
 
@@ -557,6 +561,7 @@ int Host_ResolveScale(int setting) {
         }
     }
     h = (h + 239) / 240;
+    h = h > perf_cap ? perf_cap : h;
     return h < 1 ? 1 : h > PSXHD_MAX_SCALE ? PSXHD_MAX_SCALE : h;
 }
 
@@ -1149,6 +1154,26 @@ void Host_GameEvents(void) {
         Settings_Set(SET_WIDE, PsxHd_Wide());
         fflush(stdout);
     }
+    if (Settings_Get(SET_SCALE) == 0 && !PsxHd_Gpu()) {
+        extern int Host_GameLateEvents(void);
+        static int seen_ev;
+        static Uint64 last_ev_ns;
+        int ev = Host_GameLateEvents();
+
+        if (ev != seen_ev) {
+            Uint64 now = SDL_GetTicksNS();
+
+            /* late again within 20 s of the last time (the pause alone did not help) */
+            if (last_ev_ns != 0 && now - last_ev_ns < 20000000000ull && PsxHd_Scale() > 2) {
+                perf_cap = PsxHd_Scale() - 1;
+                PsxHd_SetScale(perf_cap);
+                printf("[gpu] auto scale %dx for game speed (the game thread was late)\n", perf_cap);
+                fflush(stdout);
+            }
+            last_ev_ns = now;
+            seen_ev = ev;
+        }
+    }
     if (Settings_Get(SET_SCALE) == 0) {
         /* dw2-pc-port auto scale: follow the window once a new size held for half a second */
         int want = Host_ResolveScale(0);
@@ -1213,15 +1238,29 @@ void Host_WindowLoop(void) {
             /* PR.34: a picture per refresh (the present waits for the vsync) */
             Uint64 t = SDL_GetTicksNS();
 
-            Host_Present();
-            if (!vsync_ok) {
-                SDL_DelayPrecise(4000000);
+            extern int Host_GameLate(void);
+
+            if (Host_GameLate()) {
+                /* dw2-pc-port: the game thread misses its VBlanks: only its own frames for now,
+                   so the smooth pictures cannot slow the game down (vblank.c) */
+                if (SDL_WaitSemaphoreTimeout(frame_sem, 20) || Ui_Drawing()) {
+                    Host_Present();
+                }
+                continue;
             }
+            Host_Present();
             {
-                /* dw2-pc-port: fps_limit caps the pictures per second (game logic is unaffected) */
+                /* dw2-pc-port: fps_limit caps the pictures per second (game logic is unaffected);
+                   without a working vsync the cap is the display's refresh rate (60 when unknown),
+                   so the window thread never draws more pictures than can be shown */
                 static Uint64 next;
                 int lim = Settings_Get(SET_FPS_LIMIT);
                 Uint64 now = SDL_GetTicksNS();
+
+                if (lim <= 0 && !vsync_ok) {
+                    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+                    lim = dm != NULL && dm->refresh_rate >= 30.0f ? (int)(dm->refresh_rate + 0.5f) : 60;
+                }
 
                 if (lim > 0) {
                     Uint64 step = 1000000000ull / (Uint64)lim;

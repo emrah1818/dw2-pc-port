@@ -44,6 +44,22 @@ static int fast;
 static int speed_on;     /* PR.28: F3 */
 static int cur_mult = 1; /* VBlank rate multiplier the deadlines use; 0 = no limit */
 
+/* dw2-pc-port: game speed guard. The game counts VBlanks per frame; when its thread misses
+ * deadlines again and again (more than one VBlank due at a wait), the window thread's smooth
+ * pictures pause for a while so the game gets the CPU back (host/sdl.c Host_WindowLoop). */
+static SDL_AtomicInt late_until_ms;
+static Uint64 late_win_ns;
+static int late_count;
+static SDL_AtomicInt late_events;
+
+int Host_GameLateEvents(void) {
+    return SDL_GetAtomicInt(&late_events);
+}
+
+int Host_GameLate(void) {
+    return (Uint64)(Uint32)SDL_GetAtomicInt(&late_until_ms) > (SDL_GetTicksNS() / 1000000) % 0x7FFFFFFF;
+}
+
 void Host_ClockFast(void) {
     fast = 1;
 }
@@ -136,6 +152,21 @@ void Host_VBlank(void) {
         PsxHd_SetFrameTime(deadline(next)); /* PR.34: a frame drawn after it shows from it */
         run_vblank();
         next++;
+    }
+    if (n >= 2) {
+        if (now - late_win_ns > 1000000000ull) {
+            late_win_ns = now;
+            late_count = 0;
+        }
+        if (++late_count == 4) { /* four late waits within a second: give the game 3 s */
+            int was = Host_GameLate();
+            SDL_AddAtomicInt(&late_events, 1);
+            SDL_SetAtomicInt(&late_until_ms, (int)((now / 1000000 + 3000) % 0x7FFFFFFF));
+            if (!was) {
+                printf("[host] game thread late (%d VBlanks due at once): smooth pictures paused for 3 s\n", n);
+                fflush(stdout);
+            }
+        }
     }
     if (now >= deadline(next)) {
         restarts++;

@@ -74,3 +74,10 @@ Das Spiel stürzt bei fehlenden oder kaputten Dateien nicht ab, es zeichnet dann
 - Schreibt das Spiel später über eine Textur im Videospeicher (z. B. Paletten-Animation), fällt diese Textur auf das Original zurück.
 - Ausgabe in 15-Bit-Farbe wie die übrigen HD-Flächen.
 - Mit echten Spieldaten noch nicht geprüft (siehe TESTBERICHT.md). Geprüft ist der Renderer mit erzeugten Testtexturen bei Skalierung 2 und 4.
+
+## Ab 1.6.0: Laden im Hintergrund und Stufen
+
+- **Laden:** Die PNGs lädt ein eigener Thread. Bis eine Textur fertig ist, zeichnet das Spiel die Originaltextur. Bei großen Paketen kann eine Ersatztextur deshalb einige Bilder nach dem ersten Auftauchen erscheinen. Dafür steht das Spiel nicht still.
+- **Stufen:** Ist eine Datei 2, 4, 8 oder 16 Mal so groß wie die Textur, entstehen beim Laden halbierte Stufen, gemittelt mit Alpha. Gezeichnet wird die Stufe, die zur internen Auflösung passt. Eine 16×-Datei bei Skalierung 4 nutzt also die 4×-Stufe. Andere Faktoren werden je Pixel blockweise gemittelt.
+- **Speicher:** Die Stufen brauchen etwa ein Drittel mehr Speicher. Sie zählen zur Grenze von 1 GiB.
+- **Getestet:** 32 Titeltexturen in 16× (bis 2048×4096 Pixel). Das Bild ist bei Skalierung 2 pixelgleich zum Original, ohne Hänger und ohne Tempoverlust.

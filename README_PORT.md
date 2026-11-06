@@ -94,7 +94,8 @@ Mit Deutsch ändert sich Folgendes:
 - **Auflösung:** Automatisch nach Fensterhöhe (Full HD 5×, WQHD 6×, 4K 9×) oder fest 1× bis 12×. Fenstergrößen-Voreinstellungen reichen von 720p bis 4K, dazu 2560×1080 und 3440×1440.
 - **Seitenverhältnis:** 4:3, 16:9 oder 21:9. Breitbild zeigt mehr von der 3D-Welt und streckt nichts.
   - Im Kampf, mit Spielfenster *Modern*, rücken Befehlsmenüs, Attackenlisten und Team-Statusfenster in die Seitenränder (ab 1.5.0), sodass die Digimon in der Mitte frei bleiben.
-  - Gespräche, Ergebnisbildschirm und Menüs bleiben mittig in 4:3-Größe.
+  - Ab 1.6.0 laufen die Kachelhintergründe von Feldmenü, Shops, Digi-Beetle-Werkstatt und DNA-Labor bis an den Rand. Im Gespräch rückt das Porträt in den Seitenrand.
+  - Die Fenster von Gesprächen, Ergebnisbildschirm und Menüs bleiben mittig in 4:3-Größe, vollständig lesbar.
 - **Spielfenster (F1 → Start, ab 1.4.0):** *Modern* setzt Buchstaben nach ihrer eigenen Breite (Ziffern und Tabellen bleiben in ihren Spalten), *Klassisch* behält die festen PS1-Zeichenzellen. In beiden Modi misst der Port jede Textzeile vor dem Zeichnen. Ist sie breiter als ihr Fenster, wird das Fenster nach rechts verlängert, so weit Bildschirm und Nachbarfenster es erlauben, oder der Text daneben rückt zur Seite. Erst wenn beides nicht reicht, wird die Zeile enger gesetzt. Englische Texte passen in die Originalfenster: Mit *Klassisch* sieht ein englisches Spiel genauso aus wie auf der PS1. Technik: `host/uilayout.c`, `src/main/text.c`.
 - **Bildrate:** Die Spiellogik läuft immer im Originaltempo, mit 59,94 Hz. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung.
   - Ab 1.5.0 werden ohne vsync nie mehr Bilder gezeichnet, als der Monitor zeigt.
@@ -142,7 +143,9 @@ GameData/
 
 **Original wiederherstellen:** Die Datei in `Mods\files` löschen oder mit `--no-mods` starten. Das Datenpaket selbst wird nie verändert.
 
-**HD-Texturpakete (ab 1.4.0):** Eigene PNG-Texturen, auch in höherer Auflösung, ohne die Spieldateien zu verändern. Ordner `Mods\Textures\<Paket>\`, Dateinamen = Textur-ID. Die IDs erzeugst du mit `dw2.exe --dump-textures DIR`. Gezeichnet werden sie vom Software-Renderer ab Skalierung 2. Abschalten: `--no-texture-packs`. Anleitung: [doc/TEXTURPAKETE.md](doc/TEXTURPAKETE.md).
+**HD-Texturpakete (ab 1.4.0):** Eigene PNG-Texturen, auch in höherer Auflösung, ohne die Spieldateien zu verändern. Ordner `Mods\Textures\<Paket>\`, Dateinamen = Textur-ID. Die IDs erzeugst du mit `dw2.exe --dump-textures DIR`. Gezeichnet werden sie vom Software-Renderer ab Skalierung 2. Abschalten: `--no-texture-packs`.
+- Ab 1.6.0 lädt ein eigener Thread die PNGs. Bis eine Textur bereit ist, zeigt das Spiel das Original und wartet nicht.
+- 2-, 4-, 8- und 16-fache Texturen bekommen verkleinerte Stufen, damit sie bei niedrigerer Auflösung nicht flimmern. Anleitung: [doc/TEXTURPAKETE.md](doc/TEXTURPAKETE.md).
 
 **3D-Modelle als glTF mit Animationen:** Dafür gibt es den DW2 3D Viewer:
 

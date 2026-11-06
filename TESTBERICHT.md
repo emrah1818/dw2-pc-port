@@ -63,7 +63,7 @@ Der neue Testbot `tools/autoplay/battle_words.py` macht Testkämpfe mit Fotos al
 | Bild bei 2× gegenüber dem Original | 0 von 614.400 Pixeln abweichend |
 | Spielgeschwindigkeit mit Paket | 962 Spielbilder in 32 s |
 | Spielgeschwindigkeit ohne Paket | 906 Spielbilder in 30 s |
-| Hänger | keine. Vorher 18 Uhr-Neustarts und 1267 statt etwa 3700 Bilder in 118 s |
+| Hänger | keine. Vorher, ohne Stufen und Lade-Thread: 18 Uhr-Neustarts und 1267 Spielbilder in 118 s (ohne Paket sind es etwa 30 pro Sekunde) |
 
 Neuer Selbsttest in `hd_test`: 16× Schachbrett, bei 4× grau gemittelt, bei 16× exakt: 0 von 32 abweichend.
 

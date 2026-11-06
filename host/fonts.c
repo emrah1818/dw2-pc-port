@@ -236,8 +236,14 @@ int Fonts_Cell(int role, int cp, uint8_t* out, int w, int h)
 extern void* Host_PakReadFileLayered(int id, int* size);
 /* The development scene packs 64 ASCII cells as eight one-bit scanlines each.
  * Build a private replacement; never modify the verified disc table. */
+static int fonts_on = 1;
+void Fonts_SetEnabled(int on) { fonts_on = on; }
+int  Fonts_Enabled(void) { return fonts_on; }
+
 int Fonts_DevBitmap(uint8_t* out, int size)
 {
+    if (!fonts_on)
+        return 0;
     uint8_t bitmap[512], alpha[64];
     if (!out || size < 512)
         return 0;

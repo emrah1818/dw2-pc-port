@@ -14,6 +14,8 @@ static unsigned cursor;
 
 void Fonts_RegisterNumber(int id)
 {
+    if (!Fonts_Enabled())
+        return;
     for (int i = 0; i < nids; i++)
         if (ids[i] == id)
             return;

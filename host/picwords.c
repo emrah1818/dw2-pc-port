@@ -266,20 +266,130 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
             p = end + 1;
     }
     int shift = 1;
-    int inks[MAX_CELLS];
-    for (int i = 0; i < n; i++)
-        inks[i] = picture_ink(t, &c[i]);
-    for (int i = 0; i < n; i++)
-        for (int y = 0; y < c[i].h; y++)
-            for (int x = 0; x < c[i].w; x++) {
-                int Y = c[i].y - y0 + y, X = c[i].x - x0 + x, sx = X - shift, sy = Y - 1;
-                if (w->border && (X == 0 || X == cw - 1 || Y == 0 || Y == ch - 1))
-                    continue;
-                int v = 0;
-                if (sx >= 0 && sx < cw - 2 && sy >= 0 && sy < ch - 2 && mask[sy * CW + sx] >= 80)
-                    v = inks[i];
-                tset(t, c[i].u + x, c[i].v + y, v);
+    /* dw2-pc-port: the colours of the original picture. The original is a gradient with an outline
+     * (bright letter body, darker rim): learn its colour per row and per depth from the original
+     * pixels (a flat "brightest palette entry" came out nearly black on the dark battle floor),
+     * and give tall pictures a one-pixel outline like the original's. Small pictures get the body
+     * colour only: an outline fills the counters of the small letters. */
+    {
+        enum { MAXD = 10 };
+        static uint8_t orig[CW * CH], dist[CW * CH], tot[CW * CH];
+        static int     hist[CH][MAXD + 1][256];
+        int            color[CH][MAXD + 1], all[MAXD + 1], maxd = 0, bottom = -1, nmax = 0;
+        int            tall = 0; /* an outline ring closes the counters of the new letters (e, a): body colour only */
+
+        memset(orig, 0, sizeof(orig));
+        for (int i = 0; i < n; i++)
+            for (int y = 0; y < c[i].h; y++)
+                for (int x = 0; x < c[i].w; x++)
+                    orig[(c[i].y - y0 + y) * CW + c[i].x - x0 + x] = (uint8_t)tget(t, c[i].u + x, c[i].v + y);
+        for (int k = 0; k < CW * CH; k++)
+            dist[k] = orig[k] ? 1 : 0;
+        for (int d = 1; d <= MAXD; d++)
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++) {
+                    int k = y * CW + x, in = dist[k] == d;
+                    for (int dy = -1; dy <= 1 && in; dy++)
+                        for (int dx = -1; dx <= 1 && in; dx++) {
+                            int xx = x + dx, yy = y + dy;
+                            in = xx >= 0 && yy >= 0 && xx < cw && yy < ch && dist[yy * CW + xx] >= d;
+                        }
+                    if (in)
+                        dist[k] = (uint8_t)(d + 1);
+                }
+        memset(hist, 0, sizeof(hist));
+        for (int y = 0; y < ch; y++)
+            for (int x = 0; x < cw; x++) {
+                int k = y * CW + x, d = dist[k];
+                if (d) {
+                    d = d - 1 > MAXD ? MAXD : d - 1;
+                    hist[y][d][orig[k]]++;
+                    maxd   = d > maxd ? d : maxd;
+                    bottom = y > bottom ? y : bottom;
+                }
             }
+        if (bottom < 0) { /* nothing to learn from: the brightest used palette entry */
+            int inks[MAX_CELLS];
+            for (int i = 0; i < n; i++)
+                inks[i] = picture_ink(t, &c[i]);
+            for (int i = 0; i < n; i++)
+                for (int y = 0; y < c[i].h; y++)
+                    for (int x = 0; x < c[i].w; x++) {
+                        int Y = c[i].y - y0 + y, X = c[i].x - x0 + x, sx = X - shift, sy = Y - 1, v = 0;
+                        if (!(w->border && (X == 0 || X == cw - 1 || Y == 0 || Y == ch - 1)) && sx >= 0 && sx < cw - 2 &&
+                            sy >= 0 && sy < ch - 2 && mask[sy * CW + sx] >= 80)
+                            v = inks[i];
+                        tset(t, c[i].u + x, c[i].v + y, v);
+                    }
+            return 1;
+        }
+        for (int d = 0; d <= MAXD; d++) {
+            int sum[256] = { 0 }, best = 0;
+            for (int y = 0; y < ch; y++)
+                for (int v = 0; v < 256; v++)
+                    sum[v] += hist[y][d][v];
+            for (int v = 1; v < 256; v++)
+                best = sum[v] > sum[best] ? v : best;
+            all[d] = best ? best : (d ? all[d - 1] : 1);
+            for (int y = 0; y < ch; y++) {
+                int b = 0, cnt = 0;
+                for (int v = 1; v < 256; v++) {
+                    b = hist[y][d][v] > hist[y][d][b] ? v : b;
+                    cnt += hist[y][d][v];
+                }
+                color[y][d] = cnt >= 2 && b ? b : -1;
+            }
+        }
+        /* the new picture: letters (the font's mask), plus a ring for tall pictures; then the depth
+           from the outside decides the colour level, as in the original */
+        memset(tot, 0, sizeof(tot));
+        for (int y = 0; y < ch; y++)
+            for (int x = 0; x < cw; x++) {
+                int sx = x - shift, sy = y - 1, on = 0;
+                if (w->border && (x == 0 || x == cw - 1 || y == 0 || y == ch - 1))
+                    continue;
+                for (int dy = tall ? -1 : 0; dy <= (tall ? 1 : 0) && !on; dy++)
+                    for (int dx = tall ? -1 : 0; dx <= (tall ? 1 : 0); dx++) {
+                        int xx = sx + dx, yy = sy + dy;
+                        if (xx >= 0 && xx < cw - 2 && yy >= 0 && yy < ch - 2 && mask[yy * CW + xx] >= 80) {
+                            on = 1;
+                            break;
+                        }
+                    }
+                tot[y * CW + x] = (uint8_t)on;
+            }
+        for (int k = 0; k < CW * CH; k++)
+            dist[k] = tot[k] ? 1 : 0;
+        for (int d = 1; d <= MAXD; d++)
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++) {
+                    int k = y * CW + x, in = dist[k] == d;
+                    for (int dy = -1; dy <= 1 && in; dy++)
+                        for (int dx = -1; dx <= 1 && in; dx++) {
+                            int xx = x + dx, yy = y + dy;
+                            in = xx >= 0 && yy >= 0 && xx < cw && yy < ch && dist[yy * CW + xx] >= d;
+                        }
+                    if (in)
+                        dist[k] = (uint8_t)(d + 1);
+                }
+        for (int k = 0; k < CW * CH; k++)
+            nmax = dist[k] - 1 > nmax ? dist[k] - 1 : nmax;
+        for (int i = 0; i < n; i++)
+            for (int y = 0; y < c[i].h; y++)
+                for (int x = 0; x < c[i].w; x++) {
+                    int Y = c[i].y - y0 + y, X = c[i].x - x0 + x, k = Y * CW + X, v = 0;
+                    if (dist[k]) {
+                        /* the letter body of the original's row (depth 3 from its rim, else the deepest
+                           level it has), never its dark rim: the new letters are thin */
+                        int dd = maxd < 3 ? maxd : 3;
+                        for (; dd >= 0 && color[Y][dd] < 0; dd--)
+                            ;
+                        v = dd >= 0 ? color[Y][dd] : all[maxd < 3 ? maxd : 3];
+                        (void)nmax;
+                    }
+                    tset(t, c[i].u + x, c[i].v + y, v);
+                }
+    }
     return 1;
 }
 

@@ -599,7 +599,7 @@ HOST_ENTRY int main(int argc, char **argv) {
     /* PR.2: the settings file; command line options win for this run and are not saved */
     if (cl_profile >= 0) {
         /* dw2-pc-port: --profile; the single options below win over it */
-        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
+        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D, SET_UI_STYLE };
         size_t k;
 
         for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {
@@ -633,7 +633,7 @@ HOST_ENTRY int main(int argc, char **argv) {
     if (Settings_FirstRun() && !no_window) {
         /* dw2-pc-port: the first start with a window gets the Remastered profile (saved; F1 or
          * --profile classic change it) */
-        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
+        static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D, SET_UI_STYLE };
         size_t k;
 
         for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {

@@ -1292,11 +1292,20 @@ void Lang_Apply(void) {
     int size = 0, umlauts = 0;
     uint8_t *d;
 
+    {
+        extern void Fonts_SetEnabled(int);
+        /* Classic UI in English is the PS1 picture, bit for bit: no modern fonts there */
+        Fonts_SetEnabled(!(Settings_Get(SET_LANGUAGE) != SET_LANG_DE && Settings_Get(SET_UI_STYLE) == SET_UI_CLASSIC));
+    }
     if (Settings_Get(SET_LANGUAGE) != SET_LANG_DE) {
         extern void Fonts_ApplyGame(void);
-        Fonts_ApplyGame();
+        if (Fonts_Enabled()) {
+            Fonts_ApplyGame();
+        }
         PicWords_SetGerman(0);
-        PicWords_Apply();
+        if (Fonts_Enabled()) {
+            PicWords_Apply();
+        }
         return;
     }
     snprintf(dir, sizeof(dir), "%sLanguages/German/", base != NULL ? base : "");

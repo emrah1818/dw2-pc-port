@@ -69,9 +69,19 @@ Neuer Selbsttest in `hd_test`: 16× Schachbrett, bei 4× grau gemittelt, bei 16�
 
 **Grenze:** Der GPU-Renderer zeichnet weiter die Originaltexturen. Hier gibt es kein Vulkan, also ist das nicht testbar.
 
-### 4. Spieltempo, Bildtakt, Grafik
+### 4. Spieltempo, Bildtakt, Ton
 
-Gegenüber 1.5.0 ist die Logik unverändert: Tempo-Schutz, Obergrenze der Zwischenbilder und PGXP mit 99,9 % präzisen Polygonen. Nicht geprüft sind vsync und GPU-Last auf echter Hardware.
+- **Unterläufe:** Leere Tonpuffer werden jetzt gezählt und protokolliert (`[audio] queue ran dry`).
+- **Auto-Auflösung:** Ist das Spiel in den ersten 15 Sekunden zu langsam, geht sie sofort eine Stufe herunter, statt erst beim zweiten Mal.
+- **Messung** (Fenster 2560×1440 offscreen, Software-Renderer, 2 Kerne): Leere Tonpuffer in den ersten 10 s gingen von 11 auf 1 zurück. Das Spiel lief durchgehend mit 59,94 Hz, Bild und Ton bleiben am selben VBlank-Takt.
+- **Nicht geprüft:** vsync, GPU-Last und Bildtakt auf echter Hardware.
+
+### 5. Grafikstabilität (PGXP)
+
+- **Messung:** In Domain 1 wurden die 0,1 % gemischten Polygone protokolliert (`DW2_PGXP_STATS=1`). Gemischt heißt: einige Ecken präzise, andere ganzzahlig.
+- **Ergebnis:** Alle protokollierten Fälle sind große Boden- und Wandflächen direkt vor der Kamera, deren Ecken am Bildrand liegen (±512, gesättigt). Eine Ecke liegt hinter der Nahebene, dafür gibt es keinen genauen Bildpunkt.
+- **Warum nicht behoben:** Abhilfe wäre ein Zuschnitt in 3D vor der Projektion. Die Zeichenbefehle enthalten zu diesem Zeitpunkt nur noch 2D-Punkte. Ein solcher Eingriff in die Spielgeometrie wurde nicht begonnen.
+- **Folge:** An diesen Flächen kann am Bildrand eine leichte Verschiebung der Textur bleiben. Die Modelle der Digimon sind nicht betroffen.
 
 ### Regressionstests
 

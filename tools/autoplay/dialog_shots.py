@@ -5,7 +5,7 @@ Loads slot 1 of CARD, visits the city destinations, talks to every walker of eac
 and takes a picture of every page of the talk (Cross between the pages). Pictures go to
 WORK/shots/<scene>_<npc>_<page>_display.png, a list to WORK/dialog_shots.log.
 
-    dialog_shots.py EXE PAK WORK --card CARD [--lang de] [--scenes N] [--pages N]
+    dialog_shots.py EXE PAK WORK --card CARD [--lang de] [--scenes N] [--pages N] [--hd] [--extra ARGS]
 """
 import argparse
 import os
@@ -18,6 +18,9 @@ import navigate  # noqa: E402
 import policy  # noqa: E402
 import story  # noqa: E402
 import town  # noqa: E402
+
+
+HD = False
 
 
 def talk_with_shots(g, cell, tag, pages, log):
@@ -44,6 +47,8 @@ def talk_with_shots(g, cell, tag, pages, log):
         while town.talk_active(g) and n < pages:
             g.run(90)  # the text types out
             g.shot("%s_%02d" % (tag, n))
+            if HD:
+                g.hdshot("%s_%02d" % (tag, n))
             log.write("%s_%02d mode 0x%x\n" % (tag, n, g.mode()))
             n += 1
             g.tap("Cross", 3, 14)
@@ -61,11 +66,15 @@ def main():
     ap.add_argument("--lang", default="en")
     ap.add_argument("--scenes", type=int, default=3)
     ap.add_argument("--pages", type=int, default=6)
+    ap.add_argument("--hd", action="store_true", help="also the HD picture (with --extra: wide, scale)")
+    ap.add_argument("--extra", default="", help="more program arguments, e.g. \"--settings-set wide=1\"")
     a = ap.parse_args()
     os.makedirs(os.path.join(a.work, "saves"), exist_ok=True)
     shutil.copy(a.card, os.path.join(a.work, "saves", "card1.mcd"))
     from save_test import load_slot1
-    g = Game(a.exe, a.pak, a.work, extra=("--lang", a.lang))
+    global HD
+    HD = a.hd
+    g = Game(a.exe, a.pak, a.work, extra=("--lang", a.lang) + tuple(a.extra.split()))
     st = policy.Stats()
     log = open(os.path.join(a.work, "dialog_shots.log"), "w")
     total = 0

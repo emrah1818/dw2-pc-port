@@ -264,6 +264,28 @@ static int letter(const char *g, uint8_t out[15][16]) {
         }
         for (int y = 0; y < 15; y++) for (int x = 0; x < 16; x++) out[y][x] = (uint8_t)(b[y][x + 2] == 2);
     }
+    if (ch == 'm' || ch == 'w' || ch == 'W') {
+        /* three strokes with one-pixel gaps (m, w, W): enlarged, the gaps close and m reads as o;
+           the same strokes two pixels apart (m: rows 6..12 like the font's small letters) */
+        static const char *const gm[7] = { ".##########.", ".##..##..##.", ".##..##..##.", ".##..##..##.",
+                                           ".##..##..##.", ".##..##..##.", ".##..##..##." };
+        static const char *const gw[7] = { ".##..##..##.", ".##..##..##.", ".##..##..##.", ".##..##..##.",
+                                           ".##..##..##.", ".##..##..##.", ".##########." };
+        memset(out, 0, 15 * 16);
+        if (ch == 'W') {
+            for (int y = 2; y <= 12; y++) {
+                for (int x = 0; x < 12; x++) {
+                    out[y][x] = (uint8_t)((y < 12 ? gw[0][x] : gw[6][x]) == '#');
+                }
+            }
+        } else {
+            for (int y = 0; y < 7; y++) {
+                for (int x = 0; x < 12; x++) {
+                    out[y + 6][x] = (uint8_t)((ch == 'm' ? gm : gw)[y][x] == '#');
+                }
+            }
+        }
+    }
     if (ch == 'M' || ch == 'N') {
         /* this font's M (a closed arch with a short middle stem) and N (a one-pixel diagonal) read
            as A and H once enlarged: the same 2-pixel strokes as the other capitals, with the
@@ -751,7 +773,8 @@ static const Pic pics[] = {
     { 0x313, 6, 0, 1, { "NIEDERLAGE", 0, 0 } },         /* LOSE */
     /* battle result (file 0x25C) */
     { 0x25C, 10, 0, 1, { "SIEG", 0, 0 } },              /* WIN */
-    { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 0, 1, 124, 1 } },      /* LEVEL UP */
+    { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 1, 1, 78, 1 } },      /* LEVEL UP: the value of "Next Level" in the result box; right of the label, so
+                                                                   right-aligned at its old right edge, as wide as the room after "Nächstes Level" */
     /* title (file 0xB64) */
     { 0xB64, 1, 0, 0, { "STARTTASTE DRÜCKEN", 0, 0, 1 } }, /* PRESS START BUTTON (three pictures) */
     { 0xB64, 2, 0, 1, { "NEUES SPIEL", 0, 0, 1, 100, 1 } },        /* NEW GAME */
@@ -894,19 +917,46 @@ static int cell_covers(Open *f, const Cell *c, int x, int y) {
 /* when widening in place was not enough: move the picture to an empty part of the same texture
    (all pixels transparent and under no other cell, one pixel of room around it), as wide as
    `need`, centred where it was on screen */
-static void move_rect(Open *f, const Tex *t, Cell *c, int need) {
+static void move_rect(Open *f, const Tex *t, Cell *c, int need, int align) {
     int n = entries(f->d, f->size), W = need, H = c->h;
 
     if (getenv("DW2_PICDEBUG")) printf("[picwords] move %d,%d %dx%d -> %d wide, texture %dx%d\n", c->u, c->v, c->w, c->h, need, t->w, t->h);
     if (c->w >= need || W + 2 > t->w || W > 255) {
         return;
     }
-    for (int v = t->h - H - 1; v >= 1; v--) {
-        for (int u = 1; u + W + 1 <= t->w && u + W <= 255; u++) {
+    /* taken: a pixel that is not transparent or lies under another cell (computed once) */
+    static uint8_t taken[256 * 512];
+    int tw = t->w > 256 ? 256 : t->w, th = t->h > 512 ? 512 : t->h;
+    memset(taken, 0, sizeof(taken));
+    for (int y = 0; y < th; y++) {
+        for (int x = 0; x < tw; x++) {
+            taken[y * 256 + x] = (uint8_t)(tget(t, x, y) != 0);
+        }
+    }
+    for (int e = 1; e < 4096; e++) {
+        uint32_t o = entry(f->d, f->size, e);
+        if (o == 0) {
+            if (e >= n) break;
+            continue;
+        }
+        if (rd32(f->d + o) == 0x10) continue;
+        for (int q = 0; o + 16 <= (uint32_t)f->size && f->d[o] != 0xFF && q < 64; q++, o += 16) {
+            int cu = f->d[o], cv = f->d[o + 1], cw = f->d[o + 8], chh = f->d[o + 9] ? f->d[o + 9] : 256;
+            if (cu == c->u && cv == c->v && cw == c->w && chh == c->h) continue;
+            for (int y = cv; y < cv + chh && y < th; y++) {
+                for (int x = cu; x < cu + cw && x < tw; x++) {
+                    taken[y * 256 + x] = 1;
+                }
+            }
+        }
+    }
+    (void)cell_covers;
+    for (int v = th - H - 1; v >= 1; v--) {
+        for (int u = 1; u + W + 1 <= tw && u + W <= 255; u++) {
             int ok = 1;
             for (int y = v - 1; y <= v + H && ok; y++) {
                 for (int x = u - 1; x <= u + W && ok; x++) {
-                    ok = tget(t, x, y) == 0 && !cell_covers(f, c, x, y);
+                    ok = !taken[y * 256 + x];
                 }
             }
             if (!ok) continue;
@@ -920,7 +970,7 @@ static void move_rect(Open *f, const Tex *t, Cell *c, int need) {
                 for (int q = 0; o + 16 <= (uint32_t)f->size && f->d[o] != 0xFF && q < 64; q++, o += 16) {
                     int cu = f->d[o], cv = f->d[o + 1], cw = f->d[o + 8], chh = f->d[o + 9] ? f->d[o + 9] : 256;
                     if (cu == c->u && cv == c->v && cw == c->w && chh == c->h) {
-                        int16_t x = (int16_t)(rd16(f->d + o + 2) - (W - c->w) / 2);
+                        int16_t x = (int16_t)(rd16(f->d + o + 2) - (align > 0 ? W - c->w : (W - c->w) / 2));
                         f->d[o] = (uint8_t)u;
                         f->d[o + 1] = (uint8_t)v;
                         f->d[o + 8] = (uint8_t)W;
@@ -932,10 +982,10 @@ static void move_rect(Open *f, const Tex *t, Cell *c, int need) {
             /* the original pixels come along (centred): the painter learns its colours from them */
             for (int y = 0; y < H; y++) {
                 for (int x = 0; x < c->w; x++) {
-                    tset((Tex *)t, u + (W - c->w) / 2 + x, v + y, tget(t, c->u + x, c->v + y));
+                    tset((Tex *)t, u + (align > 0 ? W - c->w : (W - c->w) / 2) + x, v + y, tget(t, c->u + x, c->v + y));
                 }
             }
-            c->x -= (W - c->w) / 2;
+            c->x -= align > 0 ? W - c->w : (W - c->w) / 2;
             c->u = u;
             c->v = v;
             c->w = W;
@@ -963,7 +1013,7 @@ static int paint_pic(int file, int e, int first, int count, const Words *w) {
     if (count == 1 && w->grow > 0) {
         grow_rect(f, &t, &c[first], w->grow);
         if (w->move) {
-            move_rect(f, &t, &c[first], w->grow);
+            move_rect(f, &t, &c[first], w->grow, w->align);
         }
     }
     {

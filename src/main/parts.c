@@ -289,8 +289,8 @@ void Gfx_DrawPartsEx(void *arg0, s32 arg1) {
 #ifdef DW2_NATIVE
         if (s2->visible != 0) {
             extern void UiLayout_NotePart(const void *part, const void *cells);
-            extern void UiLayout_SetWideScene(int battle);
-            UiLayout_SetWideScene((Sys_State.gameMode >> 8) == 5); /* dw2-pc-port: wide battle HUD */
+            extern void UiLayout_SetWideScene(int table);
+            UiLayout_SetWideScene(Sys_State.gameMode >> 8); /* dw2-pc-port: wide HUD (battle, talk portrait) */
             UiLayout_NotePart(s2, Cd_GetFileEntry(s2->fileId));
         }
 #endif

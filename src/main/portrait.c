@@ -107,6 +107,9 @@ void Text_PortraitDraw(Actor *a0) {
     u8 v;
 
     Ft4_11854 *p;
+#ifdef DW2_NATIVE
+    s32 wdx = 0;
+#endif
 
     e = (Part11854 *)Cd_GetFileEntry(0x3120002);
     for (q = e; q->fileId != 0; q++) {
@@ -132,6 +135,12 @@ void Text_PortraitDraw(Actor *a0) {
     }
 
     p = (Ft4_11854 *)Sys_State.packet.work;
+#ifdef DW2_NATIVE
+    {
+        extern int UiLayout_PortraitShift(void);
+        wdx = UiLayout_PortraitShift(); /* dw2-pc-port: the face moves with its frame (wide) */
+    }
+#endif
     for (j = 0; j < 2; j++) {
         for (i = 0; i < 2; i++) {
             p->c = *(Col1A9C8 *)&Gfx_NeutralRgb;
@@ -141,6 +150,12 @@ void Text_PortraitDraw(Actor *a0) {
             p->x1 = Text_PortraitQuadGrid[j][i + 1].field_0 * s;
             p->x2 = Text_PortraitQuadGrid[j + 1][i].field_0 * s;
             p->x3 = Text_PortraitQuadGrid[j + 1][i + 1].field_0 * s;
+#ifdef DW2_NATIVE
+            p->x0 += wdx;
+            p->x1 += wdx;
+            p->x2 += wdx;
+            p->x3 += wdx;
+#endif
             p->y0 = Text_PortraitQuadGrid[j][i].field_2;
             p->y1 = Text_PortraitQuadGrid[j][i + 1].field_2;
             p->y2 = Text_PortraitQuadGrid[j + 1][i].field_2;

@@ -289,14 +289,26 @@ static struct {
     const void *part;
     int dx;
 } wpart[2][MAX_WPART];
-static int wide_scene;
+static int wide_table = -1; /* the game mode's table (gameMode >> 8): 5 battle */
 
-void UiLayout_SetWideScene(int battle) {
-    wide_scene = battle;
+void UiLayout_SetWideScene(int table) {
+    wide_table = table;
 }
 
 static int wide_on(void) {
-    return wide_scene && PsxHd_Wide() > 0 && UiText_Modern();
+    return wide_table >= 0 && PsxHd_Wide() > 0 && UiText_Modern();
+}
+
+/* outside battles: the talk portrait (file 0x315, entries 1-4: frame and picture above the
+   message window) moves into the margin on its side; the message window (5-8) stays */
+static int portrait_dx; /* the shift of the portrait frame drawn last (portrait.c draws the face after it) */
+
+int UiLayout_PortraitShift(void) {
+    return wide_on() ? portrait_dx : 0;
+}
+
+static int wide_portrait_entry(int file, int entry) {
+    return file == 0x315 && entry >= 1 && entry <= 4;
 }
 
 /* the battle window frames of file 0x13B that may move (command menus, attack lists, party
@@ -342,6 +354,29 @@ static void wide_note(const uint8_t *p, const Rect *r) {
     memcpy(&id, p, 4);
     file = (int)(id >> 16);
     entry = (int)(id & 0xFFFF);
+    if (wide_table != 5) {
+        if (wide_portrait_entry(file, entry)) {
+            int cx = r->x + r->w / 2, m = PsxHd_Margin(320);
+            dx = cx < -40 ? -m : cx > 40 ? m : 0;
+            if (entry == 1) {
+                portrait_dx = dx;
+                if (getenv("DW2_WIDE_LOG")) printf("[wide] portrait %d,%d %dx%d dx %d\n", r->x, r->y, r->w, r->h, dx);
+            }
+            if (dx != 0 && entry == 1 && nwwin[cur] < MAX_WWIN) {
+                wwin[cur][nwwin[cur]].r = *r;
+                wwin[cur][nwwin[cur]].dx = dx;
+                nwwin[cur]++;
+            }
+        } else if (file != 0x315) {
+            dx = wide_dx_at(r); /* the face picture inside the portrait frame */
+        }
+        if (dx != 0) {
+            wpart[cur][nwpart[cur]].part = p;
+            wpart[cur][nwpart[cur]].dx = dx;
+            nwpart[cur]++;
+        }
+        return;
+    }
     if (file != 0x13B || wide_scene_entry(entry)) {
         return;
     }
@@ -572,7 +607,88 @@ static int grow_for(const Rect *r) {
 /* The cells to draw for a part: the game's, or for a grown window a copy with the last middle
    column repeated over the new width and everything right of it moved. Only windows made of at
    least three columns (left edge, middle, right edge) are grown. */
+/* ---- wide backgrounds: a full-width tiled picture continues into the margins ----
+ * Menu backgrounds (the field menu grid, its scrolling glass layers ...) are rows of the same tile
+ * across the 4:3 picture; in 16:9 / 21:9 the margins stayed black. A part that spans the whole
+ * 4:3 width gets copies of its edge tiles into the margins, but only where the edge tile repeats
+ * (the tile next to it in the row has the same texture rectangle): a single picture is never
+ * repeated. */
+static const void *wide_fill(const uint8_t *p, const uint8_t *e) {
+    static uint8_t buf[4][256 * 0x10];
+    static int ring;
+    int16_t px;
+    int left = 99999, right = -99999, n = 0, m = 0, margin;
+    uint8_t *out;
+
+    if (PsxHd_Wide() <= 0 || e == NULL) {
+        return e;
+    }
+    memcpy(&px, p + 4, 2);
+    for (const uint8_t *c = e; c[0] != 0xFF && n < 200; c += 0x10, n++) {
+        int16_t cx;
+        if (c[0xC] != p[0xD]) {
+            continue;
+        }
+        memcpy(&cx, c + 2, 2);
+        left = cx < left ? cx : left;
+        right = cx + c[8] > right ? cx + c[8] : right;
+    }
+    if (n >= 200 || px + left > -160 || px + right < 160) {
+        return e;
+    }
+    margin = PsxHd_Margin(320);
+    out = buf[ring];
+    ring = (ring + 1) & 3;
+    memcpy(out, e, (size_t)n * 0x10);
+    m = n;
+    for (int i = 0; i < n; i++) {
+        const uint8_t *c = e + i * 0x10;
+        int16_t cx, cy;
+        int w = c[8], side;
+        if (c[0xC] != p[0xD] || w < 8) {
+            continue;
+        }
+        memcpy(&cx, c + 2, 2);
+        memcpy(&cy, c + 4, 2);
+        side = cx == left ? -1 : cx + w == right ? 1 : 0;
+        if (side == 0) {
+            continue;
+        }
+        /* the tile repeats: its inner neighbour in the row has the same texture rectangle */
+        int rep = 0;
+        for (int j = 0; j < n && !rep; j++) {
+            const uint8_t *d = e + j * 0x10;
+            int16_t dx, dy;
+            memcpy(&dx, d + 2, 2);
+            memcpy(&dy, d + 4, 2);
+            rep = j != i && d[0xC] == c[0xC] && dy == cy && dx == cx - side * w && d[0] == c[0] && d[1] == c[1] &&
+                  d[8] == c[8] && d[9] == c[9];
+        }
+        if (!rep) {
+            continue;
+        }
+        for (int k = 1; k * w < margin + w && m < 255; k++) {
+            int16_t nx = (int16_t)(cx + side * k * w);
+            memcpy(out + m * 0x10, c, 0x10);
+            memcpy(out + m * 0x10 + 2, &nx, 2);
+            m++;
+        }
+    }
+    if (m == n) {
+        return e;
+    }
+    out[m * 0x10] = 0xFF;
+    return out;
+}
+
+static const void *part_cells_grown(const void *part, const void *cells);
+
 const void *UiLayout_PartCells(const void *part, const void *cells) {
+    const void *c = part_cells_grown(part, cells);
+    return part != NULL ? wide_fill(part, c) : c;
+}
+
+static const void *part_cells_grown(const void *part, const void *cells) {
     static uint8_t buf[4][128 * 0x10];
     static int ring;
     const uint8_t *p = part, *e = cells;

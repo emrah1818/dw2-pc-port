@@ -37,6 +37,7 @@ typedef struct {
 void TexRep_AddRoot(const char *mods_textures_dir);
 void TexRep_SetDump(const char *dir);
 void TexRep_Disable(void);
+void TexRep_Shutdown(void); /* joins the loader thread (program exit) */
 /* every [textures] line also into this file (Mods/Textures/textures_log.txt) */
 void TexRep_SetLog(const char *path);
 int TexRep_Count(void);       /* PNG files known from all packs */
@@ -60,6 +61,7 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
  * without mask bit, or -1 when the replacement pixel is transparent. Thread safe (read only). */
 void TexRep_SetScale(int s); /* the HD renderer scale (block averaging of large PNGs) */
 int TexRep_SelfTestAverage(void);
+int TexRep_SelfTestLoader(const char *png, int bw, int bh); /* 0 = loader thread start, result, shutdown ok */
 void TexRep_SetSyncLoad(int on); /* tests: decode PNGs on the calling thread (default: loader thread) */
 int TexRep_Pending(void);         /* replacements still being decoded */ /* tests: wrong samples of the averaging (0 = right) */
 int TexRep_Sample(const TexRepUse *use, int fu, int fv);

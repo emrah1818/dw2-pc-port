@@ -476,6 +476,19 @@ int main(int argc, char **argv) {
         check(bad == 0, what);
     }
 
+    {
+        char lp[512];
+        int r;
+        snprintf(lp, sizeof(lp), "./Textures/loader_test.png");
+        write_png(lp, 64, 64, 0);
+        r = TexRep_SelfTestLoader(lp, 16, 16);
+        {
+            char what[120];
+            snprintf(what, sizeof(what), "textures: loader thread decodes in the background and ends cleanly (code %d)", r);
+            check(r == 0, what);
+        }
+    }
+
     dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, NULL);
     if (dev != NULL && PsxHw_Init(dev)) {
         have_gpu = 1;

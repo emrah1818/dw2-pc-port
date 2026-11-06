@@ -259,6 +259,18 @@ static int sprite_like(const Vtx *v0, const Vtx *v1, const Vtx *v2) {
     return dudy == 0 && dvdx == 0;
 }
 
+/* DW2_PGXP_STATS=1: polygon counts (precise corners: all / some / none); the summary is also
+ * printed when the program ends, so short runs report as well */
+static unsigned long long n_all, n_some, n_none, n_poly;
+
+static void pgxp_stats_summary(void) {
+    if (n_poly) {
+        printf("[pgxp] polygons: %llu, all corners precise %.1f%%, some %.1f%%, none %.1f%%\n", n_poly,
+               100.0 * n_all / n_poly, 100.0 * n_some / n_poly, 100.0 * n_none / n_poly);
+        fflush(stdout);
+    }
+}
+
 static void polygon(const uint32_t *w, int op) {
     int quad = op & 0x08;
     int textured = op & 0x04;
@@ -336,10 +348,10 @@ static void polygon(const uint32_t *w, int op) {
             /* dw2-pc-port: DW2_PGXP_STATS=1 counts the 3D polygons by how many corners got a
                precise position (all / some / none): mixed ones are where wobble can remain */
             static int stats = -1;
-            static unsigned long long n_all, n_some, n_none, n_poly;
             if (stats < 0) {
                 const char *e = getenv("DW2_PGXP_STATS");
                 stats = e != NULL && e[0] == '1';
+                if (stats) atexit(pgxp_stats_summary);
             }
             if (stats && (PsxHd_Pgxp() || PsxHd_SmoothActive()) && !(textured && sprite_like(&v[0], &v[1], &v[2]))) {
                 int full = (1 << nv) - 1;

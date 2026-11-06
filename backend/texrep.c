@@ -56,8 +56,13 @@ static char *dump_dir;
 static uint64_t *dumped;
 static int ndumped;
 static int disabled;
-static size_t mem_used;
-static int stat_loaded, stat_failed, stat_uses;
+/* the loader thread and (tests, no thread) the game thread both count: atomic */
+static SDL_AtomicInt mem_kib; /* replacement pixels held, in KiB */
+static SDL_AtomicInt a_loaded, a_failed;
+static int stat_uses;
+#define mem_bytes() ((size_t)SDL_GetAtomicInt(&mem_kib) << 10)
+#define mem_add(n) SDL_AddAtomicInt(&mem_kib, (int)(((size_t)(n) + 1023) >> 10))
+#define stat_failed_inc() SDL_AddAtomicInt(&a_failed, 1)
 static FILE *logf_;
 
 /* [textures] lines: console and, when set, the log file */
@@ -242,8 +247,8 @@ int TexRep_Active(void) {
 }
 
 void TexRep_Stats(int *loaded, int *failed, int *uses) {
-    *loaded = stat_loaded;
-    *failed = stat_failed;
+    *loaded = SDL_GetAtomicInt(&a_loaded);
+    *failed = SDL_GetAtomicInt(&a_failed);
     *uses = stat_uses;
 }
 
@@ -301,6 +306,7 @@ static SDL_Mutex *load_lock;
 static SDL_Condition *load_cond;
 static int load_queue[LOAD_QUEUE], load_head, load_count;
 static int load_sync;
+static int load_quit; /* under load_lock */
 static SDL_AtomicInt load_pending;
 
 void TexRep_SetSyncLoad(int on) {
@@ -318,8 +324,12 @@ static int SDLCALL loader_main(void *unused) {
     for (;;) {
         int i;
         SDL_LockMutex(load_lock);
-        while (load_count == 0) {
+        while (load_count == 0 && !load_quit) {
             SDL_WaitCondition(load_cond, load_lock);
+        }
+        if (load_quit) {
+            SDL_UnlockMutex(load_lock);
+            break;
         }
         i = load_queue[load_head];
         load_head = (load_head + 1) % LOAD_QUEUE;
@@ -335,6 +345,19 @@ static int SDLCALL loader_main(void *unused) {
     return 0;
 }
 
+/* Ends the loader thread (the program is closing): no new PNG is started, the one being
+ * decoded is finished, the thread is joined. Pictures already decoded stay until the process ends;
+ * the game thread may still sample them. Afterwards load_png only answers from what is ready. */
+void TexRep_Shutdown(void) {
+    if (loader == NULL) return;
+    SDL_LockMutex(load_lock);
+    load_quit = 1;
+    SDL_SignalCondition(load_cond);
+    SDL_UnlockMutex(load_lock);
+    SDL_WaitThread(loader, NULL);
+    loader = NULL;
+}
+
 static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
     int st = SDL_GetAtomicInt(&e->state);
     TexRepImg *img;
@@ -347,6 +370,7 @@ static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
     if (st == 1) {
         return NULL; /* still loading: the original this frame */
     }
+    if (load_quit) return NULL; /* closing */
     e->bw = bw;
     e->bh = bh;
     if (load_sync || (loader == NULL && (load_lock = SDL_CreateMutex()) != NULL &&
@@ -370,6 +394,47 @@ static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
     return NULL;
 }
 
+/* Test of the loader thread's life: queue one PNG, wait for the result, end the thread, ask once
+ * more. Returns 0 when everything held (1 not decoded in time, 2 pending count wrong, 3 a request
+ * after the shutdown was not refused, 4 no picture). */
+int TexRep_SelfTestLoader(const char *png, int bw, int bh) {
+    int k = 0, id, was_sync = load_sync;
+    Uint64 t0;
+    TexRepImg *img = NULL;
+
+    alloc_tables();
+    load_sync = 0;
+    add_entry("selftest_loader", png);
+    id = find_entry("selftest_loader");
+    if (id < 0) {
+        load_sync = was_sync;
+        return 4;
+    }
+    (void)load_png(&entries[id], bw, bh, &k); /* queues */
+    t0 = SDL_GetTicks();
+    while (SDL_GetTicks() - t0 < 10000 && (img = load_png(&entries[id], bw, bh, &k)) == NULL &&
+           SDL_GetAtomicInt(&entries[id].state) != 2) {
+        SDL_Delay(2);
+    }
+    if (img == NULL) {
+        load_sync = was_sync;
+        return SDL_GetAtomicInt(&entries[id].state) == 2 ? 4 : 1;
+    }
+    if (TexRep_Pending() != 0) {
+        load_sync = was_sync;
+        return 2;
+    }
+    TexRep_Shutdown();
+    SDL_SetAtomicInt(&entries[id].state, 0);
+    entries[id].img = NULL;
+    if (load_png(&entries[id], bw, bh, &k) != NULL || SDL_GetAtomicInt(&entries[id].state) != 0) {
+        load_sync = was_sync;
+        return 3;
+    }
+    load_sync = was_sync;
+    return 0;
+}
+
 static TexRepImg *decode_png(Entry *e, int bw, int bh) {
     SDL_Surface *s, *c;
     TexRepImg *img;
@@ -377,20 +442,20 @@ static TexRepImg *decode_png(Entry *e, int bw, int bh) {
     s = SDL_LoadPNG(e->path);
     if (s == NULL) {
         tlog("%s: cannot read (%s), original kept\n", e->path, SDL_GetError());
-        stat_failed++;
+        stat_failed_inc();
         return NULL;
     }
     if (s->w % bw || s->h % bh || s->w / bw != s->h / bh || s->w / bw < 1 || s->w / bw > 16) {
         tlog("%s: %dx%d is not 1..16 times the texture (%dx%d), original kept\n", e->path, s->w, s->h,
                bw, bh);
         SDL_DestroySurface(s);
-        stat_failed++;
+        stat_failed_inc();
         return NULL;
     }
-    if (mem_used + (size_t)s->w * (size_t)s->h * 4 > MEM_LIMIT) {
+    if (mem_bytes() + (size_t)s->w * (size_t)s->h * 4 * 4 / 3 > MEM_LIMIT) /* with the mip levels */ {
         tlog("%s: over the memory limit (%u MiB), original kept\n", e->path, (unsigned)(MEM_LIMIT >> 20));
         SDL_DestroySurface(s);
-        stat_failed++;
+        stat_failed_inc();
         return NULL;
     }
     c = SDL_ConvertSurface(s, SDL_PIXELFORMAT_ARGB8888);
@@ -405,7 +470,7 @@ static TexRepImg *decode_png(Entry *e, int bw, int bh) {
                 memcpy(img->px + (size_t)y * (size_t)c->w, (uint8_t *)c->pixels + (size_t)y * (size_t)c->pitch,
                        (size_t)c->w * 4);
             }
-            mem_used += (size_t)c->w * (size_t)c->h * 4;
+            mem_add((size_t)c->w * (size_t)c->h * 4);
         } else {
             free(img);
             img = NULL;
@@ -414,7 +479,7 @@ static TexRepImg *decode_png(Entry *e, int bw, int bh) {
     SDL_DestroySurface(c);
     if (img == NULL) {
         tlog("%s: out of memory, original kept\n", e->path);
-        stat_failed++;
+        stat_failed_inc();
         return NULL;
     }
     img->nlev = 1;
@@ -427,7 +492,7 @@ static TexRepImg *decode_png(Entry *e, int bw, int bh) {
             int L = img->nlev, pw = img->lev[L - 1].w, ph = img->lev[L - 1].h, w = pw / 2, h = ph / 2;
             const uint32_t *src = img->lev[L - 1].px;
             uint32_t *dst = malloc((size_t)w * (size_t)h * 4);
-            if (dst == NULL || mem_used + (size_t)w * h * 4 > MEM_LIMIT) {
+            if (dst == NULL || mem_bytes() + (size_t)w * h * 4 > MEM_LIMIT) {
                 free(dst);
                 break;
             }
@@ -449,14 +514,14 @@ static TexRepImg *decode_png(Entry *e, int bw, int bh) {
                                                              : 0xFF000000u | (r / n) << 16 | (g / n) << 8 | (b / n);
                 }
             }
-            mem_used += (size_t)w * h * 4;
+            mem_add((size_t)w * h * 4);
             img->lev[L].w = w;
             img->lev[L].h = h;
             img->lev[L].px = dst;
             img->nlev++;
         }
     }
-    stat_loaded++;
+    SDL_AddAtomicInt(&a_loaded, 1);
     tlog("%s: %dx%d (%dx, %d levels)\n", e->path, img->w, img->h, img->w / bw, img->nlev);
     return img;
 }

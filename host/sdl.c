@@ -5,6 +5,7 @@
 #include "backend/psxgpu.h"
 #include "backend/pgxp.h"
 #include "backend/psxgpu_hd.h"
+#include "backend/texrep.h"
 #include "host/host.h"
 #include "host/host_sdl.h"
 #ifndef _WIN32
@@ -1157,21 +1158,23 @@ void Host_GameEvents(void) {
     if (Settings_Get(SET_SCALE) == 0 && !PsxHd_Gpu()) {
         extern int Host_GameLateEvents(void);
         static int seen_ev;
-        static Uint64 last_ev_ns;
+        static Uint64 last_ev_ns, last_up_ns, first_ns;
+        static Uint64 recover_ns = 60000000000ull; /* quiet time before a step up; doubles after a failed one */
         int ev = Host_GameLateEvents();
+        Uint64 now = SDL_GetTicksNS();
 
+        if (first_ns == 0) {
+            first_ns = now;
+        }
         if (ev != seen_ev) {
-            Uint64 now = SDL_GetTicksNS();
-
             /* late again within 20 s of the last time (the pause alone did not help), or late in
                the first 15 s of the run (the start scale is too high for this computer: step down
                at once, so the sound does not run dry while it settles) */
-            static Uint64 first_ns;
-            if (first_ns == 0) {
-                first_ns = now;
-            }
             if (((last_ev_ns != 0 && now - last_ev_ns < 20000000000ull) || now - first_ns < 15000000000ull) &&
                 PsxHd_Scale() > 2) {
+                if (last_up_ns != 0 && now - last_up_ns < 20000000000ull && recover_ns < 960000000000ull) {
+                    recover_ns *= 2; /* the step up did not hold: wait longer next time */
+                }
                 perf_cap = PsxHd_Scale() - 1;
                 PsxHd_SetScale(perf_cap);
                 printf("[gpu] auto scale %dx for game speed (the game thread was late)\n", perf_cap);
@@ -1179,6 +1182,17 @@ void Host_GameEvents(void) {
             }
             last_ev_ns = now;
             seen_ev = ev;
+        } else if (perf_cap < PSXHD_MAX_SCALE && now - (last_ev_ns > last_up_ns ? last_ev_ns : last_up_ns) > recover_ns &&
+                   now - first_ns > recover_ns) {
+            /* recovery: nothing was late for a long time, so try one step more (the cap lifts one
+               step; the window's own size still limits it) */
+            perf_cap++;
+            last_up_ns = now;
+            if (Host_ResolveScale(0) > PsxHd_Scale()) {
+                PsxHd_SetScale(Host_ResolveScale(0));
+                printf("[gpu] auto scale %dx again (no late frames for %.0f s)\n", PsxHd_Scale(), recover_ns / 1e9);
+                fflush(stdout);
+            }
         }
     }
     if (Settings_Get(SET_SCALE) == 0) {
@@ -1322,6 +1336,7 @@ void Host_Shutdown(void) {
     }
     Settings_Flush();
     Ui_Shutdown();
+    TexRep_Shutdown();
     Host_AudioClose();
     Host_InputClose();
     for (i = 0; i < SLOTS; i++) {

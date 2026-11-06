@@ -64,6 +64,20 @@ int Host_AudioVoiceIsMusic(int voice) {
 
 #define AUDIO_RATE 44100
 #define FRAME_BYTES 4                                  /* s16 stereo */
+/* dw2-pc-port: what is audible. The stream's queue being empty when the game thread looks is not
+ * a dropout: the device has its own buffer. The device asks the stream for more data than it
+ * holds (additional_amount > 0) only when it must play silence, so these calls are counted,
+ * with the missing time. Written on the audio thread, read by the game thread. */
+static SDL_AtomicInt gap_events, gap_bytes;
+
+static void SDLCALL on_device_wants(void *user, SDL_AudioStream *st, int additional, int total) {
+    (void)user; (void)st; (void)total;
+    if (additional > 0) {
+        SDL_AddAtomicInt(&gap_events, 1);
+        SDL_AddAtomicInt(&gap_bytes, additional);
+    }
+}
+
 #define QUEUE_BYTES (4 * (AUDIO_RATE * 1001 / 60000 + 1) * FRAME_BYTES)
 
 static SDL_AudioStream *stream;
@@ -115,6 +129,7 @@ void Host_AudioOpen(void) {
         printf("[audio] no audio device: %s\n", SDL_GetError());
         return;
     }
+    SDL_SetAudioStreamGetCallback(stream, on_device_wants, NULL);
     Host_AudioSetVolume(Settings_Get(SET_VOLUME));
     Host_AudioFeed();
     SDL_ResumeAudioStreamDevice(stream);
@@ -145,20 +160,26 @@ void Host_AudioFeed(void) {
     }
     queued = SDL_GetAudioStreamQueued(stream);
     {
-        /* dw2-pc-port: an underrun (the queue ran dry: the game thread was late) is counted; the
-           log line shows whether sound and picture stayed together */
+        /* dw2-pc-port: every 10 s the log says how many AUDIBLE gaps (silence played because the
+           device found the stream short, see on_device_wants) there were and how long, and how
+           often the game thread found the queue empty (only a warning: the device buffer may
+           still have covered it) */
         static Uint64 last_log;
         static unsigned dry;
+        Uint64 now = SDL_GetTicksNS();
         if (queued == 0) {
             dry++;
         }
-        Uint64 now = SDL_GetTicksNS();
-        if (dry && now - last_log > 10000000000ull) {
-            printf("[audio] queue ran dry %u times in the last %.0f s\n", dry, last_log ? (now - last_log) / 1e9 : 0.0);
-            fflush(stdout);
-            dry = 0;
+        if (last_log == 0) {
             last_log = now;
-        } else if (last_log == 0) {
+        } else if (now - last_log > 10000000000ull) {
+            int ev = SDL_SetAtomicInt(&gap_events, 0), by = SDL_SetAtomicInt(&gap_bytes, 0);
+            if (ev || dry) {
+                printf("[audio] last %.0f s: %d audible gaps (%.0f ms of silence), queue empty %u times\n",
+                       (now - last_log) / 1e9, ev, by * 1000.0 / (AUDIO_RATE * FRAME_BYTES), dry);
+                fflush(stdout);
+            }
+            dry = 0;
             last_log = now;
         }
     }

@@ -40,7 +40,7 @@ Ausgangspunkt: PR #1 (`codex/modern-fonts`, Exo 2 / Orbitron Bold / Roboto Mono)
 | `hd_test` | 0 Fehler, GPU-Teil übersprungen (hier kein Vulkan); in der CI auf lavapipe | 0 Fehler, GPU-Teil übersprungen |
 | `save_test` | 9/9 | 9/9 |
 | `cheat_test` (exe, pak, card, work) | 31/31 | 31/31 |
-| `domains_test` | nicht verwertbar: mit dem Release-Build gestartet; der Test warpt über `--devedit`, das gibt es nur im Entwickler-Build (alle 33 Domänen „no dungeon after the warp“) | läuft mit dem Entwickler-Build (Ergebnis folgt) |
+| `domains_test` | nicht verwertbar: mit dem Release-Build gestartet; der Test warpt über `--devedit`, das gibt es nur im Entwickler-Build (alle 33 Domänen „no dungeon after the warp“) | Entwickler-Build: 33/33 Domänen geladen, 0 Fehler, 36 Kämpfe begonnen und 36 beendet |
 
 Frühere Ergebnisse (8102fff, vor dieser Runde): Referenzbilder 6/6, `fonts_test`, textscript 90/90, Speichertest 9/9, Cheattest 31/31.
 

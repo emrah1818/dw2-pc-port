@@ -11,7 +11,7 @@ Damage, the attack name banners, WIN / LOSE and the result screen (EXP, LEVEL UP
                     [--seed N] [--extra "ARGS"]
 
 --mode win: level 2 Digimon with full HP and weak attacks (long battles, a level up at the end);
---mode lose: level 1 Digimon with 1 HP (LOSE, GAME OVER).
+--mode lose: level 1 Digimon with 1 HP and full MP (LOSE, GAME OVER).
 Pictures: WORK/shots/bNN_WWWWW_display.png (and _hd.png with --hd); WORK/battle_words.log lists
 the battles and the waits of each picture."""
 import argparse
@@ -39,6 +39,10 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--limit", type=int, default=9000, help="waits per battle")
     ap.add_argument("--hd", action="store_true")
+    ap.add_argument("--attack", type=int, default=40, help="attack of the test Digimon (--mode win)")
+    ap.add_argument("--plan", default="lists",
+                    help="keys of each battle's first round, comma separated; 'lists': battle k takes the "
+                         "list in direction k for all three Digimon (Interrupt, Counter Attack, Assist); empty: random")
     ap.add_argument("--extra", default="")
     a = ap.parse_args()
     rnd = random.Random(a.seed)
@@ -72,6 +76,23 @@ def main():
                     alive += 1
             return alive == 0
 
+        plan = a.plan
+        if plan == "lists":
+            # battle k: all three Digimon take the list in direction k (Right, Down, Down+Right)
+            d = [["Right"], ["Down"], ["Down", "Right"]][k % 3]
+            plan = ",".join(["Cross"] + (["Cross"] + d + ["Cross", "Cross", "Cross"]) * 3)
+        if plan:
+            # first round: Give Orders, then per Digimon Fight and one of the four lists (the
+            # list menu: Attack top left, Interrupt right, Counter Attack below, Assist below right)
+            g.run(240)
+            log.write("battle %d plan %s\n" % (k, plan))
+            for b in plan.split(","):
+                if policy.table(g.mode()) != 5:
+                    break
+                g.tap(b, 3, 30)
+                if g.wait - last >= a.every:
+                    shot(k)
+                    last = g.wait
         while policy.table(g.mode()) == 5 and g.wait - start < limit:
             if g.wait - start > 600 and enemies_down():
                 break  # won: the rest (WIN, the result) without random keys
@@ -100,9 +121,9 @@ def main():
         load_slot1(g)
         g.run(240)
         if a.mode == "win":
-            spec = "adddigi=%d,2,99,999,999,40,700,300"
+            spec = "adddigi=%%d,2,99,999,999,%d,700,300" % a.attack
         else:
-            spec = "adddigi=%d,1,99,1,1,1,1,1"
+            spec = "adddigi=%d,1,99,1,999,1,1,1"
         for slot in range(3):  # the party: slots 0..2 replaced by the test Digimon
             g.poke("Save_GameState", 0xE4 + slot * 0x5C, bytes([0]))
         for sp in (3, 4, 5):
@@ -111,6 +132,11 @@ def main():
         for slot in range(3):
             if g.u8("Save_GameState", 0xE4 + slot * 0x5C) != 0:
                 g.poke("Save_GameState", 0xE4 + slot * 0x5C, bytes([3 + slot]))
+            # one attack of each other kind (WAZADATA type 1 interrupt, 2 counter, 3 assist), so
+            # the commands Interrupt / Counter Attack / Assist can be chosen
+            for k, sk in ((1, 0x82), (2, 0xA0), (3, 0xB9)):
+                g.devedit("skill=%d,%d,0x%x" % (slot, k, sk))
+                g.run(6)
         for _ in range(30):
             g.devedit("warp=0x200,%d" % a.domain)
             g.run(60)

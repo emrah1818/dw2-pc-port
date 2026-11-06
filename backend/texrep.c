@@ -9,16 +9,26 @@
 #include "backend/psxgpu.h"
 #include "backend/texrep.h"
 
+#define MAX_LEVELS 5 /* 16x, 8x, 4x, 2x, 1x */
+
 struct TexRepImg {
     int w, h;
     uint32_t *px; /* 0xAARRGGBB */
+    /* dw2-pc-port: halved copies for a power-of-two factor (level 0 = px), averaged with alpha:
+       each output pixel reads the level that matches the HD renderer's scale */
+    int nlev;
+    struct {
+        int w, h;
+        uint32_t *px;
+    } lev[MAX_LEVELS];
 };
 
 typedef struct {
     char name[64]; /* file name, lower case, without ".png" */
     char *path;
-    TexRepImg *img;
-    int tried;
+    TexRepImg *img;      /* set by the loader once the picture is complete */
+    SDL_AtomicInt state; /* 0 not asked for, 1 queued for the loader, 2 done (img or failed) */
+    int bw, bh;          /* the texture size it must be a multiple of (set when queued) */
 } Entry;
 
 typedef struct {
@@ -282,15 +292,88 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     nuploads++;
 }
 
+/* dw2-pc-port: PNGs are decoded on a loader thread. A large pack (16x textures of 8 MB and more)
+ * took seconds on the game thread at a texture's first use; now the game draws the original
+ * texture until the replacement is ready (a few frames) and never waits. Tests load at once. */
+#define LOAD_QUEUE 4096
+static SDL_Thread *loader;
+static SDL_Mutex *load_lock;
+static SDL_Condition *load_cond;
+static int load_queue[LOAD_QUEUE], load_head, load_count;
+static int load_sync;
+static SDL_AtomicInt load_pending;
+
+void TexRep_SetSyncLoad(int on) {
+    load_sync = on != 0;
+}
+
+int TexRep_Pending(void) {
+    return SDL_GetAtomicInt(&load_pending);
+}
+
+static TexRepImg *decode_png(Entry *e, int bw, int bh);
+
+static int SDLCALL loader_main(void *unused) {
+    (void)unused;
+    for (;;) {
+        int i;
+        SDL_LockMutex(load_lock);
+        while (load_count == 0) {
+            SDL_WaitCondition(load_cond, load_lock);
+        }
+        i = load_queue[load_head];
+        load_head = (load_head + 1) % LOAD_QUEUE;
+        load_count--;
+        SDL_UnlockMutex(load_lock);
+        {
+            TexRepImg *img = decode_png(&entries[i], entries[i].bw, entries[i].bh);
+            SDL_SetAtomicPointer((void **)&entries[i].img, img);
+            SDL_SetAtomicInt(&entries[i].state, 2);
+            SDL_AddAtomicInt(&load_pending, -1);
+        }
+    }
+    return 0;
+}
+
 static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
+    int st = SDL_GetAtomicInt(&e->state);
+    TexRepImg *img;
+
+    if (st == 2) {
+        img = (TexRepImg *)SDL_GetAtomicPointer((void **)&e->img);
+        if (img != NULL) *k = img->w / bw;
+        return img;
+    }
+    if (st == 1) {
+        return NULL; /* still loading: the original this frame */
+    }
+    e->bw = bw;
+    e->bh = bh;
+    if (load_sync || (loader == NULL && (load_lock = SDL_CreateMutex()) != NULL &&
+                      (load_cond = SDL_CreateCondition()) != NULL &&
+                      (loader = SDL_CreateThread(loader_main, "texrep", NULL)) == NULL)) {
+        img = decode_png(e, bw, bh); /* tests, or no thread: at once */
+        e->img = img;
+        SDL_SetAtomicInt(&e->state, 2);
+        if (img != NULL) *k = img->w / bw;
+        return img;
+    }
+    SDL_LockMutex(load_lock);
+    if (load_count < LOAD_QUEUE) {
+        load_queue[(load_head + load_count) % LOAD_QUEUE] = (int)(e - entries);
+        load_count++;
+        SDL_SetAtomicInt(&e->state, 1);
+        SDL_AddAtomicInt(&load_pending, 1);
+        SDL_SignalCondition(load_cond);
+    }
+    SDL_UnlockMutex(load_lock);
+    return NULL;
+}
+
+static TexRepImg *decode_png(Entry *e, int bw, int bh) {
     SDL_Surface *s, *c;
     TexRepImg *img;
 
-    if (e->tried) {
-        if (e->img != NULL) *k = e->img->w / bw;
-        return e->img;
-    }
-    e->tried = 1;
     s = SDL_LoadPNG(e->path);
     if (s == NULL) {
         tlog("%s: cannot read (%s), original kept\n", e->path, SDL_GetError());
@@ -334,10 +417,47 @@ static TexRepImg *load_png(Entry *e, int bw, int bh, int *k) {
         stat_failed++;
         return NULL;
     }
-    e->img = img;
+    img->nlev = 1;
+    img->lev[0].w = img->w;
+    img->lev[0].h = img->h;
+    img->lev[0].px = img->px;
+    {
+        int k = img->w / bw;
+        while ((k & (k - 1)) == 0 && k >> img->nlev >= 1 && img->nlev < MAX_LEVELS) {
+            int L = img->nlev, pw = img->lev[L - 1].w, ph = img->lev[L - 1].h, w = pw / 2, h = ph / 2;
+            const uint32_t *src = img->lev[L - 1].px;
+            uint32_t *dst = malloc((size_t)w * (size_t)h * 4);
+            if (dst == NULL || mem_used + (size_t)w * h * 4 > MEM_LIMIT) {
+                free(dst);
+                break;
+            }
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    unsigned r = 0, g = 0, b = 0, a = 0, n = 0;
+                    for (int q = 0; q < 4; q++) {
+                        uint32_t p = src[(size_t)(2 * y + (q >> 1)) * pw + (size_t)(2 * x + (q & 1))];
+                        a += p >> 24;
+                        if ((p >> 24) >= 128) {
+                            r += (p >> 16) & 255;
+                            g += (p >> 8) & 255;
+                            b += p & 255;
+                            n++;
+                        }
+                    }
+                    /* transparent where most of the four are */
+                    dst[(size_t)y * w + x] = n == 0 || n < 2 ? (uint32_t)(a / 4) << 24 & 0x7F000000u
+                                                             : 0xFF000000u | (r / n) << 16 | (g / n) << 8 | (b / n);
+                }
+            }
+            mem_used += (size_t)w * h * 4;
+            img->lev[L].w = w;
+            img->lev[L].h = h;
+            img->lev[L].px = dst;
+            img->nlev++;
+        }
+    }
     stat_loaded++;
-    *k = img->w / bw;
-    tlog("%s: %dx%d (%dx)\n", e->path, img->w, img->h, *k);
+    tlog("%s: %dx%d (%dx, %d levels)\n", e->path, img->w, img->h, img->w / bw, img->nlev);
     return img;
 }
 
@@ -432,19 +552,104 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
     return 0;
 }
 
+/* dw2-pc-port: the HD renderer's scale. A replacement k times the texture drawn at scale S < k
+ * gives each output pixel about k / S replacement pixels: they are averaged (at most 4 x 4), so a
+ * large PNG does not shimmer at a lower internal resolution. */
+static int out_scale = 1;
+
+void TexRep_SetScale(int s) {
+    out_scale = s < 1 ? 1 : s;
+}
+
 int TexRep_Sample(const TexRepUse *use, int fu, int fv) {
-    const TexRepImg *img = use->img;
-    int k = use->k;
+    const TexRepImg *img0 = use->img;
+    int k = use->k, L = 0;
+    while (L + 1 < img0->nlev && (k >> (L + 1)) >= out_scale) {
+        L++; /* the level with about one replacement pixel per output pixel */
+    }
+    k >>= L;
+    struct {
+        int w, h;
+        const uint32_t *px;
+    } lv = { img0->lev[L].w, img0->lev[L].h, img0->lev[L].px }, *img = &lv;
     int hx = (int)(((int64_t)fu * k) >> 8), hy = (int)(((int64_t)fv * k) >> 8);
     int x0 = use->umin * k, x1 = (use->umax + 1) * k - 1, y0 = use->vmin * k, y1 = (use->vmax + 1) * k - 1;
+    int n = k / out_scale;
     uint32_t p;
 
     hx = hx < x0 ? x0 : hx > x1 ? x1 : hx; /* inside the primitive's texels: no atlas bleeding */
     hy = hy < y0 ? y0 : hy > y1 ? y1 : hy;
+    if (n >= 2) {
+        /* the block of the output pixel, kept inside the primitive's texels */
+        unsigned r = 0, g = 0, b = 0, cnt = 0, all = 0;
+        n = n > 4 ? 4 : n;
+        hx -= hx - x0 >= n / 2 ? n / 2 : hx - x0;
+        hy -= hy - y0 >= n / 2 ? n / 2 : hy - y0;
+        for (int dy = 0; dy < n; dy++) {
+            for (int dx = 0; dx < n; dx++) {
+                int sx = hx + dx > x1 ? x1 : hx + dx, sy = hy + dy > y1 ? y1 : hy + dy;
+                sx += use->du * k;
+                sy += use->dv * k;
+                if (sx < 0 || sy < 0 || sx >= img->w || sy >= img->h) continue;
+                p = img->px[(size_t)sy * (size_t)img->w + (size_t)sx];
+                all++;
+                if ((p >> 24) < 128) continue;
+                r += (p >> 16) & 255;
+                g += (p >> 8) & 255;
+                b += p & 255;
+                cnt++;
+            }
+        }
+        if (cnt == 0 || cnt * 2 < all) return -1; /* mostly transparent there */
+        r /= cnt;
+        g /= cnt;
+        b /= cnt;
+        return (int)((r >> 3) | (g >> 3) << 5 | (b >> 3) << 10);
+    }
     hx += use->du * k;
     hy += use->dv * k;
     if (hx < 0 || hy < 0 || hx >= img->w || hy >= img->h) return -1;
     p = img->px[(size_t)hy * (size_t)img->w + (size_t)hx];
     if ((p >> 24) < 128) return -1;
     return (int)(((p >> 19) & 31) | ((p >> 11) & 31) << 5 | ((p >> 3) & 31) << 10);
+}
+
+/* tests/hd_test.c: a 16x replacement of one texel with a one-pixel checkerboard (black / white).
+ * Drawn at scale 4 (four replacement pixels per output pixel), every sample is the averaged grey;
+ * at scale 16 (one per output pixel), the samples are black or white as in the PNG.
+ * Returns the number of wrong samples. */
+int TexRep_SelfTestAverage(void) {
+    static uint32_t px[16 * 16];
+    TexRepImg img;
+    TexRepUse use;
+    int bad = 0, keep = out_scale;
+
+    for (int y = 0; y < 16; y++) {
+        for (int x = 0; x < 16; x++) {
+            px[y * 16 + x] = (x + y) & 1 ? 0xFFFFFFFFu : 0xFF000000u;
+        }
+    }
+    memset(&img, 0, sizeof(img));
+    img.w = 16;
+    img.h = 16;
+    img.px = px;
+    img.nlev = 1; /* no halved copies: the block averaging alone */
+    img.lev[0].w = 16;
+    img.lev[0].h = 16;
+    img.lev[0].px = px;
+    memset(&use, 0, sizeof(use));
+    use.img = &img;
+    use.k = 16;
+    TexRep_SetScale(4);
+    for (int i = 0; i < 16; i++) {
+        int c = TexRep_Sample(&use, i * 16, (15 - i) * 16), r = c & 31;
+        bad += c < 0 || r < 14 || r > 17; /* 15.5 of 31: grey */
+    }
+    TexRep_SetScale(16);
+    for (int i = 0; i < 16; i++) {
+        int c = TexRep_Sample(&use, i * 16 + 8, 8), r = c & 31;
+        bad += c < 0 || r != (i & 1 ? 31 : 0);
+    }
+    TexRep_SetScale(keep);
+    return bad;
 }

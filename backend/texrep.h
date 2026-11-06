@@ -58,6 +58,10 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
 
 /* The replacement colour at (fu, fv) (texture page texels, 8.8 fixed point): PS1 15-bit BGR
  * without mask bit, or -1 when the replacement pixel is transparent. Thread safe (read only). */
+void TexRep_SetScale(int s); /* the HD renderer scale (block averaging of large PNGs) */
+int TexRep_SelfTestAverage(void);
+void TexRep_SetSyncLoad(int on); /* tests: decode PNGs on the calling thread (default: loader thread) */
+int TexRep_Pending(void);         /* replacements still being decoded */ /* tests: wrong samples of the averaging (0 = right) */
 int TexRep_Sample(const TexRepUse *use, int fu, int fv);
 
 #endif

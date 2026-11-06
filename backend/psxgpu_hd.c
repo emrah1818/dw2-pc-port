@@ -373,6 +373,7 @@ void PsxHd_SetScale(int s) {
         scale = s;
         serial++;
     }
+    TexRep_SetScale(scale);
 }
 
 void PsxHd_SetTexFilter(int on) {

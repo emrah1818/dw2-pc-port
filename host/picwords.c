@@ -264,6 +264,25 @@ static int letter(const char *g, uint8_t out[15][16]) {
         }
         for (int y = 0; y < 15; y++) for (int x = 0; x < 16; x++) out[y][x] = (uint8_t)(b[y][x + 2] == 2);
     }
+    if (ch == 'a' || ch == 'g' || ch == 'i') {
+        /* the font's a (a closed loop like o), g (like 9) and i (its dot joins the stem once
+           outlined) in the same strokes, rows 2..14 of the cell */
+        static const char *const ga[13] = { "", "", "", "", ".#######....", ".......##...", "..#######...",
+                                            ".##....##...", ".##....##...", ".##...###...", "..#####.##..", "", "" };
+        static const char *const gg[13] = { "", "", "", "", "..#######...", ".##....##...", ".##....##...",
+                                            ".##....##...", "..#######...", ".......##...", ".......##...",
+                                            ".##....##...", "..######...." };
+        static const char *const gi[13] = { "...##.......", "...##.......", "", "", "...##.......", "...##.......",
+                                            "...##.......", "...##.......", "...##.......", "...##.......", "...##.......",
+                                            "", "" };
+        const char *const *g2 = ch == 'a' ? ga : ch == 'g' ? gg : gi;
+        memset(out, 0, 15 * 16);
+        for (int y = 0; y < 13; y++) {
+            for (int x = 0; g2[y][x] && x < 12; x++) {
+                out[y + 2][x] = (uint8_t)(g2[y][x] == '#');
+            }
+        }
+    }
     if (ch == 'm' || ch == 'w' || ch == 'W') {
         /* three strokes with one-pixel gaps (m, w, W): enlarged, the gaps close and m reads as o;
            the same strokes two pixels apart (m: rows 6..12 like the font's small letters) */
@@ -291,8 +310,8 @@ static int letter(const char *g, uint8_t out[15][16]) {
            as A and H once enlarged: the same 2-pixel strokes as the other capitals, with the
            diagonals drawn out (rows 2..12 like the font's capitals) */
         static const char *const gm[11] = {
-            ".##......##.", ".###....###.", ".####..####.", ".##.####.##.", ".##..##..##.", ".##......##.",
-            ".##......##.", ".##......##.", ".##......##.", ".##......##.", ".##......##." };
+            ".##......##.", ".###....###.", ".####..####.", ".##.#..#.##.", ".##.####.##.", ".##..##..##.",
+            ".##..##..##.", ".##......##.", ".##......##.", ".##......##.", ".##......##." };
         static const char *const gn[11] = {
             ".##....##...", ".###...##...", ".####..##...", ".##.#..##...", ".##.##.##...", ".##..#.##...",
             ".##..####...", ".##...###...", ".##....##...", ".##....##...", ".##....##..." };
@@ -512,7 +531,7 @@ static int paint1(Tex *t, const Cell *c, int n, const Words *w, double min_sq) {
     static uint8_t orig[CW * CH], mask[CW * CH], dist[CW * CH], text[CW * CH];
     static int hist[CH][MAXD + 1][256];
     int x0 = 99999, x1 = -99999, y0 = 99999, y1 = -99999, cw, ch, color[CH][MAXD + 1], all[MAXD + 1];
-    int r = 1, maxd = 0, top = CH, bottom = -1, width, nmax = 0;
+    int r = 1, maxd = 0, top = CH, bottom = -1, width, nmax = 0, thick = 0;
 
     if (n <= 0) {
         return 0;
@@ -599,15 +618,28 @@ static int paint1(Tex *t, const Cell *c, int n, const Words *w, double min_sq) {
     {
         double sc = (double)(bottom - top + 1) / 15.0;
         int r0 = 1; /* a thicker outline closes the letters' counters */
-        (void)sc;
+        /* (thick: one pixel thicker strokes, tried for the attack banners: closed the letters; off) */
+        thick = 0;
         width = -1;
+        if (!w->narrow && sc > 1.6) {
+            /* tall pictures with long words (attack banners): lower letters rather than squeezing
+               them to half their width; squeezed that far, the letters' insides smeared into a
+               second, smaller text. Letters at most 20 % narrower, as tall as that allows, centred. */
+            int full = bottom - top + 1 - 2 * r0;
+            for (int h = full; h >= 15 && width <= 0; h--) {
+                int off = (full - h) / 2;
+                width = set_text(w->text, text, CW, CH, top + r0 + off, h, cw - 2 * r0 - 2, w->italic, 2 * r0, 0.8, 0);
+            }
+            r = r0;
+        }
         for (int pass = 0; pass < 2 && width <= 0; pass++) {
             for (r = r0; r >= 1 && width <= 0; r--) {
                 int cell_h = bottom - top + 1 - 2 * r;
                 if (cell_h < 7) {
                     continue;
                 }
-                width = set_text(w->text, text, CW, CH, top + r, cell_h, cw - 2 * r - 2, w->italic, pass ? r : 2 * r,
+                width = set_text(w->text, text, CW, CH, top + r + thick, cell_h - 2 * thick, cw - 2 * r - 2 - 2 * thick,
+                                 w->italic, (pass ? r : 2 * r) + 2 * thick,
                                  pass ? (w->narrow ? 0.0 : min_sq) : (w->narrow ? 0.3 : 0.6), w->narrow);
                 if (width > 0) {
                     break;
@@ -616,6 +648,27 @@ static int paint1(Tex *t, const Cell *c, int n, const Words *w, double min_sq) {
         }
         if (width <= 0) {
             return 0;
+        }
+        if (thick) {
+            static uint8_t t2[CW * CH];
+            memcpy(t2, text, sizeof(t2));
+            for (int y = 0; y < ch; y++) {
+                for (int x = 0; x < CW; x++) {
+                    if (t2[y * CW + x]) {
+                        continue;
+                    }
+                    for (int dy = -1; dy <= 1 && !text[y * CW + x]; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int xx = x + dx, yy = y + dy;
+                            if (xx >= 0 && yy >= 0 && xx < CW && yy < ch && t2[yy * CW + xx]) {
+                                text[y * CW + x] = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            width += 2;
         }
         if (getenv("DW2_PICMASK") != NULL && strcmp(getenv("DW2_PICMASK"), w->text) == 0) {
             printf("[picmask] %s r %d maxd %d cw %d ch %d top %d bottom %d\n", w->text, r, maxd, cw, ch, top, bottom);
@@ -753,13 +806,13 @@ static const Pic pics[] = {
     { 0x1A0, 3, 0, 1, { "Verfehlt", 1, 0 } },           /* Missed */
     { 0x1A0, 4, 0, 1, { "Attacke", 1, 0 } },            /* Attack (also the right half of Counter Attack) */
     { 0x1A0, 5, 0, 1, { "Konter", 1, 1 } },             /* Counter (Counter Attack: "Konter Attacke") */
-    { 0x1A0, 6, 0, 1, { "Unterbrechen", 1, 0 } },       /* Interrupt */
+    { 0x1A0, 6, 0, 1, { "Unterbrechen", 1, 0, 1 } },       /* Interrupt */
     { 0x1A0, 7, 0, 1, { "Hilfe", 1, 0 } },              /* Assist */
     { 0x1A0, 8, 0, 1, { "Abwehr", 1, 0 } },             /* Guard */
     { 0x1A0, 10, 0, 1, { "Willst du", 1, 0, 1 } },         /* Do you want to */
-    { 0x1A0, 10, 1, 1, { "unterbrechen?", 1, 0 } },     /* interrupt? */
-    { 0x1A0, 1, 0, 1, { "Ja", 1, 0 } },                 /* Yes */
-    { 0x1A0, 2, 0, 1, { "Nein", 1, 0 } },               /* No */
+    { 0x1A0, 10, 1, 1, { "unterbrechen?", 1, 0, 1 } },     /* interrupt? */
+    { 0x1A0, 1, 0, 1, { "Ja", 1, 0, 1 } },                 /* Yes */
+    { 0x1A0, 2, 0, 1, { "Nein", 1, 0, 1 } },               /* No */
     /* battle words (file 0x13B) */
     { 0x13B, 2, 0, 1, { "Schaden", 1, 0, 1 } },            /* Damage */
     { 0x13B, 3, 0, 1, { "ZIEL", 0, 0 } },               /* TARGET */

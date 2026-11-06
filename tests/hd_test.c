@@ -275,6 +275,7 @@ static void texture_pack_tests(int scale, const uint32_t *orig, int w) {
         snprintf(path, sizeof(path), "%s/not-a-texture.png", pack);
         write_png(path, 8, 8, 0);
     }
+    TexRep_SetSyncLoad(1); /* the replacement in the first picture */
     TexRep_AddRoot(root);
     check(TexRep_Count() == 3, "textures: 3 files with texture names found, the other name skipped");
     hd = render(0, 0, 0, scale, &wh, &hh);
@@ -468,6 +469,12 @@ int main(int argc, char **argv) {
     check(diff_count(soft[0], soft[2], w, scale, 10, 10, 300, 135, 0) == 0, "soft: 2D smoothing leaves the 3D quads");
 
     texture_pack_tests(scale, soft[0], w);
+    {
+        int bad = TexRep_SelfTestAverage();
+        char what[160];
+        snprintf(what, sizeof(what), "textures: a 16x replacement averaged at scale 4, exact at scale 16 (%d of 32 samples off)", bad);
+        check(bad == 0, what);
+    }
 
     dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, NULL);
     if (dev != NULL && PsxHw_Init(dev)) {

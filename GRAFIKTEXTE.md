@@ -29,7 +29,7 @@ Spalten: **Ort** = Datei:Eintrag der Bildliste; **Form** = wie das Bild entsteht
 | Guard | Abwehr | 0x1A0:8 | kursiv | im Spiel (1.6.0) |
 | Do you want to / interrupt? | Willst du / unterbrechen? | 0x1A0:10 | kursiv, zwei Zeilen, schmale Schrift | Textur |
 | Yes / No | Ja / Nein | 0x1A0:1 / 2 | kursiv, schmale Schrift (1.6.0) | Textur |
-| Critical | – | – | kein Bild „Critical“ in den durchsuchten Kampfdateien gefunden | offen |
+| Critical | – | – | kommt im Spiel nicht vor: kein Bild, kein Text und keine Stelle im Kampfcode (`src/stag3000`), 1.6.0 geprüft | entfällt |
 
 **Zustandsmeldungen im Kampf** (Datei 0x22B, Einträge 1–72): Diese sind keine Bilder, sondern Listen einzelner Buchstabenbilder. Der Port setzt dafür deutsche Buchstabenlisten ein, z. B. „Vergiftet“, „Gift geheilt“, „Gelaehmt“, „Voll geheilt“. Das sind 68 Meldungen, Eintrag 46 ist ein Platzhalter. Umlaute werden als ae/oe/ue geschrieben, weil diese Schrift keine hat. Test: Textur und Zellen geprüft. Auch in den Testläufen von 1.6.0 trat keine Zustandsmeldung auf: Die Testgegner der ersten Domain setzen keine Zustände.
 

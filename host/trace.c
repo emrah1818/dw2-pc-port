@@ -3,6 +3,7 @@
 #include "common.h"
 #include "backend/psxgpu_hd.h"
 #include "host/host.h"
+#include "host/settings.h"
 #include "main/156C.h"
 
 extern SysState Sys_State;
@@ -27,7 +28,9 @@ void Host_TraceTick(unsigned int wait) {
 void Host_SceneTick(void) {
     s32 table = Sys_State.gameMode >> 8;
 
-    if (PsxHd_Wide() && (table == 1 || table == 4 || table == 6)) {
+    /* dw2-pc-port: table 6 draws its tiled background into the margins with the Modern UI
+       (host/uilayout.c wide_fill), so it is no longer pillarboxed there */
+    if (PsxHd_Wide() && (table == 1 || table == 4 || (table == 6 && Settings_Get(SET_UI_STYLE) != SET_UI_MODERN))) {
         PsxHd_PillarboxFrame();
     }
 }

@@ -1,10 +1,11 @@
-# DW2 PC-Port (Version 1.3.0-port)
+# DW2 PC-Port (Version 1.4.0-port)
 
 Dies ist eine native PC-Fassung von **Digimon World 2 (USA, SLUS-01193)** für Windows x64 und Linux x64. Sie bietet:
 
 - 4K und Ultrawide
 - Profile Classic und Remastered
-- deutsche und englische PC-Menüs
+- deutsche und englische PC-Menüs, deutsche Spieltexte aus deiner eigenen Disc (Story, Dialoge, Menüs)
+- Spielfenster Modern oder Klassisch: kein Text ragt über sein Fenster
 - Asset-Export und Mod-Ebene für Texturen
 - ein Cheat-Menü mit Sicherung
 
@@ -76,8 +77,8 @@ Mit Deutsch ändert sich Folgendes:
 - **Bericht:** Jeder Start auf Deutsch schreibt `Languages/German/report.txt`. Darin steht für jede Attacke im Spiel Englisch → Deutsch oder der Grund, warum sie englisch bleibt.
 - **Kampf-, Menü-, System-, Item- und Attackenbeschreibungstexte:** aus `Languages/German/texts.tsv`. Die Datei wird nicht veröffentlicht, weil sie auf den Spieltexten beruht. Eigene Texte gehen so: `dw2.exe --export-texts DIR` erzeugt die englische Inventur, dann zeilenweise `SCHLÜSSEL<Tab>Deutsch` eintragen.
 - **Dialoge und Story (ab 1.4.0):** `--export-texts DIR` erfasst auch die Ereignistabellen der Gespräche (Kategorie `dialog eN bN digiN`). Skriptbefehle stehen als `{B:..}` in der Zeile und müssen in der Übersetzung unverändert und in derselben Reihenfolge bleiben. `dialog_files.tsv` zeigt je Datei, ob ihr Aufbau sicher erkannt ist. Längere deutsche Texte passen durch Verschieben der Tabellenblöcke und durch `Languages/German/dictionary.txt` (häufige Wörter als 2-Byte-Codes, erzeugt mit `tools/i18n/build_dict.py`). Passt eine Übersetzung trotzdem nicht, bleibt der englische Text.
-- **Wortgrafiken (ab 1.4.0):** Menübegriffe, die im Font als Bild stehen („Counter Attack“, „Specialty“ …), zeichnet der Port im deutschen Modus aus den Spielglyphen neu („Gegenangriff“, „Spezial.“ …). Eigene Wörter: `Languages/German/words.tsv` mit Zeilen `CODE<TAB>Wort`. Liste in TESTBERICHT.md.
-- **Noch englisch:** technische Itemnamen und Menüs, die nicht in den Texttabellen stehen. Siehe TESTBERICHT.md.
+- **Wortgrafiken (ab 1.4.0):** Menübegriffe, die das Spiel als Bild im Font hat („Counter Attack“, „Specialty“ …), stehen in der deutschen Fassung als normaler Text in `texts.tsv` („Gegenangriff“, „Spezialität“, „DNA-Digitation“) und werden vom PC-Layout eingepasst (Abschnitt 4). Für Texte, die die Bilder weiter nutzen, zeichnet der Port die Bilder zusätzlich aus den Spielglyphen deutsch neu (`Languages/German/words.tsv`: Zeilen `CODE<TAB>Wort`).
+- **Noch englisch:** die großen Kampfschriftzüge („BATTLE“, „Attack“, „Damage“, „WIN“, Attackennamen im Effekt) sind Bilder der Spielgrafik, dazu technische Item- und Teilenamen, die im Deutschen gleich lauten. Siehe TESTBERICHT.md.
 - **Eigene Übersetzungen:** `attacks.csv` und `types.csv` sind einfache UTF-8-Dateien (`englisch;deutsch;...`). Du kannst sie bearbeiten, beim nächsten Start gelten sie.
 
 ## 4. Grafik
@@ -85,6 +86,7 @@ Mit Deutsch ändert sich Folgendes:
 - **Profile:** Classic ist das Originalbild. Remastered bietet 3D in Fensterauflösung, 16:9, kein Wackeln, gefilterte Texturen, geglätteten Text und flüssige Bilder.
 - **Auflösung:** Automatisch nach Fensterhöhe (Full HD 5×, WQHD 6×, 4K 9×) oder fest 1× bis 12×. Fenstergrößen-Voreinstellungen reichen von 720p bis 4K, dazu 2560×1080 und 3440×1440.
 - **Seitenverhältnis:** 4:3, 16:9 oder 21:9. Breitbild zeigt mehr von der 3D-Welt und streckt nichts. Menüs und 2D-Bilder bleiben 4:3.
+- **Spielfenster (F1 → Start, ab 1.4.0):** *Modern* setzt Buchstaben nach ihrer eigenen Breite (Ziffern und Tabellen bleiben in ihren Spalten), *Klassisch* behält die festen PS1-Zeichenzellen. In beiden Modi misst der Port jede Textzeile vor dem Zeichnen. Ist sie breiter als ihr Fenster, wird das Fenster nach rechts verlängert, so weit Bildschirm und Nachbarfenster es erlauben, oder der Text daneben rückt zur Seite. Erst wenn beides nicht reicht, wird die Zeile enger gesetzt. Englische Texte passen in die Originalfenster: Mit *Klassisch* sieht ein englisches Spiel genauso aus wie auf der PS1. Technik: `host/uilayout.c`, `src/main/text.c`.
 - **Bildrate:** Die Spiellogik läuft immer im Originaltempo. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung.
 
 ## 5. Spieldateien, Texturen und 3D-Modelle
@@ -161,6 +163,9 @@ tools/viewer_bridge/export_assets.py --viewer <viewer>/app/src/main/python --dis
 | Disc-Tabellen zur Laufzeit statt im Programm | `host/discassets.c`, `host/pak.c`, `host/pakbuild.c`, `tools/build_native.py --no-disc` |
 | Grafik: 4K/Auto, 21:9, Profile, Texturfilter, 2D-Glättung, FPS-Begrenzung | `backend/`, `host/sdl.c`, `host/settings.c` |
 | PC-Menüs Deutsch/Englisch, Start-, Modding- und Cheat-Reiter | `host/settingsui.cpp` |
+| Deutsche Spieltexte, Ereignisskripte, Wörterbuch, Umlaute, Wortgrafiken | `host/lang.c`, `host/textscript.c`, `tools/i18n/` |
+| PC-Layout der Spielfenster (Modern/Klassisch) | `host/uilayout.c`, `src/main/text.c`, `src/main/parts.c` |
+| HD-Texturpakete | `backend/texrep.c`, `doc/TEXTURPAKETE.md` |
 | Mod-Ebene, Asset-Export, Textur-Import | `host/pak.c`, `host/assets.c` |
 | Cheat-Backend (Upstream-Editor, im Release standardmäßig aus) | `host/cheat.c`, `host/devedit.c`, `host/devdata.c` |
 | Audio: getrennte Lautstärken, Ton aus | `host/audio.c` |

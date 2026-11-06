@@ -1,73 +1,97 @@
-# DW2 PC-Port – Testbericht (Stand: Zwischenstand 1.4.0-dev, 05.11.2026; letzter Release 1.3.0)
+# DW2 PC-Port – Testbericht (Stand: 1.4.0, 06.11.2026)
 
-## 1.4.0 – Zwischenstand (kein Release)
+## 1.4.0 – deutsche Story, PC-Layout der Spielfenster, Texturpakete
 
-**Warum noch kein Release:** Dialoge, Story und Wortgrafiken sind mit dem echten Image umgesetzt und geprüft. Offen sind: Menüs, die nicht in den Texttabellen stehen, der Statusbildschirm im Spiel, eine vollständige Story-Spielprobe auf Deutsch und Windows-Klicktests. Details stehen unten. Die Übersetzungsdateien liegen nicht im Repository (aus der Disc abgeleitet), sie bekommt der Spieler getrennt.
+Wie getestet wurde: Linux x64 (Release-Build ohne Disc-Daten) mit dem echten Image des Spielers, Testbot über die Spielmenüs (`tools/autoplay/`), Bildschirmfotos im laufenden Spiel. Windows: Build und Renderer-Test in der CI, kein Klicktest auf echter Hardware. Die Übersetzungsdateien liegen nicht im Repository (aus der Disc abgeleitet), der Spieler bekommt sie getrennt.
 
-### Phase 1 – Ereignisskripte und Dialoge
+Begriffe: **umgesetzt** = Code fertig; **automatisch getestet** = Testprogramm/Prüfskript; **im Spiel getestet** = im laufenden Spiel ausgeführt und auf Bildschirmfotos geprüft; **nicht geprüft** = steht dabei.
 
-**Umgesetzt:**
+### 1. Benutzeroberfläche: kein Text über seinem Fenster
 
-- **Befehlslängen** aus `Text_DrawAll` (`src/main/text.c`) exakt bestimmt, in `host/textscript.c`:
+**Umgesetzt** (`host/uilayout.c`, `src/main/text.c`, `src/main/parts.c`), zentral für alle Fenster und Texte:
 
-  | Befehl | Länge (mit Befehlsbyte) | Wirkung |
-  |---|---|---|
-  | F3 m a | 3 | Abblenden, Spielmodus m (FC–FF Sonderfälle), Argument a; beendet den Text |
-  | F4 k … | 5 bei k < 0x20, sonst 2 | <0x10 Lauf-Animation, <0x20 Drehen (+ 3 Ziffern Digimon-ID); <0x30 Task; <0x40 Textfarbe; sonst Soundeffekt (4 = Bildschirmwackeln) |
-  | F6 / F7 + 9 Ziffern | 10 | Figur (ID) zu Feld x, y bewegen; F6 wartet |
-  | F9 k | 2 (k ungerade) / 5 | Porträt schließen / Bild (3 Ziffern) |
-  | F0 / F8 / FA / EF | 2 | Name/Argument/Wort, Ja-Nein-Auswahl, Fensterposition, Glyphe |
-  | F1 / F2 | 4 | Digimon-/Itemname |
+- **Textmessung:** Jede Zeile wird vor dem Zeichnen gemessen, so wie der Spielrenderer sie läuft: Namen ({TAMER}, Digimon, Items), Wörterbuchwörter und Argumente inklusive. Die Glyphenbreiten werden beim Start aus beiden Spielschriften gelesen (nach der deutschen Ebene).
+- **Fenster:** Jedes gezeichnete Fensterbild („parts“) wird je Bild als Rechteck notiert, auch mehrere Fenster in einem Bild (z. B. Reiter + Verbinder + Slotleiste im Speicherbildschirm).
+- **Einpassen, in dieser Reihenfolge:**
+  1. Das Fenster wächst nach rechts, so weit Bildschirm und Nachbarfenster es erlauben. Gezeichnet wird das, indem die mittlere Kachel wiederholt und der rechte Rand verschoben wird, samt Schatten.
+  2. Eine Textspalte rechts daneben rückt zur Seite, wenn sie im Fenster Platz hat (z. B. Werte neben „Spezialität“).
+  3. Erst dann wird die Zeile eng gesetzt (Buchstaben nur nach ihrer Tinte, wie die Wortbilder des Spiels), und nur wenn nötig zusätzlich etwas schmaler (höchstens 30 %).
+- **Tabellen** (Shoplisten, Namenseingabe, Spalten mit Leerzeichen) behalten ihre PS1-Spalten.
+- **Zwei Modi** (F1 → Start → Spielfenster, Einstellung `ui_style`, Profile Classic/Remastered):
+  - *Modern* (Standard): Buchstaben nach eigener Breite.
+  - *Klassisch*: feste PS1-Zeichenzellen.
 
-  Maßgeblich ist der Weg, den ein schon ausgeführter Befehl in jedem späteren Bild nimmt. Ein Argument darf 0xFF sein (F3 FF xx), das Textende wird deshalb skriptbewusst gesucht.
-- **Aufbau der Ereignistabellen** (`Flag_SelectBranch`), am echten Image bestimmt: Kopf aus 3 u32 (Einträge, Positionsblock, Bedingungsblock). Die Texte stehen direkt hinter dem Kopf, 4-Byte-ausgerichtet. Danach folgen Positionen, Bedingungen und Einträge (0x2C Byte, Zweig-Offsets ab +0x14, Endeintrag Digimon-ID 0), dann Nullen bis Dateiende.
-- **Erkennung:** 81 Dateien erkannt. 5 Fehltreffer (023A, 0CE1, 0CE2, 0CE4, 0CE5) werden abgelehnt, weil der Aufbau nicht vollständig passt. Abgelehnte Dateien werden nie verändert.
-- **Neupacken mit Verschieben:** Die Texte werden neu gelegt, die Blöcke dahinter um ein Vielfaches von 4 verschoben, Kopf und Zweig-Offsets angepasst. Die Dateigröße bleibt gleich. Passt nicht alles, behalten die Texte mit dem größten Zuwachs ihr Englisch, bis es passt.
-- **Wörterbuch-Kompression:** Das Original kürzt häufige Wörter über F0-Codes ab. Deutsche Dialoge sind länger, deshalb lädt der Port `Languages/German/dictionary.txt` (bis 183 Wörter, Einträge 67–249 der erweiterten Wortliste, nur im PC-Build). `tools/i18n/build_dict.py` wählt die Wörter aus der Übersetzung.
-- **Werkzeuge:** `tools/i18n/dialog_segments.py` (Dialoge in übersetzbare Abschnitte zerlegen und wieder zusammensetzen), `dialog_wrap.py` (Zeilenumbruch auf 31 Spalten, 3 Zeilen je Fenster, Seiten an Satzenden), `tools/autoplay/dialog_shots.py` (Bildschirmfotos jeder Gesprächsseite).
+  Das Einpassen gilt in beiden. Englische Texte passen in die Originalfenster. Klassisch + Englisch ist deshalb bitgleich zum PS1-Bild (6/6 Referenzbilder).
 
-**Getestet mit dem echten Image (Linux):**
+**Behobene Fehler:**
 
-- `tests/textscript_test.c`: 90/90 (auch kürzere und zu lange Übersetzungen). Läuft in der CI.
-- **Übersetzt:** 1682 von 1682 Dialogtexten (2431 Abschnitte), dazu die 879 Tabellentexte aus 1.3.0 und 4 Systemzeilen mit Wortgrafiken. Das Spiel meldet `texts.tsv: 2565 texts German, 0 failed`.
-- **Bildschirmfotos** echter Gespräche in Digital City: Sprechername, Porträt, Umlaute und ß korrekt. Keine Zeile ist abgeschnitten, keine Auswahl ist über zwei Seiten verteilt.
-- **Einzelne Restwörter auf eigener Seite:** von 491 Verdachtsstellen auf 8 gesenkt. Erreicht durch Seitenwechsel an Satzenden und 123 gekürzte Formulierungen. Die 8 Reste sind kurze, vollständige Sätze.
-- Englischer Modus: Referenzbilder 6/6 bitgleich, Speichertest 9/9.
-- **Domaintest Deutsch** (`--lang de --cheats`, Domains 0–5): alle geladen, Etagenwechsel und Kämpfe ohne Absturz.
-- **Cheattest Deutsch:** 5 von 7 bestanden. Die 2 Level-Prüfungen scheitern, weil im benutzten Spielstand Kaderplatz 0 leer ist („no Digimon in that roster slot“). Das ist eine Testvoraussetzung, kein Programmfehler. Mit dem vorgesehenen Spielstand `card_round0.mcd` nicht wiederholt.
+- „Speichern“ ragte im Feldmenü und im Speicherreiter über den Rahmen. Es steht wieder voll da: Ersatz „Sichern“ zurückgenommen.
+- Optionen nebeneinander liefen ineinander, z. B. „Kaufen|Verkaufen“ und „Digi-Beetle|Wichtig“.
+- Preise in Shoplisten verrutschten mit proportionaler Schrift. Gelöst über Tabellen-Erkennung.
+- Absturz im Statusbildschirm bei einer Gruppe mit Lücke (bearbeitete Spielstände): `status.c`, PC-Schutz.
 
-**Nicht getestet / offen:**
+**Im Spiel getestet (Bildschirmfotos, Deutsch, Modern und Klassisch):**
 
-- Kein vollständiger Story-Durchlauf auf Deutsch. Geprüft sind Gespräche in der Stadt, nicht jede Zwischensequenz.
-- Domain-Ereignisse und spätere Kapitel nur über die Prüfwerkzeuge geprüft (Befehle unverändert, Seiten passen), nicht im Bild.
+- Feldmenü
+- Status mit Reitern Zustand/Digi-Beetle/Wichtig
+- Digimon-Status mit „Spezialität“ und „Nächstes Level“
+- Items (Benutzen/Wegwerfen, Zielauswahl)
+- Digi-Line und Transfer
+- Laden und Speichern (Reiter, Slots, Meldungen)
+- DNA-Labor: Digitieren/DNA-Digitation, Auswahl, Ja/Nein, Digitationsablauf
+- Teile-Shop: Kaufen/Verkaufen, Liste mit Preisen, Beschreibung, Stück
+- Digi-Beetle-Werkstatt: Montage/Verbessern, Karosserie, Motor, Batterie, Speicher, Teileliste
+- Kampf: Befehle geben/Kanone/Fliehen, Kampf/Abwehr, Angriff/Techniken, Gegenangriff, Hilfe
+- Namenseingabe, Titel
+- Gespräche in Digital City (30 Szenen, 113 Fotos)
+- Neues Spiel → Intro → Boot Domain mit 2 Kämpfen → Stadt (74 Fotos)
 
-### Phase 2 – Wortgrafiken
+Kein Text lag außerhalb seines Fensters. Im Modus Klassisch sind sehr lange Begriffe in kleinen Fenstern eng gesetzt, aber lesbar.
 
-**Umgesetzt** (`host/lang.c`, `patch_words`): Im kleinen Font (Datei 0x13A) sind 18 Begriffe als fertige Bilder über mehrere Zellen gezeichnet (Codes 0x5E–0xE2). Im deutschen Modus zeichnet der Port beim Start 13 davon neu, und zwar aus den Glyphen des Spiels selbst. Wie im Original wird jede Glyphe auf ihre Tinte beschnitten und ohne Abstand gesetzt. Ist ein Wort zu breit, teilen sich Nachbarn eine Spalte, aber nur wo keine Tinte auf Tinte trifft. Passt es trotzdem nicht, bleibt das englische Bild. Es werden keine Grafiken gespeichert oder mitgeliefert.
+**Nicht geprüft:**
 
-| Code | Englisch | Deutsch |
-|---|---|---|
-| 0x6D | Condition | Zustand |
-| 0x88 | Digivolve | Digitieren |
-| 0x8F | DNA Digivolve | DNA-Digit. |
-| 0x99 | Auto Pilot | Autopilot |
-| 0xA0 | Button | Taste |
-| 0xA5 | Parents | Eltern |
-| 0xB1 | Specialty | Spezial. |
-| 0xBB | Important | Wichtig |
-| 0xC2 | Counter Attack | Gegenangriff |
-| 0xCC | Battle | Kampf |
-| 0xD1 | Cannon | Kanone |
-| 0xD6 | Choose | Wählen |
-| 0xDD | Assemble | Montage |
+- Optionsmenüs, die nur später im Spiel erscheinen
+- Kolosseum-Auswahl, Zwei-Spieler-Kampf
+- Server-Lager
+- Breitbild 16:9/21:9 und höhere Auflösungen mit dem neuen Layout. Das Layout rechnet in Spielkoordinaten und ist von der Ausgabeauflösung unabhängig.
 
-Unverändert, weil auch deutsch: Digi-Beetle, Digimon, Transfer, Digi-Line, Generation. Eigene Wörter gehen über `Languages/German/words.tsv` (Zeilen `CODE<TAB>Wort`, leeres Wort = Englisch).
+### 2. Deutsche Übersetzung
 
-**Getestet:** Die Schrift-Textur nach dem Patch wurde ausgelesen, alle 13 Wörter sind vollständig und lesbar, die übrigen Zellen sind unverändert. Das Feldmenü (Status, Items, Digimon, Digi-Line, Transfer) wurde im Spiel fotografiert.
+**Eingespielt:** `texts.tsv: 2582 texts German, 0 failed`. Das sind 879 Tabellentexte aus der Spielertabelle, 1682 Dialoge (81 Ereignistabellen, 5 Fehltreffer abgelehnt) und 21 eigene Systemzeilen. Dazu kommt das Wörterbuch mit 183 Wörtern.
 
-**Offen:** Statusbildschirm („Spezial.“), DNA-Labor und Kampfmenü („Gegenangriff“) sind nicht im Bild geprüft, weil der Testbot diese Menüs nicht zuverlässig öffnet. „DNA-Digitation“ passt nicht in 9 Zellen, deshalb die Abkürzung. Der große Font hat keine Wortgrafiken.
+- Dialogumbruch: 31 Spalten, 0 abgelehnt.
+- Skriptbefehle F3/F4/F6/F7, Textzeiger und Ereignistabellen: wie in 1.4.0-dev geprüft (`textscript_test` 90/90, Neupacken mit 0 Fehlern).
 
-**Hinweis zur Übersetzung:** Im Feldmenü ragte „Speichern“ (aus der Tabellenübersetzung) über den Rahmen hinaus. Im gelieferten Paket steht dafür „Sichern“ (7 Zeichen wie „Transfer“). Das ist im Bild noch nicht bestätigt.
+**Qualitätsprüfung (alle 2582 Einträge, automatisch):**
+
+| Prüfung | Ergebnis |
+|---|---|
+| Steuerbefehle und Platzhalter identisch zum Englischen | 2582/2582 (sonst nicht eingespielt) |
+| Glyphen im Font | alle |
+| Leerzeichen neben Befehlen verloren (z. B. „Okay.Alles“) | 10 Dialoge gefunden und behoben (Ursache im Abschnitts-Werkzeug, behoben) |
+| englische Wörter übrig | 0 (11 Treffer waren deutsche Wörter wie „will“, „her“) |
+| unverändert englisch | 1 (Palmon-Laute, gewollt) |
+| Glossar (Serum/Datei, digitieren, Digi-Beetle, Domain, Wachteam, Kommandant, Archivschiff, BITs) | einheitlich, keine Abweichungen gefunden |
+| unnötige Abkürzungen | 27 Tabellentexte ausgeschrieben (22× „Batt.:“ → „Batterie:“, „Zust.“, „eig.“, „Ring v. Chaos-Gen.“, 2× „Nächst. Lv“ → „Nächstes Level“), dazu in den eigenen Systemzeilen „Spezial.“ → „Spezialität“, „DNA-Digit.“ → „DNA-Digitation“, „alle Tech“ → „alle Techniken“ |
+| einzelne Restwörter auf eigener Fensterseite | 8 (kurze vollständige Sätze) |
+
+- **Gelesen:** Eine Stichprobe von 22 Dialogen wurde Satz für Satz gegen das Englische gelesen. Gefunden wurde nur der Leerzeichenfehler oben.
+- **Nicht geprüft:** Eine vollständige sprachliche Durchsicht aller 2582 Texte von Hand hat **nicht** stattgefunden.
+- **Nicht übersetzt (339 Inventurtexte):** Namen und Kürzel, die im Deutschen gleich lauten (Itemnamen wie „Wolf EG-1“, „HP“, „Rookie“, „Status“), sowie Platzhalter des Spiels. Ungeklärte Bedeutungen: keine gefunden.
+
+**Layoutprüfung** (`tools/i18n/layout_check.py`: echte Glyphenbreiten aus der Spielschrift, Namen mit Höchstbreite):
+
+- 2300 Texte passen wie gesetzt.
+- 273 sind länger als die englische Zeile und werden vom PC-Layout eingepasst.
+- 9 Menüwörter passen nur, weil ihr Fenster wächst: Speichern, Benutzen (3×), Karosserie (2×), Kaufen, Verkaufen, Geschäft. 7 davon sind auf den Fotos geprüft. Benutzen im Server-Menü und Karosserie im Shop-Menü sind nicht fotografiert.
+- Keine Dialogzeile über 31 Spalten.
+
+### 3. Wortgrafiken und Menübeschriftungen
+
+- Die 18 Menütexte, die das Spiel als Bild im Font hat, stehen deutsch als normaler Text in `texts.tsv`. Das PC-Layout passt sie ein, deshalb jetzt **ohne Abkürzung**: „Spezialität“, „DNA-Digitation“, „Gegenangriff“, „Zustand“, „Kampf“, „Kanone“, „Wählen“, „Montage“, „Autopilot“, „Eltern“, „Wichtig“.
+- Im Spiel geprüft sind Gegenangriff, Zustand, Wichtig, Kampf, Spezialität, DNA-Digitation, Digitieren, Montage und Speichern.
+- Die Neuzeichnung der Wortbilder aus 1.4.0-dev bleibt für Texte, die die Bilder weiter nutzen (`patch_words`).
+- **Englisch bleiben:** die großen Kampfschriftzüge „BATTLE“, „FIGHT“, „Attack“, „Damage“, „WIN“, „TARGET“ und die Attackennamen im Effekt. Das sind Bilder der Spielgrafik, kein Text. Ersetzen ginge nur über ein Texturpaket. Abgeleitete Grafiken dürfen aber nicht veröffentlicht werden, deshalb ist das nicht Teil des Ports.
 
 ### Phase 3 – HD-Texturpakete
 
@@ -94,15 +118,33 @@ Unverändert, weil auch deutsch: Digi-Beetle, Digimon, Transfer, Digi-Line, Gene
 - Nur Polygone ganz innerhalb eines Uploads, ohne Texturfenster.
 - Spätere VRAM-Schreibzugriffe über einem Upload verwerfen den Ersatz.
 - Ausgabe in 15 Bit.
-- Mit echten Spieltexturen nicht geprüft.
+- **GPU-Renderer:** Ersatztexturen bräuchten dort einen eigenen Texturatlas je Paket und eine zweite Abtastung im Shader. Das ist für 1.4.0 nicht umgesetzt: Mit GPU-Renderer zeigt das Spiel die Originaltexturen. Hier gibt es kein Vulkan-Gerät, also auch keinen Test.
 
-### Phase 4 und 5 – Windows-Port und PC-Oberfläche
+**Mit echten Spieltexturen getestet (1.4.0):**
 
-- **Regressionen:** Alle neuen Wege sind ohne Pakete und im englischen Modus inaktiv: kein Paket heißt kein Tracking, Englisch heißt keine Sprach-Ebene. Classic (Skalierung 1) zeichnet nie Ersatztexturen.
-- **CI:** Windows-Build (MinGW) und Renderer-Test grün, Linux grün.
-- **Mit Image wiederholt:** Referenzbilder 6/6, Speichertest 9/9, Domaintest 0–5 (Deutsch), Cheattest 5/7 (2 Prüfungen brauchen einen anderen Spielstand, siehe Phase 1).
-- **PC-Oberfläche:** Auflösung, Vollbild/Fenster, Grafik und Sprache gab es schon (F1). Neu ist der Bereich Texturpakete im Reiter Modding. Kein Klicktest auf echter Hardware.
+- 32 Texturen des Titelbilds mit `--dump-textures` ausgegeben, invertiert, 4× vergrößert und als Paket eingelegt.
+- Alle 32 wurden geladen („512x1024 (4x)“), das Titelbild wurde mit den Ersatztexturen gezeichnet, die Transparenz am Logo blieb erhalten.
+- Ohne Paket ist das Bild unverändert.
 
+### Regressionstests 1.4.0 (Linux, echtes Image)
+
+| Test | Ergebnis |
+|---|---|
+| Englische Referenzbilder (`ui_style=classic`) | 6/6 bitgleich |
+| Kampf: Beschreibungszeile der Techniken und Items | auf den Fotos nach 12 Zeichen stehend („Schießt eine“), im Englischen genauso („Shoots a Fir“): Verhalten des Spiels bzw. des Testbots, keine Folge der Übersetzung |
+| Speichertest (Speichern über Menü, Laden, 4 beschädigte Karten) | 9/9 |
+| Cheattest (mit Spielstand mit Digimon in Platz 0, `card_party`) | 7/7, die 2 Level-Prüfungen aus 1.4.0-dev sind damit bestanden |
+| Domaintest Deutsch, Domains 0–7 | 8/8 geladen, 7 Kämpfe beendet, kein Absturz |
+| Story-Lauf Deutsch: neues Spiel → Intro → Boot Domain → Stadt | erreicht, 2 Kämpfe |
+| `textscript_test` | 90/90 |
+| `hd_test` (Renderer, Texturpakete) | alle bestanden, GPU-Teil übersprungen (kein Vulkan hier) |
+| `gte_test` | 2 Fehler im Build ohne Disc: die Tabelle `ratan_tbl` ist dort ein Platzhalter, das Spiel lädt sie zur Laufzeit aus `dw2.pak`. Kein Fehler des Spiels, mit Disc-Build nicht wiederholt |
+| CI Windows (MinGW) und Linux | siehe Release-Lauf |
+
+**Nicht geprüft:**
+
+- Kein vollständiger Story-Durchlauf. Geprüft sind der Anfang bis zur Stadt, die Stadtgespräche, die Domains 0–7 und die Menüs.
+- Windows nur Build und automatische Tests in der CI, kein Klicktest auf echter Hardware.
 
 ## Neu in 1.3.0: Textinventur und deutsche Tabellentexte
 

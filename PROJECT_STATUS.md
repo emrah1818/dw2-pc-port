@@ -1,6 +1,6 @@
 # PROJECT_STATUS – DW2 PC-Port
 
-Stand: 05.11.2026, **Zwischenstand 1.4.0-dev** auf `main` (letzter Release `v1.3.0`). Was in 1.4.0 fertig, getestet und offen ist: TESTBERICHT.md, Abschnitt „1.4.0 – Zwischenstand“.
+Stand: 06.11.2026, **Release 1.4.0** auf `main`. Was fertig, getestet und offen ist: TESTBERICHT.md, Abschnitt „1.4.0“.
 Dieses Dokument ist der Einstieg für die Fortsetzung in einem neuen Projekt. Einzelheiten stehen in:
 
 | Datei | Inhalt |
@@ -123,15 +123,15 @@ Siehe TESTBERICHT.md. Kurzfassung:
 - **Kampf:** `Stg30_Battle` (`digis[6]` bei 0x18, `inputSlot` = 6 bedeutet Hauptmenü offen). Hauptmenü: Give Orders / Cannon / Run Away.
 - **Bot:** Geplante devedit-Änderungen zählen in VBlank-*Waits*, nicht in VBlanks. Etwa 1200 Waits pro Sekunde im `--fast`-Modus.
 
-## 7. Offene Aufgaben – Plan für 1.4.0
+## 7. Offene Aufgaben – Stand nach 1.4.0
 
 Reihenfolge nach Priorität des Nutzers:
 
-1. **Dialoge und Story auf Deutsch:** *Stand 1.4.0-dev: erledigt und mit dem Image geprüft. 81 Ereignistabellen, 1682/1682 Dialoge übersetzt, 2565 Texte, 0 Fehler. Dazu Wörterbuch-Kompression (`dictionary.txt`) und Umbruch auf 31 Spalten. Offen: vollständiger Story-Durchlauf im Bild. Siehe TESTBERICHT.md.*
-2. **Wortgrafiken lokalisieren:** *Stand 1.4.0-dev: 13 von 18 Wortbildern im kleinen Font werden zur Laufzeit aus Spielglyphen deutsch gezeichnet (`patch_words`, eigene Wörter über `words.tsv`). Offen: Prüfung im Statusbildschirm, Kampf- und Labor-Menü.*
-3. **Originalmenüs modernisieren** (Remastered), mit Erhalt von Classic.
+1. **Dialoge und Story auf Deutsch:** *erledigt in 1.4.0. 81 Ereignistabellen, 1682/1682 Dialoge, 2582 Texte, 0 Fehler, Wörterbuch, Umbruch 31 Spalten, Qualitätsprüfung und Layoutprüfung (`tools/i18n/layout_check.py`). Offen: vollständiger Story-Durchlauf im Bild, vollständige Durchsicht von Hand.*
+2. **Wortgrafiken lokalisieren:** *erledigt in 1.4.0: die 18 Wortbild-Texte stehen deutsch als Text und werden vom PC-Layout eingepasst (ohne Abkürzungen), die Wortbilder werden zusätzlich neu gezeichnet. Offen: Kampfschriftzüge (Bilder der Spielgrafik).*
+3. **Originalmenüs modernisieren:** *1.4.0: PC-Layout für alle Spielfenster (`host/uilayout.c`): Messen jeder Zeile, wachsende Fenster, ausweichende Spalten, Engsatz; Modi Modern/Klassisch. Offen: eigene, neu gestaltete Menüfenster.*
 4. **3D-Studio im Programm:** Modell und Animation aus der Modelldatei, Logik wie im Viewer (`dw2-viewer-android`, `native_gltf.py`/`native_model.py`), Anzeige in ImGui oder über den GPU-Renderer.
-5. **HD-Ersatztexturen** – *1.4.0-dev: im Software-Renderer fertig (Texturpakete), mit Testszene geprüft. Offen: GPU-Renderer (Shader müssten Ersatztexturen binden), Test mit echten Texturen.*
+5. **HD-Ersatztexturen** – *1.4.0: im Software-Renderer fertig, mit Testszene und mit echten Spieltexturen geprüft. Offen: GPU-Renderer (Shader müssten Ersatztexturen binden).*
 6. **Eigenständiger Launcher** (heute F1-Reiter „Start“).
 7. **Story-Bot:** Leveln (fliehen bei Überzahl, gezielt Einzelgegner), Heilung, Taktik.
 8. **Regressionstests in DE und EN:** Speicher-, Domain- und Cheattest auch mit `--lang de`.
@@ -167,5 +167,5 @@ Reihenfolge nach Priorität des Nutzers:
 | 1.1.0 | Modding, Cheats, F1 DE/EN, Testbericht |
 | 1.2.0 | Attackennamen DE, Typen, Umlaute |
 | 1.3.0 | Textinventur, 879 Tabellentexte DE (Datei an den Nutzer), Neupacken |
-| 1.4.0-dev (Zwischenstand) | Skriptbefehle, Ereignistabellen, Neupacken mit Verschieben, Wörterbuch, alle Dialoge deutsch, Wortgrafiken deutsch, Texturpakete (Software-Renderer) |
-| 1.4.0 (geplant) | Dialoge und Story DE, Wortgrafiken, dann Menüs, Studio, HD-Texturen, Launcher (Abschnitt 7) |
+| 1.4.0 | Story und Dialoge deutsch, Wortgrafiken als Text, PC-Layout der Spielfenster (Modern/Klassisch), Texturpakete (Software-Renderer), Qualitäts- und Layoutprüfung |
+| danach (geplant) | neu gestaltete Menüfenster, GPU-Texturpakete, Studio, Launcher (Abschnitt 7) |

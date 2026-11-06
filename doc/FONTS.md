@@ -23,7 +23,8 @@ The game atlases retain the original 7×9 and 8×13 glyph dimensions. This is a
 typeface replacement, not yet a vector-text renderer at window resolution.
 The PC interface remains scalable. Large word pictures are rasterized directly
 at their available texture size, with uniform scaling rather than horizontal
-stretching. A missing character in Orbitron uses Exo 2; unsupported characters
+stretching. Old outline/bold dilation is removed; it closes the counters of the
+new letters. Each cell uses a visible ink colour from its actual palette. A missing character in Orbitron uses Exo 2; unsupported characters
 cause an explicit failure rather than silent character deletion.
 
 ## Content and data
@@ -46,12 +47,31 @@ glyph rectangles in VRAM, preserving adjoining packed pixels and palettes.
   process tracing).
 - Existing `textscript_test`: 90/90 checks passed.
 
+Additional game-data validation:
+
+- The user's previously uploaded USA image was located and imported locally:
+  all 3,675 files matched the existing manifest. The private German 1.4.0
+  package was also located; neither the image nor its derived data is committed.
+- Runtime reports 92 replaced glyphs in each atlas, 2,582 German text entries
+  with zero translation failures, 25/25 known word pictures and 207/207 collected
+  attack-name pictures painted. These painting counts do not mean every effect
+  has been seen in battle.
+- Title/title-menu, load screen and German field-menu screenshots were captured.
+  The title labels and field menu were inspected. This revealed that the old
+  outline dilation closed the new letters' counters and that 4-bit sprite palettes
+  are embedded inside their texture. Both were corrected; labels now use their
+  actual cell palette and the font's own strokes.
+- One German battle ran to the result screen and returned to the dungeon, with
+  23 captured pictures. The captures cover target selection, command lists,
+  attack/damage labels, attack-name pictures and results; this is not an audit
+  of every attack or every status condition.
+- `texts.tsv` and `dictionary.txt` remain byte-identical to the supplied package.
+- Save/load regression: 9/9 checks, including exact restored save data (apart
+  from the expected play-time exclusion) and four damaged-card cases.
+
 ## Required before completion
 
-The user's USA image or `dw2.pak` plus `dw2.pak.slus`, and their private German
-language files, are not available in this checkout. Consequently:
-
-- No actual game scene has been tested with the new fonts.
+The local game-data checks above are a first pass, not a complete visual audit.
 - Audit all atlas cells and other textures for lettering outside the known
   mappings, including HP/MP labels rendered as pictures and the title logo,
   trademark/copyright lettering, intro/boot screens and any lettering in movies.

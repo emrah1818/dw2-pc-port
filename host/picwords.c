@@ -171,6 +171,8 @@ typedef struct {
     int         move;   /* 1: when it cannot grow in place, move it to an empty part of the texture */
     int         role;   /* 0 display, 1 interface, 2 telemetry */
     int         border; /* preserve the enclosing one-pixel frame */
+    int         squeeze; /* dw2-pc-port: up to this many tenths narrower instead of smaller (25: the
+                            title's code, set in a very narrow face) */
 } Words;
 
 /* ---- battle status letter cells (file 0x22B, 12 x 15) ---- */
@@ -255,7 +257,37 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
         int available = hi - lo - 2;
         if (available < 1)
             return 0;
-        int width = Fonts_Mask(role, label, row, CW, available, line_h);
+        int width;
+        if (w->squeeze > 10) {
+            /* full height, then narrower: each output column is half the mean, half the strongest
+               coverage of the columns it covers (the strongest alone merged capitals such as WORK
+               into blocks, the mean alone lost the thin I of NIEDERLAGE) */
+            static uint8_t wide[CW * CH];
+            int            room = available * w->squeeze / 10;
+            room                = room > CW ? CW : room;
+            memset(wide, 0, sizeof(wide));
+            width = Fonts_Mask(role, label, wide, CW, room, line_h);
+            if (width < 0)
+                return 0;
+            memset(row, 0, sizeof(row));
+            if (width > available) {
+                for (int y = 0; y < line_h; y++)
+                    for (int x = 0; x < available; x++) {
+                        int a = x * width / available, b = (x + 1) * width / available, m = 0, nk = 0, mx = 0;
+                        for (int k = a; k < (b > a ? b : a + 1); k++, nk++) {
+                            m += wide[y * CW + k];
+                            mx = wide[y * CW + k] > mx ? wide[y * CW + k] : mx;
+                        }
+                        row[y * CW + x] = (uint8_t)((m / nk + mx) / 2);
+                    }
+                width = available;
+            } else {
+                for (int y = 0; y < line_h; y++)
+                    memcpy(row + y * CW, wide + y * CW, (size_t)width);
+            }
+        } else {
+            width = Fonts_Mask(role, label, row, CW, available, line_h);
+        }
         if (width < 0)
             return 0;
         int left = lo + (w->align < 0 ? 0 : w->align > 0 ? available - width
@@ -379,13 +411,13 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                 for (int x = 0; x < c[i].w; x++) {
                     int Y = c[i].y - y0 + y, X = c[i].x - x0 + x, k = Y * CW + X, v = 0;
                     if (dist[k]) {
-                        /* the letter body of the original's row (depth 3 from its rim, else the deepest
-                           level it has), never its dark rim: the new letters are thin */
-                        int dd = maxd < 3 ? maxd : 3;
-                        for (; dd >= 0 && color[Y][dd] < 0; dd--)
-                            ;
-                        v = dd >= 0 ? color[Y][dd] : all[maxd < 3 ? maxd : 3];
+                        /* one colour: the letter body of the original (its most common colour at
+                           depth 3 from its rim), never the dark rim. A per-row colour put the rim's
+                           rows of the original (top and bottom of its letters) as dark bands across
+                           the thin new letters ("Verfehlt" read "Verfehit"). */
+                        v = all[maxd < 3 ? maxd : 3];
                         (void)nmax;
+                        (void)color;
                     }
                     tset(t, c[i].u + x, c[i].v + y, v);
                 }
@@ -425,8 +457,9 @@ static const Pic pics[] = {
     { 0x1A0, 6, 0, 1, { "Unterbrechen", 1, 0, 1 } },   /* Interrupt */
     { 0x1A0, 7, 0, 1, { "Hilfe", 1, 0 } },             /* Assist */
     { 0x1A0, 8, 0, 1, { "Abwehr", 1, 0 } },            /* Guard */
-    { 0x1A0, 10, 0, 1, { "Willst du", 1, 0, 1 } },     /* Do you want to */
-    { 0x1A0, 10, 1, 1, { "unterbrechen?", 1, 0, 1 } }, /* interrupt? */
+    { 0x1A0, 10, 0, 2, { "Willst du unterbrechen?", 1, 0, 1 } }, /* Do you want to interrupt? (one line over its two
+                                                                    cells: painted one cell each, the long "unterbrechen?"
+                                                                    came out much smaller than "Willst du") */
     { 0x1A0, 1, 0, 1, { "Ja", 1, 0, 1 } },             /* Yes */
     { 0x1A0, 2, 0, 1, { "Nein", 1, 0, 1 } },           /* No */
     /* battle words (file 0x13B) */
@@ -439,7 +472,7 @@ static const Pic pics[] = {
     { 0x313, 3, 0, 1, { "Keine", 0, 0 } },        /* Unable to (+ Run Away: "Keine Flucht") */
     { 0x313, 4, 0, 1, { "LOS!", 0, 0 } },         /* FIGHT */
     { 0x313, 5, 0, 0, { "SPIEL VORBEI", 0, 0 } }, /* GAME OVER (two pictures) */
-    { 0x313, 6, 0, 1, { "NIEDERLAGE", 0, 0 } },   /* LOSE */
+    { 0x313, 6, 0, 1, { "NIEDERLAGE", 0, 0 } },   /* LOSE (squeezed narrower, the 1-pixel gap of Orbitron between N and I closed: "NEDERLAGE") */
     /* battle result (file 0x25C) */
     { 0x25C, 10, 0, 1, { "SIEG", 0, 0 } },                   /* WIN */
     { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 1, 1, 78, 1 } }, /* LEVEL UP: the value of "Next Level" in the result box; right of the label, so
@@ -757,6 +790,63 @@ static void restyle_title_notices(void)
     printf("[fonts] title notices: %d of 2\n", a + b);
 }
 
+/* dw2-pc-port: the scrolling pseudo code behind the title (file 0x269, layout 1, 25 cells). Each cell
+ * holds one line or a few lines of the original text, cut at the cell edges; the same text, as the
+ * cells hold it, in Exo 2 at full line height and up to 2.5 times narrower (the original face is very
+ * narrow; Roboto Mono, fitted into the same cells, merged capitals such as WORK). The fragments narrower than 16 texels
+ * (a bracket, "t);", "ge") stay as they are: a font fitted into 4 to 8 texels is a smear. Not
+ * translated: it is program code. The logo (0xB5E..0xB62) is the trademark artwork and stays. */
+static void restyle_title_code(void)
+{
+    static const struct {
+        int         u, v, w, h;
+        const char* text;
+    } code[] = {
+        { 0, 0, 128, 15, "static int AttackControl(WORK *p)" },
+        { 0, 16, 124, 15, "int    _Attack,_Defense,_Target;" },
+        { 0, 32, 104, 59, "=  GetDigiMonAttack(p);\n=  GetDigiMonDefense(p);\n=  FindTargetDigiMon(p);" },
+        { 0, 92, 36, 35, "_Attack\n_Defense" },
+        { 0, 128, 96, 15, "k(p,_Attack,_Defense,_Ta" },
+        { 0, 144, 56, 15, "DigimonVersus" },
+        { 0, 160, 80, 15, "//  an all-out attack" },
+        { 0, 176, 96, 15, "(p,_Attack,_Defense,_Tar" },
+        { 0, 192, 56, 35, "run_away(p);\nreturn(FALSE);" },
+        { 36, 92, 64, 19, "switch(_Target){" },
+        { 36, 112, 72, 15, "DigimonAllOutAttac" },
+        { 56, 144, 32, 15, "_Target" },
+        { 56, 192, 56, 15, "return(TRUE);" },
+        { 80, 160, 36, 11, "case   0:" },
+        { 88, 144, 36, 11, "case   1:" },
+        { 96, 128, 32, 11, "default:" },
+        { 104, 32, 16, 15, "rget" },
+        { 104, 48, 24, 15, "break;" },
+        { 104, 80, 24, 15, "break;" },
+    };
+    Open* f = get_file(0x269);
+    Tex   t;
+    int   done = 0, want = (int)(sizeof(code) / sizeof(code[0]));
+    if (f == NULL || f->d == NULL || !tex_open(&t, f->d, f->size)) {
+        printf("[fonts] title code: file 0x269 not readable\n");
+        return;
+    }
+    for (int k = 0; k < want; k++) {
+        uint32_t o = entry(f->d, f->size, 1);
+        for (int q = 0; o != 0 && o + 16 <= (uint32_t)f->size && f->d[o] != 0xFF && q < 64; q++, o += 16) {
+            Cell c = { f->d[o], f->d[o + 1], f->d[o + 8], f->d[o + 9] ? f->d[o + 9] : 256, rd16(f->d + o + 2), rd16(f->d + o + 4),
+                       f->d[o + 6], f->d[o + 7], f->d[o + 10] };
+            if (f->d[o + 12] == 0 && c.u == code[k].u && c.v == code[k].v && c.w == code[k].w && c.h == code[k].h) {
+                Words w = { code[k].text, 0, -1, 0, 0, 0, 1, 0, 25 };
+                if (paint1(&t, &c, 1, &w, 0.0)) {
+                    done++;
+                    f->changed = 1;
+                }
+                break;
+            }
+        }
+    }
+    printf("[fonts] title code: %d of %d\n", done, want);
+}
+
 /* Stats labels share their texture rectangles across several windows. Repaint
  * those exact rectangles, so every alias changes without touching bars/icons. */
 static void restyle_stats(void)
@@ -891,7 +981,7 @@ void PicWords_Apply(void)
         return;
     }
     static const char* const en[] = {
-        "Missed", "Attack", "Counter", "Interrupt", "Assist", "Guard", "Do you want to", "interrupt?", "Yes", "No",
+        "Missed", "Attack", "Counter", "Interrupt", "Assist", "Guard", "Do you want to interrupt?", "Yes", "No",
         "Damage", "TARGET", "SELECT", "BATTLE", "Run Away", "Unable to", "FIGHT", "GAME OVER", "LOSE",
         "WIN", "LEVEL UP", "PRESS START BUTTON", "NEW GAME", "CONTINUE GAME", "BATTLE MODE"
     };
@@ -916,6 +1006,7 @@ void PicWords_Apply(void)
     }
     restyle_stats();
     restyle_title_notices();
+    restyle_title_code();
     dump_files();
     flush_files();
     restyle_status(&font22_tex);

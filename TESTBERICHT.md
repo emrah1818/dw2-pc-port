@@ -91,6 +91,24 @@ Neuer Selbsttest in `hd_test`: 16× Schachbrett, bei 4× grau gemittelt, bei 16�
 | `hd_test` | bestanden (GPU übersprungen) |
 | Menü-Rundgang Deutsch 4:3 | Fotos geprüft, keine Änderung außer dem Ergebnis-Wertefeld |
 
+### Technische Prüfung vor der Veröffentlichung (Commit fc11194 und Folgecommit)
+
+Unterschieden wird: **bestätigter Fehler** (am Code nachgewiesen und behoben), **Risiko** (nicht aufgetreten, aber möglich), **nicht getestet**.
+
+| Bereich | Befund | Art | Stand |
+|---|---|---|---|
+| texrep.c | Der Loader-Thread wurde beim Beenden nie beendet (er wartet für immer auf die Warteschlange). | bestätigt (Code) | behoben: `TexRep_Shutdown` setzt ein Ende-Flag, weckt den Thread, wartet auf ihn; aufgerufen in `Host_Shutdown`. Test `TexRep_SelfTestLoader` (Hintergrundladen, Ergebnis, Ende, Anfrage danach abgewiesen) in `hd_test`: bestanden. |
+| texrep.c | `mem_used` und die Statistikzähler wurden vom Loader-Thread und (Tests) vom Spiel-Thread ohne Synchronisation geändert. | bestätigt (Code) | behoben: atomare Zähler. |
+| texrep.c | Die 1-GiB-Grenze prüfte nur die Hauptstufe, die Mip-Stufen (etwa ein Drittel mehr) kamen darüber hinaus. | bestätigt (Code) | behoben: die Prüfung rechnet 4/3. |
+| texrep.c | Die Warteschlange (4096) ist begrenzt. Ist sie voll, wird die Textur beim nächsten Zugriff erneut angefragt, bis Platz ist; bis dahin gilt das Original. Fertige Bilder bleiben bis zum Programmende im Speicher (höchstens 1 GiB). Wird ein Pfad bei einem späteren `TexRep_AddRoot` ersetzt, während der Loader liest, wäre das ein Wettlauf; `AddRoot` läuft im Betrieb nur beim Start. | Risiko | unverändert, dokumentiert |
+| audio.c | Die Zählung „Warteschlange leer“ misst keine hörbaren Aussetzer: das Gerät hat einen eigenen Puffer, und ein langer Hänger wurde bei jedem Aufruf mitgezählt. | bestätigt (Code) | behoben: der Rückruf des Audiogeräts (`additional_amount > 0` heißt: das Gerät muss Stille spielen) zählt hörbare Aussetzer mit Dauer; „Warteschlange leer“ bleibt als Warnung. Das Log schreibt alle 10 s: `last 10 s: N audible gaps (X ms of silence), queue empty M times`. **Nicht an echter Hardware geprüft** (hier nur der Dummy-Treiber). |
+| sdl.c | Die automatische Auflösung stieg nach einem Rückgang nie wieder (`perf_cap` blieb bis zum Programmende). Ein einmaliger Hänger beim Laden senkte sie dauerhaft. | bestätigt (Code) | behoben: nach 60 s ohne späte Bilder eine Stufe höher (das Fenster begrenzt weiterhin); hält die Stufe nicht (spät innerhalb 20 s), verdoppelt sich die Wartezeit bis 16 min. Rückgang je Stufe nur bei wiederholter Verspätung oder in den ersten 15 s, nie unter 2×. **Die Erholung wurde nicht im Lauf geprüft** (die Testmaschine ist dauerhaft zu langsam; es gibt keinen Zustand „lange ruhig“). |
+| psxgpu.c | `DW2_PGXP_STATS` gab die Zusammenfassung nur alle 262 144 Polygone aus; kurze Läufe zeigten nichts. | bestätigt | behoben: Ausgabe auch beim Programmende. |
+| PGXP | Weiter bestehende Geometriefehler: Etwa 0,1 % der 3D-Polygone haben Ecken mit und ohne genaue Position (große Boden-/Wandvierecke am Bildrand, Eckpunkt hinter der Nahebene, Befehle 0x28/0x2E). Sie werden mit ganzzahligen Ecken gezeichnet. Echtes 3D-Clipping ist nicht umgesetzt; die Befehle enthalten an dieser Stelle nur 2D-Punkte. | bestätigt, offen | dokumentiert |
+| Windows-Build | Sauberer Lauf der CI auf dem GitHub-Stand (Commit nach fc11194): Build, `hd_test` (mit Software- und GPU-Pfad auf Mesa lavapipe, synthetische Szene) und Import-Prüfungen ohne Pack / falsches Bild: bestanden. Das Paket enthält `dw2.exe`, `SDL3.dll`, Prüfprogramm, Dokumente, `attacks.csv`, `types.csv` und die Quell-xlsx, keine png/tsv/bin/tim/pak/mcd. Importe der `dw2.exe`: KERNEL32, msvcrt, SHELL32, USER32, WINHTTP, SDL3 (nur Systembibliotheken und die mitgelieferte SDL3.dll). | bestätigt | **nicht getestet:** Start von `dw2.exe` mit echten Spieldaten unter Windows (hier kein Windows, kein Wine) |
+
+Regression nach den Änderungen (Linux, Release-Build): Cheat-Test 31/31, Speichertest 9/9, Referenzbilder Classic 6/6, textscript 90/90, `hd_test` 0 Fehler (GPU-Teil hier übersprungen, in der CI auf lavapipe ausgeführt).
+
 ## 1.5.0 – Breitbild-Kampf, Sprachwahl ohne F1, deutsche Wortgrafiken, Cheat-Liste, Spieltempo
 
 Wie getestet wurde: wie in 1.4.0. Linux x64 als Release-Build ohne Disc-Daten, mit dem echten Image des Spielers. Dazu der Testbot und Bildschirmfotos im laufenden Spiel.

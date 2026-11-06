@@ -1,4 +1,85 @@
-# DW2 PC-Port – Testbericht (Stand: 1.5.0, 06.11.2026)
+# DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
+
+## Entwicklung nach 1.5.0 (für 1.6.0)
+
+Getestet wie in 1.5.0: Linux x64, Release-Build ohne Disc-Daten, echtes Image, Testbot und Bildschirmfotos (HD, 2×, 4:3, 16:9, 21:9).
+
+### 1. Breitbild auf den übrigen Bildschirmen
+
+**Hintergründe:** Kachelhintergründe gehen bis in die Seitenränder. Das gilt für:
+- das Feldmenü (Gitter, Glasschichten)
+- die Shops und die Digi-Beetle-Werkstatt (Platinenmuster)
+- das DNA-Labor (Zahlenregen)
+
+So funktioniert es:
+- Gemeint ist ein Bild, das die ganze 4:3-Breite als Raster gleich breiter Spalten aus wenigen Kacheln bedeckt.
+- Es wird gespiegelt um die Randspalte fortgesetzt. Schachbrett- und versetzte Muster laufen dadurch unverändert weiter.
+- Ein Bild aus vielen verschiedenen Teilen wird nie wiederholt. Das betrifft Titel, Karten und Illustrationen.
+
+**Gespräche:** Das Porträt rückt in den Seitenrand seiner Seite, Rahmen und Gesicht zusammen (`src/main/portrait.c`). Das Textfenster bleibt mittig.
+
+**Ergebnisbildschirm, Menüs, Shops, Digi-Beetle, Digitation:** Die Fenster bleiben mittig und vollständig lesbar.
+
+Das alles gilt nur mit Modern UI im Breitbild. Classic und 4:3 sind unverändert: Referenzbilder 6/6.
+
+**Im Spiel getestet, 16:9 und 21:9:**
+- Feldmenü mit allen Unterseiten
+- DNA-Labor mit Digitation
+- Beetle-Werkstatt (Montage, Teileliste)
+- Teile-Shop
+- Gespräche in zwei Szenen
+- Kampf
+
+**Grenze:** Räume, deren 3D-Geometrie an der Bildkante endet, zeigen dort weiter Schwarz. Dort wird nichts erfunden.
+
+### 2. Deutsche Grafiktexte im laufenden Spiel
+
+Der neue Testbot `tools/autoplay/battle_words.py` macht Testkämpfe mit Fotos alle 12 Waits:
+- Sieg mit Levelaufstieg
+- verlorener Kampf
+- Befehlslisten
+
+**Neu im Spiel gesehen:** Schaden, LEVELAUFSTIEG, LOS!, Flucht, Abwehr, SPIEL VORBEI, die Banner „Kleine Flamme“, „Megafeuer“ und „Magisches Feuer“. Dazu wie bisher Attacke, Verfehlt, Sieg, Kampf und Ziel. Die Liste steht in [GRAFIKTEXTE.md](GRAFIKTEXTE.md).
+
+**Gefunden und behoben:**
+- LEVELAUFSTIEG lag über „Nächstes Level“ und dem Kastenrand. Es steht jetzt rechtsbündig im Wertefeld.
+- Die Zeile vor einem Wertefeld endet jetzt davor (`host/uilayout.c`: ein Balken im Fenster zählt als Zeilenende).
+- Lange Attackennamen verschmierten zu einer „Geisterschrift“. Klarere Buchstaben m, w, W, a, g, i, M.
+- Kleine Wörter (Unterbrechen, Ja, Nein, „unterbrechen?“) stehen jetzt in schmaler Schrift.
+
+**Nicht im Spiel ausgelöst:** Konter, Unterbrechen, Hilfe, die Unterbrechungsfrage, NIEDERLAGE und Zustandsmeldungen. Diese Szenen hängen von Gegneraktionen ab. Geprüft sind sie als Textur.
+
+### 3. HD-Texturen
+
+**PNG-Laden:** PNGs werden in einem eigenen Thread geladen. Bis ein Bild fertig ist, zeichnet das Spiel die Originaltextur, ohne zu warten. Vorher stand das Spiel beim ersten Gebrauch großer Pakete still.
+
+**Mip-Stufen:** Für 2/4/8/16× entstehen halbierte Stufen, gemittelt mit Alpha. Jedes Pixel liest die Stufe, die zur internen Auflösung passt. Andere Faktoren werden blockweise gemittelt. Das verhindert Flimmern und Aliasing bei kleinerer Auflösung.
+
+**Getestet:** 32 echte Titeltexturen, 16× vergrößert, bis 2048×4096 Pixel:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Laden | alle 32 geladen, je 5 Stufen |
+| Bild bei 2× gegenüber dem Original | 0 von 614.400 Pixeln abweichend |
+| Spielgeschwindigkeit mit Paket | 962 Spielbilder in 32 s |
+| Spielgeschwindigkeit ohne Paket | 906 Spielbilder in 30 s |
+| Hänger | keine. Vorher 18 Uhr-Neustarts und 1267 statt etwa 3700 Bilder in 118 s |
+
+Neuer Selbsttest in `hd_test`: 16× Schachbrett, bei 4× grau gemittelt, bei 16× exakt: 0 von 32 abweichend.
+
+**Grenze:** Der GPU-Renderer zeichnet weiter die Originaltexturen. Hier gibt es kein Vulkan, also ist das nicht testbar.
+
+### 4. Spieltempo, Bildtakt, Grafik
+
+Gegenüber 1.5.0 ist die Logik unverändert: Tempo-Schutz, Obergrenze der Zwischenbilder und PGXP mit 99,9 % präzisen Polygonen. Nicht geprüft sind vsync und GPU-Last auf echter Hardware.
+
+### Regressionstests
+
+| Test | Ergebnis |
+|---|---|
+| Englische Referenzbilder (Classic) | 6/6 bitgleich, nach allen Layout-Änderungen |
+| `hd_test` | bestanden (GPU übersprungen) |
+| Menü-Rundgang Deutsch 4:3 | Fotos geprüft, keine Änderung außer dem Ergebnis-Wertefeld |
 
 ## 1.5.0 – Breitbild-Kampf, Sprachwahl ohne F1, deutsche Wortgrafiken, Cheat-Liste, Spieltempo
 

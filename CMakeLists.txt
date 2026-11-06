@@ -195,6 +195,8 @@ add_executable(dw2 ${PSYQ_SRC} ${HOST_SRC} ${BACKEND_SRC} ${DEV_SRC} ${ICON_SRC}
 target_compile_options(dw2 PRIVATE ${DW2_ARCH_FLAG} ${DW2_PIE_FLAGS} -fno-strict-aliasing -fwrapv -fno-common -Wall
     "-Wa,-I${CMAKE_SOURCE_DIR}"
     $<$<COMPILE_LANGUAGE:C>:-funsigned-char>
+    # host/backend code: a missing prototype is an error on every compiler (MinGW's GCC 14 made it one)
+    $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti -fno-threadsafe-statics>)
 target_compile_definitions(dw2 PRIVATE DW2_NATIVE DW2_DEV=${DW2_DEV_VALUE} DW2_CHEATS=1)
 target_include_directories(dw2 PRIVATE ${CMAKE_SOURCE_DIR}/host/imgui)

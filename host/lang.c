@@ -21,6 +21,7 @@
 #include <SDL3/SDL.h>
 
 #include "host/devdata.h"
+#include "host/fonts.h"
 #include "host/host.h"
 #include "host/settings.h"
 #include "host/textscript.h"
@@ -1190,7 +1191,6 @@ void Lang_RestyleWords(uint8_t *d, int size) {
     };
     const char *base=SDL_GetBasePath();
     char dir[1024];
-    extern int Fonts_Mask(int,const char *,uint8_t *,int,int,int);
     snprintf(dir,sizeof(dir),"%sLanguages/German/",base?base:"");
     if(size<TIM_IMG+256*64)return;
     for(size_t i=0;i<sizeof(words)/sizeof(words[0]);i++) {
@@ -1293,12 +1293,10 @@ void Lang_Apply(void) {
     uint8_t *d;
 
     {
-        extern void Fonts_SetEnabled(int);
         /* Classic UI in English is the PS1 picture, bit for bit: no modern fonts there */
         Fonts_SetEnabled(!(Settings_Get(SET_LANGUAGE) != SET_LANG_DE && Settings_Get(SET_UI_STYLE) == SET_UI_CLASSIC));
     }
     if (Settings_Get(SET_LANGUAGE) != SET_LANG_DE) {
-        extern void Fonts_ApplyGame(void);
         if (Fonts_Enabled()) {
             Fonts_ApplyGame();
         }
@@ -1339,7 +1337,6 @@ void Lang_Apply(void) {
     }
     g_umlauts = umlauts;
     {
-        extern void Fonts_ApplyGame(void);
         Fonts_ApplyGame();
     }
     PicWords_SetGerman(1);

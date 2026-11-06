@@ -1040,7 +1040,6 @@ static int status_glyph(int ch, int* u, int* v)
 
 static void restyle_status(Tex* t)
 {
-    extern int Fonts_Cell(int role, int cp, uint8_t* out, int w, int h);
     for (int cp = 'A'; cp <= 'z'; cp++) {
         int     u, v;
         uint8_t mask[12 * 15];

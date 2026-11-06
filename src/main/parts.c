@@ -14,6 +14,9 @@
 #include "main/itemmenu.h"
 #include "main/digilist.h"
 #include "main/texslot.h"
+#ifdef DW2_NATIVE
+#include "host/fonts.h"
+#endif
 
 /* Gfx_DrawPartsEx's cached rotation/scale and the matrix built from it (identity at boot). */
 GfxPartRotCache Gfx_PartRotCache = {
@@ -81,6 +84,9 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
             p->s.clut = ((e->clutY + t->clutY + e->clutRow + s->clutRow) << 6) |
                        (((e->clutX + t->clutX) >> 4) & 0x3F);
         }
+#ifdef DW2_NATIVE
+        Fonts_NumberCell(s->fileId, e, tpage, t->u, p->s.clut);
+#endif
         p->s.tag.addr = ot->addr;
         ot->addr = (u32)p;
         p = (GfxPartPkt *)(&p->s + 1);
@@ -176,6 +182,9 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
             p->v[0].extra = ((e->clutY + t->clutY + e->clutRow + ((GfxPartSprite *)arg0)->clutRow) << 6) |
                             (((e->clutX + t->clutX) >> 4) & 0x3F);
         }
+#ifdef DW2_NATIVE
+        Fonts_NumberCell(((GfxPartSprite *)arg0)->fileId, e, p->v[1].extra, t->u, p->v[0].extra);
+#endif
         if (arg3 & 1) {
             p->v[0].x *= 2;
             p->v[1].x *= 2;
@@ -249,6 +258,9 @@ void Gfx_SetPartsNumber(GfxPart *p, s32 mask, s32 n, s32 val) {
         q = p;
         do {
             if (q->groupMask & mask) {
+#ifdef DW2_NATIVE
+                Fonts_RegisterNumber(q->fileId);
+#endif
                 if (lead == 1 || i == n - 1 || d[i] != 0) {
                     lead = 1;
                     q->frame = d[i];

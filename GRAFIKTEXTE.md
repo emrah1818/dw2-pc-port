@@ -1,3 +1,8 @@
+> Entwicklungszweig für moderne Fonts: Die unten stehende Bestandsbeschreibung
+> dokumentiert die bisherige Fassung. Die neue Darstellung verwendet eingebettete
+> Exo 2 / Orbitron / Roboto Mono statt der bisherigen Spielglyphen. Umfang,
+> tatsächliche Prüfungen und noch offene Bildtexte: [doc/FONTS.md](doc/FONTS.md).
+
 # Grafiktexte – Inventar (Stand 1.6.0)
 
 Texte, die das Spiel nicht als Schrift, sondern als **Bild** zeigt (Wortgrafiken). Der Port malt sie beim Start auf Deutsch neu, und zwar aus den Daten des Spielers selbst: Schriftbild der Kampfmeldungen (Datei 0x22B) und kleine Spielschrift (0x13A), Farben aus dem englischen Originalbild gelernt (`host/picwords.c`). Im Repository liegen weder Bilder noch Spieldaten, nur der Code und die deutschen Wörter.

@@ -5,6 +5,9 @@
 name: Build
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
     paths-ignore: ["**.md", "doc/**"]
@@ -51,6 +54,12 @@ jobs:
       - name: Build (release, no disc data)
         shell: pwsh
         run: python tools/build_native.py --arch x64 --release --no-disc
+
+      - name: Font tests (no game data)
+        shell: pwsh
+        run: |
+          & build/native64_rel_nodisc/fonts_test.exe
+          if ($LASTEXITCODE -ne 0) { throw "fonts_test failed ($LASTEXITCODE)" }
 
       # Real Windows checks without game data: the Vulkan GPU renderer on Mesa lavapipe for
       # Windows (software Vulkan), the software renderer, and the import's refusal paths.
@@ -126,6 +135,9 @@ jobs:
             if (Test-Path $p) { Copy-Item $p $pkg; "bundled $d" }
           }
           Copy-Item LICENSE "$pkg/LICENSE.txt"
+          New-Item -ItemType Directory -Force "$pkg/FontLicenses" | Out-Null
+          Copy-Item misc/fonts/*-OFL.txt "$pkg/FontLicenses/"
+          Copy-Item doc/FONTS.md "$pkg/FontLicenses/FONTS.md"
           Copy-Item README_PORT.md "$pkg/README_PORT.md"
           Copy-Item TESTBERICHT.md "$pkg/TESTBERICHT.md"
           Copy-Item -Recurse Languages "$pkg/Languages"
@@ -167,6 +179,9 @@ jobs:
       - name: Text/script layout test (made-up bytes, no game data)
         run: build/linux64_rel_nodisc/textscript_test
 
+      - name: Font tests (no game data)
+        run: build/linux64_rel_nodisc/fonts_test
+
       - name: Renderer test (software vs GPU on Mesa lavapipe, synthetic scene, no game data)
         run: |
           sudo apt-get install -y mesa-vulkan-drivers libvulkan1 vulkan-tools
@@ -188,6 +203,8 @@ jobs:
           cp $b/dw2 DW2-PC-Port/DW2-PC/
           cp -L sdl3inst/lib/libSDL3.so.0 DW2-PC-Port/DW2-PC/
           cp LICENSE DW2-PC-Port/DW2-PC/LICENSE.txt
+          mkdir -p DW2-PC-Port/DW2-PC/FontLicenses
+          cp misc/fonts/*-OFL.txt doc/FONTS.md DW2-PC-Port/DW2-PC/FontLicenses/
           cp README_PORT.md TESTBERICHT.md DW2-PC-Port/DW2-PC/
           cp -r Languages DW2-PC-Port/DW2-PC/
           (cd DW2-PC-Port && zip -r ../DW2-PC-Port-linux-x64.zip DW2-PC)
@@ -198,6 +215,7 @@ jobs:
           path: DW2-PC-Port-linux-x64.zip
 
   release:
+    if: github.event_name != 'pull_request'
     needs: [windows-x64, linux-x64]
     runs-on: ubuntu-latest
     steps:

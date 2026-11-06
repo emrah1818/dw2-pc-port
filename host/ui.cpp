@@ -22,6 +22,7 @@
 #include "host/settings.h"
 #include "host/ui.h"
 #include "host/update.h"
+#include "host/fonts.h"
 #if DW2_DEV
 #include "host/devui.h"
 #endif
@@ -383,7 +384,11 @@ void Ui_Init(SDL_Window *window, SDL_Renderer *renderer, int headless) {
     g_window = window;
     /* dw2-pc-port: the embedded scalable font, sharp at any UI scale (the bitmap default is
      * made for 13 px at 1x) */
-    io.Fonts->AddFontDefaultVector();
+    int font_size = 0;
+    const unsigned char *font_data = Fonts_Data(FONT_INTERFACE, &font_size);
+    ImFontConfig font_config;
+    font_config.FontDataOwnedByAtlas = false;
+    io.Fonts->AddFontFromMemoryTTF((void *)font_data, font_size, 16.0f, &font_config);
     apply_scale(window);
     dpi = ImGui::GetStyle().FontScaleDpi;
     if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer) || !ImGui_ImplSDLRenderer3_Init(renderer)) {

@@ -61,7 +61,14 @@ Ein anderes Image importierst du so: `dw2.pak` und `dw2.pak.slus` löschen, dann
 
 ## 3. Sprache
 
-Unter **F1 → Start → Sprache** (oder F1 → Grafik) stellst du Deutsch oder English ein. Die Wahl wird gespeichert, für die Spieltexte gilt sie nach einem Neustart. Beim ersten Start folgt die Sprache der Systemsprache.
+Deutsch oder English stellst du an drei Stellen ein:
+- **Erster Start:** Das Fenster „Select Language / Sprache wählen“ erscheint von selbst.
+- **Titelbild:** **Select** kurz drücken, auf dem Controller oder der Tastatur.
+- **Jederzeit:** F1 → Start → Sprache.
+
+Die Wahl wird gespeichert, unabhängig vom Spielstand. Sie gilt für das Spiel, das F1-Menü und das Cheat-Menü.
+- Am Titel startet das Programm sofort neu, weil die Spieltexte beim Start geladen werden.
+- Im Spiel fragt es vorher „Später / Jetzt neu starten“.
 
 Mit Deutsch ändert sich Folgendes:
 
@@ -85,9 +92,14 @@ Mit Deutsch ändert sich Folgendes:
 
 - **Profile:** Classic ist das Originalbild. Remastered bietet 3D in Fensterauflösung, 16:9, kein Wackeln, gefilterte Texturen, geglätteten Text und flüssige Bilder.
 - **Auflösung:** Automatisch nach Fensterhöhe (Full HD 5×, WQHD 6×, 4K 9×) oder fest 1× bis 12×. Fenstergrößen-Voreinstellungen reichen von 720p bis 4K, dazu 2560×1080 und 3440×1440.
-- **Seitenverhältnis:** 4:3, 16:9 oder 21:9. Breitbild zeigt mehr von der 3D-Welt und streckt nichts. Menüs und 2D-Bilder bleiben 4:3.
+- **Seitenverhältnis:** 4:3, 16:9 oder 21:9. Breitbild zeigt mehr von der 3D-Welt und streckt nichts.
+  - Im Kampf, mit Spielfenster *Modern*, rücken Befehlsmenüs, Attackenlisten und Team-Statusfenster in die Seitenränder (ab 1.5.0), sodass die Digimon in der Mitte frei bleiben.
+  - Gespräche, Ergebnisbildschirm und Menüs bleiben mittig in 4:3-Größe.
 - **Spielfenster (F1 → Start, ab 1.4.0):** *Modern* setzt Buchstaben nach ihrer eigenen Breite (Ziffern und Tabellen bleiben in ihren Spalten), *Klassisch* behält die festen PS1-Zeichenzellen. In beiden Modi misst der Port jede Textzeile vor dem Zeichnen. Ist sie breiter als ihr Fenster, wird das Fenster nach rechts verlängert, so weit Bildschirm und Nachbarfenster es erlauben, oder der Text daneben rückt zur Seite. Erst wenn beides nicht reicht, wird die Zeile enger gesetzt. Englische Texte passen in die Originalfenster: Mit *Klassisch* sieht ein englisches Spiel genauso aus wie auf der PS1. Technik: `host/uilayout.c`, `src/main/text.c`.
-- **Bildrate:** Die Spiellogik läuft immer im Originaltempo. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung.
+- **Bildrate:** Die Spiellogik läuft immer im Originaltempo, mit 59,94 Hz. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung.
+  - Ab 1.5.0 werden ohne vsync nie mehr Bilder gezeichnet, als der Monitor zeigt.
+  - Kommt das Spiel nicht hinterher, pausieren die Zwischenbilder.
+  - Bei „Auto“-Auflösung mit dem Software-Renderer sinkt die Auflösung um eine Stufe.
 
 ## 5. Spieldateien, Texturen und 3D-Modelle
 
@@ -148,6 +160,14 @@ tools/viewer_bridge/export_assets.py --viewer <viewer>/app/src/main/python --dis
    - Werte jedes Digimon in Team und Server ändern: Level, EXP, HP, MP, Angriff, Verteidigung, Tempo
    - alle heilen, Digi-Beetle heilen
    - Items in die Tasche legen
+   - ab 1.5.0, nach der Code-Sammlung `Cheat_Digimon_World_2_SLUS`:
+     - Max-Knöpfe
+     - gehaltene Werte: Unendlich Bits, HP und MP des Teams (auch im Kampf), HP und EP des Beetles
+     - Art, Level-Grenze und Attacken 1–12 je Digimon
+     - 28 Story-Items
+     - Taschenplätze
+
+   Alle Einträge, Grenzen und nicht übernommenen Codes stehen in [CHEATS.md](CHEATS.md).
 
    Werte werden gegen die Grenzen des Spiels geprüft. Ungültige Werte werden abgelehnt, das Ergebnis steht unter „Letzte Ergebnisse“.
 3. **Rückgängig:** „Alle Cheat-Änderungen rückgängig“ stellt den gemerkten Stand wieder her. Im Kampf oder im Kartenbildschirm wartet es, bis der vorbei ist.

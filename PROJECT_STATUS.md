@@ -1,6 +1,6 @@
 # PROJECT_STATUS – DW2 PC-Port
 
-Stand: 06.11.2026, **Release 1.4.0** auf `main`. Was fertig, getestet und offen ist: TESTBERICHT.md, Abschnitt „1.4.0“.
+Stand: 06.11.2026, **Release 1.5.0** auf `main`. Was fertig, getestet und offen ist: TESTBERICHT.md, Abschnitt „1.5.0“, dazu GRAFIKTEXTE.md (Wortgrafiken) und CHEATS.md (Cheat-Menü).
 Dieses Dokument ist der Einstieg für die Fortsetzung in einem neuen Projekt. Einzelheiten stehen in:
 
 | Datei | Inhalt |
@@ -123,7 +123,24 @@ Siehe TESTBERICHT.md. Kurzfassung:
 - **Kampf:** `Stg30_Battle` (`digis[6]` bei 0x18, `inputSlot` = 6 bedeutet Hauptmenü offen). Hauptmenü: Give Orders / Cannon / Run Away.
 - **Bot:** Geplante devedit-Änderungen zählen in VBlank-*Waits*, nicht in VBlanks. Etwa 1200 Waits pro Sekunde im `--fast`-Modus.
 
-## 7. Offene Aufgaben – Stand nach 1.4.0
+## 7. Offene Aufgaben – Stand nach 1.5.0
+
+**1.5.0 erledigt:**
+- Sprachwahl ohne F1: erster Start und Select am Titel.
+- Deutsche Kampf- und Titelwortbilder sowie Attackennamen-Banner, siehe GRAFIKTEXTE.md.
+- Breitbild-Kampf-HUD.
+- Tempo-Schutz für Smooth Frames.
+- PGXP-Messung.
+- Cheat-Liste nach der SLUS-Sammlung, siehe CHEATS.md.
+
+**Neu offen aus 1.5.0:**
+- Breitbild für Gesprächsfenster mit Porträt, den Ergebnisbildschirm und das Feldmenü. Das braucht einen neuen Zeilenumbruch.
+- Ein Bild „Critical“ finden.
+- Zustandsmeldungen und Namensbanner im Lauf fotografieren.
+- Sprachneustart in einem echten Fenster testen.
+- GPU und vsync auf echter Hardware.
+
+Ältere Liste:
 
 Reihenfolge nach Priorität des Nutzers:
 
@@ -144,7 +161,8 @@ Reihenfolge nach Priorität des Nutzers:
 4. **Regressionen nach jeder Änderung:**
    - Referenzbilder: Aufruf wie in `tools/wintest/DW2-Test.ps1`, Abschnitt 4, mit leerem HOME/XDG_DATA_HOME, dann `md5sum -c tests/referenz_md5.txt`. Erwartet sind 6/6.
    - `tools/autoplay/save_test.py EXE dw2.pak WORK` (9/9)
-   - `tools/autoplay/cheat_test.py EXE dw2.pak CARD WORK` (7/7). CARD ist ein Spielstand nach dem Gold-Hawk-Beitritt, den `story.py` erzeugt (`card_round0.mcd`).
+   - `tools/autoplay/cheat_test.py EXE dw2.pak CARD WORK` (31/31 seit 1.5.0). CARD braucht ein Digimon im Team, z. B. den Spielstand nach dem Gold-Hawk-Beitritt aus `story.py` (`card_round0.mcd`).
+   - `tools/autoplay/domains_test.py EXE dw2.pak WORK CARD --domains 0-5 --extra=--cheats`. Im Release-Build braucht der Warp `--cheats`.
 5. **Deutsch testen:**
    - `Languages/German/` neben die EXE kopieren und `--lang de` setzen.
    - Ergebnis in `Languages/German/report.txt` prüfen.
@@ -156,7 +174,7 @@ Reihenfolge nach Priorität des Nutzers:
    - **Nicht committen** (`.gitignore`). Die aktuelle `texts.tsv` mit 879 Einträgen hat der Nutzer erhalten. Für eine Fortsetzung muss er sie wieder bereitstellen, die Arbeitskopie liegt nicht im Repo.
 7. **Release:**
    - `main` pushen.
-   - Workflow „Build“ per `workflow_dispatch` mit `release=v1.4.0` starten (Tags lassen sich aus dieser Umgebung nicht direkt pushen, der Workflow legt sie an).
+   - Workflow „Build“ per `workflow_dispatch` mit `release=v1.5.0` starten (Tags lassen sich aus dieser Umgebung nicht direkt pushen, der Workflow legt sie an).
    - `DW2_VERSION` in `host/update.h` anheben.
 8. **Commits:** Autor `emrah1818`, kurze deutsche Commit-Texte mit Aufzählung.
 
@@ -168,4 +186,5 @@ Reihenfolge nach Priorität des Nutzers:
 | 1.2.0 | Attackennamen DE, Typen, Umlaute |
 | 1.3.0 | Textinventur, 879 Tabellentexte DE (Datei an den Nutzer), Neupacken |
 | 1.4.0 | Story und Dialoge deutsch, Wortgrafiken als Text, PC-Layout der Spielfenster (Modern/Klassisch), Texturpakete (Software-Renderer), Qualitäts- und Layoutprüfung |
+| 1.5.0 | Sprachwahl ohne F1, deutsche Wortbilder (Kampf, Titel, Attackennamen), Breitbild-Kampf-HUD, Tempo-Schutz, Cheat-Liste nach SLUS-Sammlung, PGXP-Messung |
 | danach (geplant) | neu gestaltete Menüfenster, GPU-Texturpakete, Studio, Launcher (Abschnitt 7) |

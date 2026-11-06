@@ -1,4 +1,160 @@
-# DW2 PC-Port – Testbericht (Stand: 1.4.0, 06.11.2026)
+# DW2 PC-Port – Testbericht (Stand: 1.5.0, 06.11.2026)
+
+## 1.5.0 – Breitbild-Kampf, Sprachwahl ohne F1, deutsche Wortgrafiken, Cheat-Liste, Spieltempo
+
+Wie getestet wurde: wie in 1.4.0. Linux x64 als Release-Build ohne Disc-Daten, mit dem echten Image des Spielers. Dazu der Testbot und Bildschirmfotos im laufenden Spiel.
+- HD-Fotos: 2× Auflösung, 4:3, 16:9 und 21:9, Software-Renderer.
+- GPU-Renderer und vsync gibt es auf dem Testrechner nicht, weil Vulkan fehlt.
+- Windows: Build und automatische Tests in der CI.
+
+### 1. Sprachwahl ohne F1
+
+**Umgesetzt** (`host/ui.cpp`, `host/main.c`):
+- **Erster Start:** Das Fenster „Select Language / Sprache wählen“ erscheint mit den Knöpfen English und Deutsch.
+- **Titelbild:** Kurz **Select** drücken öffnet dieselbe Auswahl, mit Controller oder Tastatur. Der Hinweis am Titel lautet „Select: Sprache / Language F1: Einstellungen“.
+- **Im laufenden Spiel:** F1 → Start → Sprache, wie bisher.
+
+Die Wahl wird in der Einstellungsdatei gespeichert, unabhängig vom Spielstand, und gilt auch für F1 und das Cheat-Menü.
+- **Am Titel:** Das Programm startet nach dem Wechsel sofort neu, weil die Spieltexte beim Start eingelesen werden.
+- **Im Spiel:** Erst kommt die Frage „Später / Jetzt neu starten“, damit nichts Ungespeichertes verloren geht.
+
+**Getestet:**
+- Das Auswahlfenster am Titel als Bild (`--language-picker --ui-shots`).
+- Speichern der Einstellung.
+- **Nicht geprüft:** der Neustart in einem echten Fenster. Der Testrechner hat kein Fenster, der Neustart startet einen neuen Prozess.
+
+**Nicht umgesetzt:** ein eigener Eintrag „Sprache“ im Feldmenü des Spiels. Dieses Menü ist ein festes Bild der Spieldaten mit fest verdrahteten Zeilen. Stattdessen gibt es Select am Titel und F1.
+
+### 2. Deutsche Wortgrafiken
+
+Das vollständige Inventar mit Ort, Form und Test steht in [GRAFIKTEXTE.md](GRAFIKTEXTE.md).
+
+- 25 von 25 Bildern und 43 von 43 Attackennamen-Bildern sind gemalt, ohne Fehler.
+- 68 Zustandsmeldungen haben deutsche Buchstabenlisten.
+
+**Im Spiel geprüft:**
+- STARTTASTE DRÜCKEN, NEUES SPIEL, FORTSETZEN, KAMPFMODUS
+- KAMPF, ZIEL, SIEG, „Attacke Verfehlt“
+
+**Als Textur geprüft:**
+- LEVELAUFSTIEG, NIEDERLAGE, LOS!, Flucht/Keine, SPIEL VORBEI
+- Schaden, WÄHLE, Konter, Unterbrechen, Hilfe, Abwehr
+- „Willst du unterbrechen?“, Ja/Nein
+
+**Behoben:**
+- „KAMPF“ wurde als „KAAPF“ gelesen, „NIEDERLAGE“ als „HIEDERLAGE“.
+- S und G sahen aus wie 8 und 0.
+- LEVELAUFSTIEG war auf 64 Pixel zusammengedrückt. Es liegt jetzt in einer freien Fläche derselben Textur mit 124 Pixeln.
+- NEUES SPIEL war zugelaufen.
+
+**Offen:**
+- Ein Bild „Critical“ wurde nicht gefunden.
+- 213 Attacken ohne geprüften deutschen Namen bleiben englisch, wie vorgegeben.
+- Zustandsmeldungen und Namensbanner traten im Testlauf nicht auf.
+
+### 3. Breitbild-Kampf (Modern UI, 16:9 und 21:9)
+
+**Umgesetzt** (`host/uilayout.c`, `src/main/parts.c`, `src/main/text.c`):
+
+**Was sich bewegt:**
+- Befehlsmenüs und die vier Attackenlisten rücken in die Seitenränder, ebenso die drei Team-Statusfenster und das Aktionsschild über dem Fenster. Ein Fenster links der Mitte geht nach links, eines rechts der Mitte nach rechts.
+- Alles darin wandert mit: Texte, Ziffern, Cursor und Markierung.
+
+**Was bleibt, wo es ist:**
+- In der Mitte: der Name des Gegners und die Beschreibungszeile.
+- Was zur 3D-Szene gehört: Zielmarke, Schadenszahlen und Wortbanner.
+
+Die Bewegung gilt nur mit Modern UI und im Breitbild. Mit Classic UI oder in 4:3 ändert sich nichts.
+
+**Im Spiel getestet** in zwei Kämpfen je Format (16:9 und 21:9):
+- Die Mitte bleibt für die Digimon frei.
+- Texte stehen in ihren Fenstern, keine Überlappung, nichts abgeschnitten.
+- Die Zielmarke steht weiter richtig.
+
+**Nicht umgesetzt:**
+- Gesprächsfenster mit Porträt, Ergebnisbildschirm (EXP, Level, BITs), Feldmenü und Sonderbildschirme bleiben in der Bildmitte in 4:3-Größe. Ihre Texte sind an die Fensterbreite gebunden. Ein breiteres Fenster bräuchte einen neuen Zeilenumbruch aller Dialoge und wurde nicht begonnen.
+- In 16:9 und 21:9 sind diese Fenster vollständig lesbar und nicht abgeschnitten: Sie stehen mittig über der breiten 3D-Szene.
+
+### 4. Spieltempo unabhängig von der Bildrate
+
+**Ursache für 1.3.0** (Analyse):
+- Die Spieluhr läuft fest mit 59,94 Hz (`host/vblank.c`). Das Spiel zählt seine Bilder daran.
+- Das Fenster zeichnet die Zwischenbilder der „Smooth Frames“ in einem eigenen Thread, mit denselben HD-Arbeits-Threads wie das Spiel.
+- Ohne wirksames vsync waren das ohne Obergrenze etwa 250 Bilder pro Sekunde, ebenso auf 144/240-Hz-Bildschirmen. Diese Bilder nahmen dem Spiel-Thread Rechenzeit, das Spiel lief langsamer. Mit FPS = 60 war genug Zeit übrig.
+
+**Umgesetzt:**
+- Ohne wirksames vsync werden Zwischenbilder höchstens mit der Bildwiederholrate des Bildschirms gezeichnet, oder mit 60, wenn sie unbekannt ist.
+- **Tempo-Schutz:** Verpasst der Spiel-Thread mehrmals pro Sekunde seine VBlank-Termine, pausieren die Zwischenbilder für 3 Sekunden. Es werden dann nur die echten Spielbilder gezeigt.
+- **Automatische Auflösung** mit dem Software-Renderer: Hilft die Pause nicht, sinkt die interne Auflösung um eine Stufe, höchstens bis 2×. Die Einstellung „Auto“ bleibt erhalten, eine fest gewählte Auflösung wird nicht verändert.
+
+**Getestet** (Software-Renderer, Fenster 2560×1440 offscreen, 2 CPU-Kerne):
+
+| Einstellung | Ergebnis |
+|---|---|
+| Auto | 6× → 3×, danach volles Tempo: 147 Spielbilder je 10 s wie bei niedriger Auflösung, 59,94 Hz |
+| fest 12× | Schutz greift (Zwischenbilder pausiert). Das Spiel bleibt langsamer, weil das Zeichnen selbst zu langsam ist: 84 statt 147 Spielbilder je 10 s |
+| 3×, FPS 0 und 60 | gleich: 59,94 Hz, 147 Spielbilder je 10 s |
+
+**Nicht geprüft:** GPU-Renderer mit echtem vsync. Die Schutzlogik ist für beide Renderer dieselbe.
+
+### 5. Wackelnde 3D-Modelle und Texturen
+
+Untersucht mit dem neuen Zähler `DW2_PGXP_STATS=1`, Domains 0–5 mit 12 Kämpfen.
+
+**PGXP-Abdeckung:** Ist PGXP an (Profil Remastered), bekommen **99,9 %** der 3D-Polygone präzise Eckpunkte, 0,1 % teilweise, 0,0 % keine.
+
+**Texturen:** Beide Renderer zeichnen die Texturen dann perspektivisch korrekt, aus 1/z (`psxgpu_hd.c`, `psxgpu_hw.c`).
+
+**Bewertung:** Die Videos aus 1.3.0 (Emblem-Plattform, Stadt, Statusbildschirm) zeigen das typische PS1-Bild:
+- Ganzzahlige Eckpunkte, die springen.
+- Affine Texturen, die schwimmen.
+
+Beides ist ein Effekt des Originals. Er bleibt im Profil Classic absichtlich erhalten, denn dort ist PGXP aus. Im Profil Remastered ist er durch PGXP und Perspektivkorrektur behoben. Ob bei der Aufnahme PGXP an war, lässt sich aus den Videos nicht erkennen. Ein Port-Fehler, der präzise Eckpunkte verliert, zeigte sich in der Messung nicht.
+
+**Was bleibt, weil das Original es so macht:**
+- Gelenke animierter Modelle in ganzzahligen Schritten
+- die Polygon-Reihenfolge der PS1 (Ordnungstabelle)
+
+**Texturen:**
+- Remastered filtert 3D-Texturen bilinear.
+- Es werden keine Details erfunden: keine KI-Hochskalierung.
+- Bessere Böden gibt es über Texturpakete (siehe 1.4.0).
+
+### 6. Cheat-Menü nach der Code-Sammlung
+
+Einzelheiten stehen in [CHEATS.md](CHEATS.md).
+
+**Neu:**
+- Gehaltene Werte: Unendlich Bits, HP/MP des Teams, auch im Kampf, HP/EP des Beetles.
+- Max-Knöpfe.
+- Art, Level-Grenze und 12 Attacken je Digimon.
+- 28 Story-Items mit Warnung.
+- Taschenplätze.
+- Bits bis 99.999.999. Werte begrenzt auf 999, die Grenze des Spiels.
+
+**Nicht übernommen:** Item Slot 49–64 der Sammlung. Die Tasche hat 48 Plätze, die Adressen dahinter beschädigen den Spielstand.
+
+**Test:** `cheat_test.py` **31/31**. Gehaltene Werte im Kampf geprüft. Menü auf Deutsch als Bild geprüft.
+
+### Regressionstests 1.5.0 (Linux, echtes Image)
+
+| Test | Ergebnis |
+|---|---|
+| Englische Referenzbilder (`ui_style=classic`) | 6/6 bitgleich |
+| Speichertest | 9/9 |
+| Cheattest | 31/31 |
+| Domaintest, Domains 0–5 (`--extra=--cheats`, PGXP, 2×) | 6/6 geladen, 12/12 Kämpfe beendet, kein Absturz, zurück in die Stadt |
+| Kampf Deutsch 4:3, 16:9, 21:9; Englisch 16:9 | je 2 Kämpfe, Fotos geprüft |
+| `textscript_test` | 90/90 |
+| `hd_test` | bestanden, GPU-Teil übersprungen (kein Vulkan) |
+| CI Windows (MinGW) und Linux | siehe Release-Lauf |
+
+**Nicht geprüft:**
+- Windows-Hardware
+- GPU-Renderer
+- Neustart nach dem Sprachwechsel in einem echten Fenster
+- Ergebnisbildschirm mit Levelaufstieg im Lauf
+- Zustandsmeldungen im Lauf
 
 ## 1.4.0 – deutsche Story, PC-Layout der Spielfenster, Texturpakete
 

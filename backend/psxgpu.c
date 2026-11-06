@@ -345,6 +345,13 @@ static void polygon(const uint32_t *w, int op) {
                 int full = (1 << nv) - 1;
                 n_poly++;
                 if (hit == full) n_all++; else if (hit) n_some++; else n_none++;
+                if (hit && hit != full) {
+                    static unsigned logged;
+                    if (logged++ < 40) {
+                        printf("[pgxp] mixed polygon: %d corners, mask %x, op %02x, xy %d,%d %d,%d %d,%d\n", nv, hit, op,
+                               px[0], py[0], px[1], py[1], px[2], py[2]);
+                    }
+                }
                 if ((n_poly & 0x3FFFF) == 0) {
                     printf("[pgxp] polygons: %llu, all corners precise %.1f%%, some %.1f%%, none %.1f%%\n", n_poly,
                            100.0 * n_all / n_poly, 100.0 * n_some / n_poly, 100.0 * n_none / n_poly);

@@ -49,6 +49,11 @@ def main():
                     help="skill of each enemy (columns 3..5) in every round: counter 0xA0, interrupt 0x82, assist 0xB9 "
                          "make the enemy turn type 3 / 2 / 4, so the words Counter Attack, Interrupt and Assist and the "
                          "question to the player appear; empty: the enemies' own skills")
+    ap.add_argument("--poke-turns", default="",
+                    help="TYPE:SKILL for the three Digimon, e.g. 3:a0,2:82,4:b9: once all three have chosen a command, "
+                         "their turn records (Stg30_Battle.turns at 0x2AC, 0x10 each: type, target, skill) are rewritten "
+                         "to a counter (3), interrupt (2) and assist (4), so the words Counter Attack / Interrupt / "
+                         "Assist and the question to the player appear without the list menu")
     ap.add_argument("--extra", default="")
     a = ap.parse_args()
     rnd = random.Random(a.seed)
@@ -100,6 +105,8 @@ def main():
                 g.poke("Stg30_Battle", d + 0x22, bytes([sk]))
                 g.poke("Stg30_Battle", d + 0x18, (999).to_bytes(2, "little"))   # max MP
                 g.poke("Stg30_Battle", d + 0x1A, (999).to_bytes(2, "little"))   # MP
+                g.poke("Stg30_Battle", d + 0x20, (1).to_bytes(2, "little"))     # speed 1: the player's attacks hit
+                                                                                  # (Stg30_SkillHitCheck), so counters follow
                 ai = 0x240 + col * 0x12
                 g.poke("Stg30_Battle", ai + 2, bytes([sk, 0, 0]))
                 g.poke("Stg30_Battle", ai + 5, bytes([0, 0, 0, 0]))
@@ -120,8 +127,27 @@ def main():
                     break
                 g.tap(b, 3, 30)
                 if g.wait - last >= a.every:
-                    shot(k)
+                    shot(k, "_" + b)  # the picture after this key
                     last = g.wait
+        if a.poke_turns and policy.table(g.mode()) == 5:
+            want = [(int(x.split(":")[0]), int(x.split(":")[1], 16)) for x in a.poke_turns.split(",")]
+            # the first round's commands: Fight / Attack for each Digimon (Cross), targets (Cross)
+            done = False
+            for n in range(900):
+                if policy.table(g.mode()) != 5:
+                    break
+                ty = [g.s32("Stg30_Battle", 0x2AC + i * 0x10) for i in range(3)]
+                if all(t != 0 for t in ty):
+                    for i, (t, sk) in enumerate(want):
+                        o = 0x2AC + i * 0x10
+                        g.poke("Stg30_Battle", o, t.to_bytes(4, "little"))
+                        g.poke("Stg30_Battle", o + 6, sk.to_bytes(2, "little"))
+                    log.write("battle %d turns rewritten to %s at wait %d\n" % (k, a.poke_turns, g.wait))
+                    done = True
+                    break
+                g.tap("Cross", 3, 6)
+            if not done:
+                log.write("battle %d: the commands were not all chosen\n" % k)
         while policy.table(g.mode()) == 5 and g.wait - start < limit:
             if g.wait - start > 600 and enemies_down():
                 break  # won: the rest (WIN, the result) without random keys

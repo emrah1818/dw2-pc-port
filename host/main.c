@@ -400,7 +400,44 @@ static void run_threaded(void) {
     Host_WindowLoop();
 }
 
+/* dw2-pc-port: the arguments of this run, for a restart after a language change (Host_Restart) */
+static int g_argc;
+static char **g_argv;
+void Host_RequestQuit(const char *why); /* host/sdl.c */
+int Host_LanguageAtStart; /* 1: the first start, ask for the language (host/ui.cpp) */
+
+int Host_Restart(void) {
+    const char **args = (const char **)SDL_calloc((size_t)g_argc + 1, sizeof(char *));
+    SDL_Process *p;
+    int n = 0;
+
+    if (args == NULL || g_argc < 1) {
+        return 0;
+    }
+    for (int i = 0; i < g_argc; i++) {
+        if ((strcmp(g_argv[i], "--lang") == 0) && i + 1 < g_argc) {
+            i++; /* the new language comes from the settings file */
+            continue;
+        }
+        args[n++] = g_argv[i];
+    }
+    args[n] = NULL;
+    Settings_SaveIfDirty();
+    p = SDL_CreateProcess(args, false);
+    SDL_free(args);
+    if (p == NULL) {
+        printf("[host] restart failed: %s\n", SDL_GetError());
+        return 0;
+    }
+    SDL_DestroyProcess(p);
+    printf("[host] restarted for the new language\n");
+    Host_RequestQuit("language change");
+    return 1;
+}
+
 HOST_ENTRY int main(int argc, char **argv) {
+    g_argc = argc;
+    g_argv = argv;
     int i;
     int cl_scale_value = 1, cl_profile = -1;
     int cl_scale = 0, cl_wide = 0, cl_pgxp = 0, cl_renderer = 0, cl_window = -1, cl_sharpen = -1, cl_smooth = 0;
@@ -511,6 +548,8 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--sharpen") == 0 && i + 1 < argc) {
             cl_sharpen = (int)strtol(argv[++i], NULL, 0);
             cl_sharpen = cl_sharpen < 0 ? 0 : cl_sharpen > 100 ? 100 : cl_sharpen;
+        } else if (strcmp(argv[i], "--language-picker") == 0) {
+            Host_LanguageAtStart = 1; /* dw2-pc-port: open the language picker at start (tests) */
         } else if (strcmp(argv[i], "--ui-shots") == 0) {
             Ui_SetShots(1);
         } else if (strcmp(argv[i], "--quit-dialog") == 0) {
@@ -603,6 +642,7 @@ HOST_ENTRY int main(int argc, char **argv) {
             }
         }
         printf("[settings] first start: Remastered profile\n");
+        Host_LanguageAtStart = 1; /* the language picker (host/ui.cpp) */
         /* dw2-pc-port: the PC menus in German when the system prefers German */
         if (!Settings_Overridden(SET_LANGUAGE)) {
             int n = 0;

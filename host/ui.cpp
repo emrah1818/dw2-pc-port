@@ -31,6 +31,8 @@ extern "C" int Host_TitleHint(void);
 extern "C" void Host_RequestQuit(const char *why);
 extern "C" int Host_InputSelectHoldOn(void);
 extern "C" int Host_InputSelectKeyHeld(const SDL_Event *e);
+extern "C" int Host_Restart(void);
+extern "C" int Host_LanguageAtStart;
 
 namespace {
 
@@ -41,6 +43,10 @@ bool g_settings_at_start;
 bool g_shots; /* --ui-shots */
 /* PR.15 quit question: wanted (Esc toggles it), shown (the ImGui popup is open) */
 bool g_quit_want, g_quit_shown;
+/* dw2-pc-port: the language picker (first start, Select on the title) */
+bool g_lang_open;
+int g_lang_step;        /* 0 choose, 1 restart question (in the game) */
+Uint64 g_select_down;   /* when Select went down on the title (a short press opens the picker) */
 /* PR.38: the gamepad button (Start or Select) that went down while the F1 window was open, -1 if
  * none: its release closes the window */
 int g_close_button = -1;
@@ -140,7 +146,11 @@ void draw_title_hint(void) {
     if (tag != NULL) {
         SDL_snprintf(text, sizeof(text), "Update %s available: press F1", tag);
     } else {
-        SDL_strlcpy(text, Host_InputSelectHoldOn() ? "Press F1 or hold Select for settings" : "Press F1 for settings",
+        bool de = Settings_Get(SET_LANGUAGE) == SET_LANG_DE;
+        SDL_strlcpy(text, de ? (Host_InputSelectHoldOn() ? "Select: Sprache / Language   F1 oder Select halten: Einstellungen"
+                                                         : "Select: Sprache / Language   F1: Einstellungen")
+                             : (Host_InputSelectHoldOn() ? "Select: Language / Sprache   F1 or hold Select: settings"
+                                                         : "Select: Language / Sprache   F1: settings"),
                     sizeof(text));
     }
 
@@ -297,6 +307,68 @@ int Ui_Drawing(void) {
     return Ui_Active() || (g_ready && notice_live());
 }
 
+
+/* dw2-pc-port: "Select Language / Sprache wählen". The choice is the same setting as F1 → Language
+ * and is saved at once. The game texts change at a start: on the title (and at the first start)
+ * the program restarts by itself, in the game it asks first (unsaved progress would be lost). */
+void draw_language(void) {
+    ImGuiIO &io = ImGui::GetIO();
+    bool de = Settings_Get(SET_LANGUAGE) == SET_LANG_DE;
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.y * 0.62f, 0), ImGuiCond_Always);
+    ImGui::Begin("Language###lang", NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar |
+                                         ImGuiWindowFlags_NoSavedSettings);
+    ImGui::SetWindowFontScale(1.6f);
+    if (g_lang_step == 0) {
+        ImGui::TextUnformatted("Select Language");
+        ImGui::TextUnformatted("Sprache w\xc3\xa4hlen");
+        ImGui::Separator();
+        int pick = -1;
+        float w = ImGui::GetContentRegionAvail().x;
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
+        if (ImGui::Button(de ? "English###en" : "> English <###en", ImVec2(w, 0))) pick = SET_LANG_EN;
+        if (ImGui::Button(de ? "> Deutsch <###de" : "Deutsch###de", ImVec2(w, 0))) pick = SET_LANG_DE;
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextDisabled("%s", de ? "Pfeiltasten / Steuerkreuz, Enter / Kreuz" : "Arrow keys / D-pad, Enter / Cross");
+        if (pick >= 0) {
+            int old = Settings_Get(SET_LANGUAGE);
+            Settings_Set(SET_LANGUAGE, pick);
+            if (pick == old) {
+                g_lang_open = false;
+            } else if (Host_TitleHint() || Host_LanguageAtStart) {
+                Host_LanguageAtStart = 0;
+                g_lang_open = false;
+                Host_Restart(); /* nothing to lose on the title */
+            } else {
+                g_lang_step = 1;
+            }
+        }
+    } else {
+        bool nde = Settings_Get(SET_LANGUAGE) == SET_LANG_DE;
+        float w = ImGui::GetContentRegionAvail().x;
+        ImGui::TextWrapped("%s", nde ? "Die Spieltexte wechseln nach einem Neustart. Ungespeicherter Fortschritt geht dabei verloren."
+                                     : "The game texts change after a restart. Unsaved progress is lost then.");
+        if (ImGui::Button(nde ? "Sp\xc3\xa4ter (beim n\xc3\xa4" "chsten Start)###later" : "Later (at the next start)###later", ImVec2(w, 0))) {
+            g_lang_open = false;
+            g_lang_step = 0;
+        }
+        if (ImGui::Button(nde ? "Jetzt neu starten###now" : "Restart now###now", ImVec2(w, 0))) {
+            g_lang_open = false;
+            g_lang_step = 0;
+            Host_Restart();
+        }
+    }
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::End();
+}
+
+void Ui_OpenLanguage(void) {
+    g_lang_open = true;
+    g_lang_step = 0;
+}
+
 void Ui_Init(SDL_Window *window, SDL_Renderer *renderer, int headless) {
     float dpi;
 
@@ -325,13 +397,16 @@ void Ui_Init(SDL_Window *window, SDL_Renderer *renderer, int headless) {
     if (g_settings_at_start) {
         SettingsUi_SetOpen(1);
     }
+    if (Host_LanguageAtStart && (!headless || g_shots)) {
+        Ui_OpenLanguage(); /* the first start: Select Language / Sprache wählen */
+    }
     printf("[ui] Dear ImGui %s ready (F1 settings%s), display scale %.2f%s\n", IMGUI_VERSION,
            DW2_DEV ? ", F2 dev overlay" : "", dpi, g_settings_at_start ? ", settings open" : "");
     fflush(stdout);
 }
 
 int Ui_Active(void) {
-    return g_ready && (SettingsUi_IsOpen() || dev_open() || g_quit_want || g_quit_shown);
+    return g_ready && (SettingsUi_IsOpen() || dev_open() || g_quit_want || g_quit_shown || g_lang_open);
 }
 
 void Ui_SetQuitAtStart(int on) {
@@ -339,7 +414,7 @@ void Ui_SetQuitAtStart(int on) {
 }
 
 int Ui_BlocksGameInput(void) {
-    if (g_ready && (SettingsUi_IsOpen() || g_quit_want || g_quit_shown)) {
+    if (g_ready && (SettingsUi_IsOpen() || g_quit_want || g_quit_shown || g_lang_open)) {
         return 1;
     }
 #if DW2_DEV
@@ -368,6 +443,23 @@ int Ui_Event(const SDL_Event *e) {
     }
     if (Host_InputSelectKeyHeld(e)) {
         return 1; /* PR.38: a Select key held opened F1; its repeats must not press a button in it */
+    }
+    /* dw2-pc-port: a short Select press on the title opens the language picker (a held Select
+       still opens F1, PR.38) */
+    if (!SettingsUi_IsOpen() && !g_lang_open && Host_TitleHint()) {
+        bool sel_down = (e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e->gbutton.button == Settings_Pad(0)) ||
+                        (e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat &&
+                         (e->key.scancode == Settings_Key(0, 0) || e->key.scancode == Settings_Key(0, 1)) && e->key.scancode != 0);
+        bool sel_up = (e->type == SDL_EVENT_GAMEPAD_BUTTON_UP && e->gbutton.button == Settings_Pad(0)) ||
+                      (e->type == SDL_EVENT_KEY_UP && (e->key.scancode == Settings_Key(0, 0) || e->key.scancode == Settings_Key(0, 1)) &&
+                       e->key.scancode != 0);
+        if (sel_down) {
+            g_select_down = SDL_GetTicks();
+        } else if (sel_up && g_select_down && SDL_GetTicks() - g_select_down < 700) {
+            g_select_down = 0;
+            Ui_OpenLanguage();
+            return 1;
+        }
     }
     if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_F1) {
         if (!e->key.repeat) {
@@ -430,7 +522,7 @@ void Ui_Render(void) {
     ImGuiIO &io = ImGui::GetIO();
     /* the F1 window is driven by keyboard and gamepad too; the dev overlay alone is not */
     io.ConfigFlags &= ~(ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad);
-    if (SettingsUi_IsOpen() || g_quit_want || g_quit_shown) {
+    if (SettingsUi_IsOpen() || g_quit_want || g_quit_shown || g_lang_open) {
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         if (SettingsUi_PadNavOk()) {
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
@@ -453,6 +545,9 @@ void Ui_Render(void) {
     }
     if (g_quit_want || g_quit_shown) {
         draw_quit();
+    }
+    if (g_lang_open && !SettingsUi_IsOpen()) {
+        draw_language();
     }
     draw_notice();
     ImGui::Render();

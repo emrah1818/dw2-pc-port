@@ -144,6 +144,24 @@ void Host_AudioFeed(void) {
         return;
     }
     queued = SDL_GetAudioStreamQueued(stream);
+    {
+        /* dw2-pc-port: an underrun (the queue ran dry: the game thread was late) is counted; the
+           log line shows whether sound and picture stayed together */
+        static Uint64 last_log;
+        static unsigned dry;
+        if (queued == 0) {
+            dry++;
+        }
+        Uint64 now = SDL_GetTicksNS();
+        if (dry && now - last_log > 10000000000ull) {
+            printf("[audio] queue ran dry %u times in the last %.0f s\n", dry, last_log ? (now - last_log) / 1e9 : 0.0);
+            fflush(stdout);
+            dry = 0;
+            last_log = now;
+        } else if (last_log == 0) {
+            last_log = now;
+        }
+    }
     while (queued >= 0 && queued < QUEUE_BYTES) {
         int n = QUEUE_BYTES - queued;
 

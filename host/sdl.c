@@ -1163,8 +1163,15 @@ void Host_GameEvents(void) {
         if (ev != seen_ev) {
             Uint64 now = SDL_GetTicksNS();
 
-            /* late again within 20 s of the last time (the pause alone did not help) */
-            if (last_ev_ns != 0 && now - last_ev_ns < 20000000000ull && PsxHd_Scale() > 2) {
+            /* late again within 20 s of the last time (the pause alone did not help), or late in
+               the first 15 s of the run (the start scale is too high for this computer: step down
+               at once, so the sound does not run dry while it settles) */
+            static Uint64 first_ns;
+            if (first_ns == 0) {
+                first_ns = now;
+            }
+            if (((last_ev_ns != 0 && now - last_ev_ns < 20000000000ull) || now - first_ns < 15000000000ull) &&
+                PsxHd_Scale() > 2) {
                 perf_cap = PsxHd_Scale() - 1;
                 PsxHd_SetScale(perf_cap);
                 printf("[gpu] auto scale %dx for game speed (the game thread was late)\n", perf_cap);

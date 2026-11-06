@@ -534,13 +534,19 @@ int main(int argc, char **argv) {
             uint32_t *gp = render(1, 0, 0, scale, &w2, &h2);
             check(gp != NULL && w2 == w && h2 == h, "gpu: picture with the texture pack read back");
             if (gp != NULL && soft_pack != NULL && w2 == w && h2 == h) {
-                int n = diff_count(soft_pack, gp, w, scale, 0, 0, W, H, 24), total = w * h, bad = 0, opaque = 0;
+                /* the three 2x sprite-like quads (x 178..285, y 148..183) are left out: the software renderer
+                 * reads a replacement texel's whole width inside each 1x pixel there (exact only at 1:1),
+                 * the GPU interpolates over the magnified quad. They are checked below on their own. */
+                int n = diff_count(soft_pack, gp, w, scale, 0, 0, W, 147, 24) + diff_count(soft_pack, gp, w, scale, 0, 184, W, H, 24) +
+                        diff_count(soft_pack, gp, w, scale, 0, 147, 177, 184, 24) + diff_count(soft_pack, gp, w, scale, 286, 147, W, 184, 24);
+                int total = w * h, bad = 0, opaque = 0;
 
                 write_bmp("gpu_texture_pack", gp, w, h);
                 snprintf(what, sizeof(what), "gpu = soft (texture pack): %d of %d pixels differ by more than 24 (%.2f%%)", n,
                          total, 100.0 * n / total);
                 check(n * 100 < total * 2, what);
                 check(diff_count(gpu[0], gp, w, scale, 10, 10, 160, 135, 4) > 1000, "gpu: the 4-bit 3D quad uses the replacement");
+                check(diff_count(gpu[0], gp, w, scale, 178, 148, 285, 183, 4) > 1000, "gpu: the magnified sprite-like quads use the replacement");
                 check(diff_count(gpu[0], gp, w, scale, 170, 20, 300, 130, 0) == 0, "gpu: wrong-size 8-bit file ignored (original)");
                 check(diff_count(gpu[0], gp, w, scale, 40, 145, 150, 215, 0) == 0, "gpu: broken 16-bit file ignored (original)");
                 for (int i = 0; i < 3; i++) {

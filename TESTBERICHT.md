@@ -91,6 +91,13 @@ Neuer Selbsttest in `hd_test`: 16× Schachbrett, bei 4× grau gemittelt, bei 16�
 | `hd_test` | bestanden (GPU übersprungen) |
 | Menü-Rundgang Deutsch 4:3 | Fotos geprüft, keine Änderung außer dem Ergebnis-Wertefeld |
 
+### HD-Texturen im GPU-Renderer (neu in 1.6.0)
+
+- **Umsetzung:** `backend/psxgpu_hw.c` (Ersatzpixel in einem 128-MiB-Storage-Buffer, Bump-Speicher, Upload im Kopierdurchgang des Bildes, höchstens 32 MiB je Bild, Neustart bei vollem Speicher oder Skalierungswechsel), `backend/shaders/hd.frag` / `hd.vert` (`rep_sample`, Beschreibung je Eckpunkt), `backend/texrep.c` (`TexRep_GpuLevel`). Die Shader wurden mit einem selbst gebauten glslang neu übersetzt (`tools/build_shaders.py`; der Lauf mit dem alten Quelltext ergab dieselbe Datei wie die eingecheckte).
+- **Getestet (Automatik):** `hd_test` in der CI, Linux und Windows, auf Mesa lavapipe (Software-Vulkan, keine echte Grafikkarte). Ergebnis: GPU = Software mit Texturpaket (0,08 % der Pixel weichen um mehr als 24 ab), die 3D-Fläche und die vergrößerten Sprite-Vierecke nutzen die Ersatztextur, Sprites texelgenau (0 von 12288 Pixeln falsch), falsche Größe und kaputte Datei bleiben Original. Der erste CI-Lauf zeigte 3,83 % Abweichung; Ursache war ein bekannter Unterschied bei vergrößerten Sprite-Vierecken (siehe `doc/TEXTURPAKETE.md`), kein Fehler der GPU-Ausgabe; der Vergleich lässt diese Fläche aus und prüft sie getrennt.
+- **Hier nicht möglich:** Auf der Entwicklungsmaschine gibt es kein Vulkan, der GPU-Teil von `hd_test` läuft dort nicht.
+- **Nicht getestet (echte Hardware nötig):** echte Grafikkarten, Tempo und Grafikspeicher mit 16×-Paketen, echter Spielablauf mit vollem Pool, Zusammenspiel mit den weichen Zwischenbildern beim Skalierungswechsel, Treiber mit weniger als 128 MiB je Storage-Buffer.
+
 ### Technische Prüfung vor der Veröffentlichung (Commit fc11194 und Folgecommit)
 
 Unterschieden wird: **bestätigter Fehler** (am Code nachgewiesen und behoben), **Risiko** (nicht aufgetreten, aber möglich), **nicht getestet**.

@@ -143,7 +143,7 @@ GameData/
 
 **Original wiederherstellen:** Die Datei in `Mods\files` löschen oder mit `--no-mods` starten. Das Datenpaket selbst wird nie verändert.
 
-**HD-Texturpakete (ab 1.4.0):** Eigene PNG-Texturen, auch in höherer Auflösung, ohne die Spieldateien zu verändern. Ordner `Mods\Textures\<Paket>\`, Dateinamen = Textur-ID. Die IDs erzeugst du mit `dw2.exe --dump-textures DIR`. Gezeichnet werden sie vom Software-Renderer ab Skalierung 2. Abschalten: `--no-texture-packs`.
+**HD-Texturpakete (ab 1.4.0):** Eigene PNG-Texturen, auch in höherer Auflösung, ohne die Spieldateien zu verändern. Ordner `Mods\Textures\<Paket>\`, Dateinamen = Textur-ID. Die IDs erzeugst du mit `dw2.exe --dump-textures DIR`. Gezeichnet werden sie ab Skalierung 2 vom Software-Renderer und, ab 1.6.0, auch vom GPU-Renderer (dort nur in der CI auf Software-Vulkan getestet, siehe `doc/TEXTURPAKETE.md`). Abschalten: `--no-texture-packs`.
 - Ab 1.6.0 lädt ein eigener Thread die PNGs. Bis eine Textur bereit ist, zeigt das Spiel das Original und wartet nicht.
 - 2-, 4-, 8- und 16-fache Texturen bekommen verkleinerte Stufen, damit sie bei niedrigerer Auflösung nicht flimmern. Anleitung: [doc/TEXTURPAKETE.md](doc/TEXTURPAKETE.md).
 

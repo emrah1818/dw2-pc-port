@@ -153,8 +153,8 @@ const Tr k_tr[] = {
     { "Open texture packs folder", "Texturpaket-Ordner öffnen" },
     { "Replacements loaded: %d, faulty files: %d (details in the log)",
       "Geladene Ersatztexturen: %d, fehlerhafte Dateien: %d (Einzelheiten im Protokoll)" },
-    { "Texture packs need the software renderer and a scale of 2 or more (restart after changing the renderer).",
-      "Texturpakete brauchen den Software-Renderer und eine Skalierung ab 2 (nach Renderer-Wechsel neu starten)." },
+    { "Texture packs need a scale of 2 or more.",
+      "Texturpakete brauchen eine Skalierung ab 2." },
     { "Texture packs: PNG files named after the texture id (dump them with --dump-textures DIR). Each pack is a "
       "folder in Mods/Textures; a folder starting with _ is off. Restart to apply.",
       "Texturpakete: PNG-Dateien mit dem Namen der Textur-ID (mit --dump-textures ORDNER erzeugen). Jedes Paket ist ein "
@@ -947,9 +947,9 @@ void modding_tab(void) {
         }
         if (TexRep_Count() > 0) {
             ImGui::Text(T("Replacements loaded: %d, faulty files: %d (details in the log)"), loaded, failed);
-            if (!PsxHd_On() || PsxHd_Gpu()) {
+            if (!PsxHd_On()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "%s",
-                                   T("Texture packs need the software renderer and a scale of 2 or more (restart after changing the renderer)."));
+                                   T("Texture packs need a scale of 2 or more."));
             }
         }
         if (ImGui::Button(TL("Open texture packs folder", "otex")) && base != NULL) {

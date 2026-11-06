@@ -4,7 +4,7 @@ Texturpakete ersetzen Spieltexturen beim Zeichnen durch eigene PNG-Dateien, auch
 
 ## Voraussetzungen
 
-- **Renderer „Software“** (F1 → Grafik, danach neu starten). Der GPU-Renderer zeichnet die Originaltexturen.
+- **Renderer:** Software oder, ab 1.6.0, auch der GPU-Renderer (siehe unten „GPU-Renderer“). In 1.4.0 und 1.5.0 zeichnete der GPU-Renderer nur die Originaltexturen.
 - **Skalierung 2 oder höher** (oder 16:9). Bei Skalierung 1 (Classic) bleibt das Bild bildgenau original.
 
 ## Schritt 1: Texturen ausgeben
@@ -81,3 +81,13 @@ Das Spiel stürzt bei fehlenden oder kaputten Dateien nicht ab, es zeichnet dann
 - **Stufen:** Ist eine Datei 2, 4, 8 oder 16 Mal so groß wie die Textur, entstehen beim Laden halbierte Stufen, gemittelt mit Alpha. Gezeichnet wird die Stufe, die zur internen Auflösung passt. Eine 16×-Datei bei Skalierung 4 nutzt also die 4×-Stufe. Andere Faktoren werden je Pixel blockweise gemittelt.
 - **Speicher:** Die Stufen brauchen etwa ein Drittel mehr Speicher. Sie zählen zur Grenze von 1 GiB.
 - **Getestet:** 32 Titeltexturen in 16× (bis 2048×4096 Pixel). Das Bild ist bei Skalierung 2 pixelgleich zum Original, ohne Hänger und ohne Tempoverlust.
+
+## Ab 1.6.0: GPU-Renderer
+
+Der GPU-Renderer (Vulkan über SDL_GPU) zeichnet jetzt Ersatztexturen mit denselben Paketen und Dateinamen.
+
+- **Aufbau:** Die Ersatzpixel (die zur Skalierung passende Stufe) liegen in einem Speicherbereich auf der Grafikkarte von 128 MiB (so viel muss jede Vulkan-Karte in einem Storage-Buffer erlauben). Sie werden beim ersten Gebrauch hochgeladen, höchstens 32 MiB je Bild; was nicht mehr passt, erscheint ein paar Bilder später und bis dahin als Original. Ist der Bereich voll oder ändert sich die Skalierung, beginnt er neu. Der Fragment-Shader liest die Ersatzfarbe (Mittelung, Texelgrenzen und Transparenz wie im Software-Renderer, `rep_sample` in `hd.frag`) und nimmt das Maskenbit vom Originaltexel.
+- **Laden:** wie oben, im Hintergrund; die Originaltextur dient als Rückfall (fehlende, fehlerhafte oder zu große Datei, voller Speicher).
+- **Bekannter Unterschied zum Software-Renderer:** Bei 2-fach vergrößerten Sprite-Vierecken (Spieltext) interpoliert die GPU über das vergrößerte Viereck. Der Software-Renderer liest dort innerhalb jedes 1×-Pixels die ganze Texelbreite (nur bei 1:1 genau).
+- **Getestet (Automatik, `hd_test`, in der CI auf Mesa lavapipe unter Linux und Windows, einem Software-Vulkan, keiner echten Grafikkarte):** Das GPU-Bild mit dem Testpaket gleicht dem Software-Bild bis auf 0,08 % der Pixel (Abweichung über 24, die vergrößerten Sprite-Vierecke ausgenommen); Sprites sind texelgenau aus der 4×-Textur gezeichnet; die 3D-Fläche und die vergrößerten Sprite-Vierecke benutzen die Ersatztextur; falsche Größe und kaputte PNG-Datei bleiben Original.
+- **Nicht getestet (nur an echter Hardware prüfbar):** Spiel mit echten Texturpaketen auf einer echten Grafikkarte (NVIDIA, AMD, Intel); Tempo und Grafikspeicher bei 16×-Paketen; Verhalten bei vollem Pool im echten Spielablauf; Einfluss auf die weichen Zwischenbilder (Smooth Frames) beim Wechsel der Skalierung; Treiber, die weniger als 128 MiB je Storage-Buffer erlauben (Log: `[gpu] texture pack: no GPU memory for replacements`, dann gelten die Originale).

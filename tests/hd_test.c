@@ -480,6 +480,7 @@ int main(int argc, char **argv) {
         char lp[512];
         int r;
         snprintf(lp, sizeof(lp), "./Textures/loader_test.png");
+        SDL_CreateDirectory("./Textures");
         write_png(lp, 64, 64, 0);
         r = TexRep_SelfTestLoader(lp, 16, 16);
         {

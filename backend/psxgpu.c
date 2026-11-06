@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -331,6 +332,26 @@ static void polygon(const uint32_t *w, int op) {
             }
         }
         precise = hit != 0;
+        {
+            /* dw2-pc-port: DW2_PGXP_STATS=1 counts the 3D polygons by how many corners got a
+               precise position (all / some / none): mixed ones are where wobble can remain */
+            static int stats = -1;
+            static unsigned long long n_all, n_some, n_none, n_poly;
+            if (stats < 0) {
+                const char *e = getenv("DW2_PGXP_STATS");
+                stats = e != NULL && e[0] == '1';
+            }
+            if (stats && (PsxHd_Pgxp() || PsxHd_SmoothActive()) && !(textured && sprite_like(&v[0], &v[1], &v[2]))) {
+                int full = (1 << nv) - 1;
+                n_poly++;
+                if (hit == full) n_all++; else if (hit) n_some++; else n_none++;
+                if ((n_poly & 0x3FFFF) == 0) {
+                    printf("[pgxp] polygons: %llu, all corners precise %.1f%%, some %.1f%%, none %.1f%%\n", n_poly,
+                           100.0 * n_all / n_poly, 100.0 * n_some / n_poly, 100.0 * n_none / n_poly);
+                    fflush(stdout);
+                }
+            }
+        }
         if (precise && textured && sprite_like(&v[0], &v[1], &v[2]) && (!quad || sprite_like(&v[1], &v[2], &v[3]))) {
             /* a 2D sprite-like mapping keeps its integer corners. Decided for the whole quad: a
              * floor tile whose side is vertical on screen has one sprite-like triangle, and that

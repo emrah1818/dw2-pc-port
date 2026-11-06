@@ -100,8 +100,11 @@ const Tr k_tr[] = {
       "Größe dieses Fensters und der Hinweise; auto folgt der Fenstergröße." },
     { "Show \"Press F1 for settings\" on the title", "Auf dem Titel \"F1 für Einstellungen\" zeigen" },
     { "Language", "Sprache" },
-    { "Language of these PC menus and, after a restart, of the game texts that have a German version: attack names (verified German names) and Digimon types (Serum, Datei, Virus). Dialogues and items stay English.",
-      "Sprache dieser PC-Menüs und, nach einem Neustart, der Spieltexte mit deutscher Fassung: Attackennamen (belegte deutsche Namen) und Digimon-Typen (Serum, Datei, Virus). Dialoge und Items bleiben englisch." },
+    { "Language of these PC menus and, after a restart, of the game texts. German game texts come from the files in Languages/German (texts.tsv, dictionary.txt), made from your own disc; without them the game stays English.",
+      "Sprache dieser PC-Menüs und, nach einem Neustart, der Spieltexte. Deutsche Spieltexte kommen aus den Dateien in Languages/German (texts.tsv, dictionary.txt), erstellt aus deiner eigenen Disc; ohne sie bleibt das Spiel englisch." },
+    { "Game windows", "Spielfenster" }, { "Modern", "Modern" }, { "Classic (PS1)", "Klassisch (PS1)" },
+    { "Modern: letters set by their own width, windows grow when a text needs more room, so longer (German) texts stay inside their windows. Classic: the PS1 picture; a line that does not fit its window is set closer. Takes effect at once.",
+      "Modern: Buchstaben nach eigener Breite, Fenster wachsen, wenn ein Text mehr Platz braucht, so bleiben längere (deutsche) Texte in ihren Fenstern. Klassisch: das PS1-Bild; eine Zeile, die nicht in ihr Fenster passt, wird enger gesetzt. Wirkt sofort." },
     { "Renderer", "Renderer" }, { "GPU (Vulkan)", "GPU (Vulkan)" }, { "Software", "Software" },
     { "Takes effect at the next start. Running now: %s.", "Gilt ab dem nächsten Start. Läuft jetzt: %s." },
     { "Some values come from the command line for this run and are not saved.",
@@ -792,7 +795,15 @@ void language_combo(void) {
     if (ImGui::Combo(TL("Language", "lang"), &lang, langs, 2)) {
         Settings_Set(SET_LANGUAGE, lang);
     }
-    ui_hint(T("Language of these PC menus and, after a restart, of the game texts that have a German version: attack names (verified German names) and Digimon types (Serum, Datei, Virus). Dialogues and items stay English."));
+    ui_hint(T("Language of these PC menus and, after a restart, of the game texts. German game texts come from the files in Languages/German (texts.tsv, dictionary.txt), made from your own disc; without them the game stays English."));
+    {
+        const char *styles[] = { T("Classic (PS1)"), T("Modern") };
+        int style = Settings_Get(SET_UI_STYLE);
+        if (ImGui::Combo(TL("Game windows", "uistyle"), &style, styles, 2)) {
+            Settings_Set(SET_UI_STYLE, style);
+        }
+        ui_hint(T("Modern: letters set by their own width, windows grow when a text needs more room, so longer (German) texts stay inside their windows. Classic: the PS1 picture; a line that does not fit its window is set closer. Takes effect at once."));
+    }
 }
 
 void open_folder(const char *path) {

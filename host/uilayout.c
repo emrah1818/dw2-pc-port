@@ -134,7 +134,7 @@ int UiText_InkLeft(int big, int c) {
 
 typedef struct {
     int x, y, w, h;
-    int seg; /* one of several windows in a part: it cannot be grown */
+    int seg; /* cannot be grown: one of several windows in a part, or not made of columns */
 } Rect;
 
 #define MAX_RECTS 256
@@ -146,6 +146,7 @@ static struct {
     int grow;
 } grows[2][MAX_GROW];
 static int ngrow[2];
+static int nshift[2]; /* column shifts noted this / last frame (below) */
 static int cur;
 static int log_parts = -1;
 static int fit_lines, grown_lines, squeezed_lines; /* stats for the log */
@@ -154,24 +155,33 @@ void UiLayout_Flip(void) {
     cur ^= 1;
     nrect[cur] = 0;
     ngrow[cur] = 0;
+    nshift[cur] = 0;
 }
 
 /* GfxPartSprite (include/main/156C.h): fileId 0, x 4, y 6, partGroup 0xD; cells 0x10 each:
    u 0, v 1, x 2, y 4, w 8, h 9, frame 0xC, list end u == 0xFF */
 static int part_rect(const uint8_t *p, const uint8_t *e, Rect *out) {
     int16_t px, py;
-    int x0 = 99999, y0 = 99999, x1 = -99999, y1 = -99999;
+    int x0 = 99999, y0 = 99999, x1 = -99999, y1 = -99999, xs[64], ws[64], nx = 0, right = -99999, stretch = -99999;
+    int sw = 0;
 
     memcpy(&px, p + 4, 2);
     memcpy(&py, p + 6, 2);
     for (int n = 0; e[0] != 0xFF && n < 512; e += 0x10, n++) {
         int16_t ex, ey;
-        int w = e[8], h = e[9] ? e[9] : 255;
+        int w = e[8], h = e[9] ? e[9] : 255, k;
         if (e[0xC] != p[0xD]) {
             continue;
         }
         memcpy(&ex, e + 2, 2);
         memcpy(&ey, e + 4, 2);
+        for (k = 0; k < nx && xs[k] != ex; k++) {
+        }
+        if (k == nx && nx < 64) {
+            xs[nx] = ex;
+            ws[nx++] = w;
+        }
+        right = ex > right ? ex : right;
         x0 = ex < x0 ? ex : x0;
         y0 = ey < y0 ? ey : y0;
         x1 = ex + w > x1 ? ex + w : x1;
@@ -180,7 +190,14 @@ static int part_rect(const uint8_t *p, const uint8_t *e, Rect *out) {
     if (x1 <= x0) {
         return 0;
     }
-    *out = (Rect){ px + x0, py + y0, x1 - x0, y1 - y0, 0 };
+    for (int k = 0; k < nx; k++) {
+        if (xs[k] < right && xs[k] > stretch) {
+            stretch = xs[k];
+            sw = ws[k];
+        }
+    }
+    /* grown the way UiLayout_PartCells does it: left edge, middle columns, right edge */
+    *out = (Rect){ px + x0, py + y0, x1 - x0, y1 - y0, nx < 3 || sw < 4 };
     return 1;
 }
 
@@ -505,6 +522,61 @@ const void *UiLayout_PartCells(const void *part, const void *cells) {
         out[m * 0x10] = 0xFF; /* end of the list */
     }
     return out;
+}
+
+/* ---- columns: a text box pushed right so the text left of it has room (Modern) ---- */
+
+#define MAX_SHIFT 16
+static struct {
+    int x, top, bottom, shift;
+} shifts[2][MAX_SHIFT];
+
+void UiLayout_RequestShift(int x, int top, int bottom, int shift) {
+    int i;
+
+    for (i = 0; i < nshift[cur]; i++) {
+        if (shifts[cur][i].x == x && shifts[cur][i].top == top) {
+            break;
+        }
+    }
+    if (i == nshift[cur]) {
+        if (i == MAX_SHIFT) {
+            return;
+        }
+        shifts[cur][i].x = x;
+        shifts[cur][i].top = top;
+        shifts[cur][i].bottom = bottom;
+        shifts[cur][i].shift = 0;
+        nshift[cur]++;
+    }
+    if (shift > shifts[cur][i].shift) {
+        shifts[cur][i].shift = shift;
+    }
+}
+
+int UiLayout_ColumnShift(int x, int y) {
+    int best = 0;
+
+    if (!UiText_Modern()) {
+        return 0;
+    }
+    for (int b = 0; b < 2; b++) {
+        for (int i = 0; i < nshift[b]; i++) {
+            if (shifts[b][i].x == x && y >= shifts[b][i].top && y < shifts[b][i].bottom && shifts[b][i].shift > best) {
+                best = shifts[b][i].shift;
+            }
+        }
+    }
+    return best;
+}
+
+int UiLayout_MaxRight(int x, int y) {
+    const Rect *w = find_window(x + 1, y + 1);
+
+    if (w == NULL) {
+        return 0xA0; /* the screen edge */
+    }
+    return w->x + w->w + (!w->seg && UiText_Modern() ? room_right(w) : 0);
 }
 
 void UiLayout_Stats(int *lines, int *grown, int *squeezed) {

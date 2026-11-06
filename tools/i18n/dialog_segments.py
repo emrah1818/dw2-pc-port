@@ -114,8 +114,13 @@ def build(inv, seg_de, spk_de, out):
                     if t is None:
                         ok = False
                         break
-                    lead, _, trail = split_lay(v)
+                    lead, words, trail = split_lay(v)
                     body = re.sub(r"\s*¶\s*", "{WAIT}{PAGE}", t)
+                    # a space between the piece and a command next to it (a name, a sound) stays
+                    if not lead and (words.startswith(" ") or re.match(r"^ +\S", v)):
+                        body = " " + body
+                    if not trail and (words.endswith(" ") or re.search(r"\S +$", v)):
+                        body = body + " "
                     res.append(lead + body + trail)
             if ok:
                 o.write(key + "\t" + "".join(res) + "\n")

@@ -22,6 +22,11 @@ int UiLayout_FindWindow(int x, int y, int *left, int *right, int *top, int *bott
    none): grows its window (Modern) and returns the spacing scale (16.16, 0x10000 = as measured)
    that makes it fit */
 int UiLayout_FitLine(int x, int y, int width, int limit);
+/* a column of text boxes (same x, same window) moved right by the layout (Modern) */
+int UiLayout_ColumnShift(int x, int y);
+void UiLayout_RequestShift(int x, int top, int bottom, int shift); /* boxes at x starting in [top, bottom) */
+/* how far right a text starting at x, y may reach: its window's edge, after growing it (Modern) */
+int UiLayout_MaxRight(int x, int y);
 void UiLayout_Stats(int *lines, int *grown, int *squeezed);
 #ifdef __cplusplus
 }

@@ -320,34 +320,117 @@ static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
     return w;
 }
 
-/* a line: measured as set; when it does not fit (after growing its window), set close and
-   measured again; returns the spacing scale for what is still missing */
-static s32 Text_NativeLine(TextBox *r, const u8 *s, s32 x, s32 y, s32 limit) {
-    s32 scale;
+extern int UiLayout_ColumnShift(int x, int y);
+extern void UiLayout_RequestShift(int x, int top, int bottom, int shift);
+extern int UiLayout_FindWindow(int x, int y, int *left, int *right, int *top, int *bottom);
+extern int UiText_Modern(void);
+extern int UiLayout_MaxRight(int x, int y);
 
-    Text_NativeTight = 0;
-    scale = UiLayout_FitLine(x, y, Text_NativeMeasure(r, s), limit);
-    if (scale < 0x10000) {
-        Text_NativeTight = 1;
-        scale = UiLayout_FitLine(x, y, Text_NativeMeasure(r, s), limit);
+/* the line breaks on the page of a box's text (top level, commands skipped by their length) */
+static s32 Text_NativeLines(const u8 *s) {
+    s32 n = 0, guard = 0;
+
+    if (s == NULL) {
+        return 0;
     }
-    return scale;
+    while (*s != 0xFF && *s != 0xFC && *s != 0xF3 && guard++ < 4096) {
+        u8 b = *s;
+        n += b == 0xFE;
+        s += b == 0xF6 || b == 0xF7 ? 10 : b == 0xF1 || b == 0xF2 ? 4 : b == 0xF4 ? (s[1] < 0x20 ? 5 : 2)
+           : b == 0xF9 ? ((s[1] & 1) ? 2 : 5) : b == 0xF0 || b == 0xF8 || b == 0xFA || b == 0xEF ? 2 : 1;
+    }
+    return n;
 }
 
-/* the start of the next text box on the same line to the right (menus with options side by side) */
-static s32 Text_NativeRightLimit(TextBoxWork *wk, TextBox *r, s32 x, s32 y) {
-    s32 lim = 0x7FFF, i;
+/* the next text box to the right of a line at x, y (menus with options side by side, a column of
+   values beside a column of labels); its x includes the column shift */
+static TextBox *Text_NativeNeighbour(TextBoxWork *wk, TextBox *r, s32 x, s32 y, s32 *nx) {
+    TextBox *best = NULL;
+    s32 i, bx;
 
+    *nx = 0x7FFF;
     for (i = 0; i < 0x32; i++) {
         TextBox *b = &wk->rec[i];
-        if (b->inUse == 0 || b == r || b->y - y > 4 || y - b->y > 4 || b->x <= x + 4) {
+        s32 dy;
+        if (b->inUse == 0 || b == r) {
             continue;
         }
-        if (b->x < lim) {
-            lim = b->x;
+        dy = y - b->y;
+        if (!(dy >= -4 && dy <= 4) &&
+            !(dy > 4 && b->lineAdvance > 0 && dy % b->lineAdvance <= 2 &&
+              dy / b->lineAdvance <= Text_NativeLines((const u8 *)b->text))) {
+            continue; /* not on this line (its first or one of its next lines) */
+        }
+        bx = b->x + UiLayout_ColumnShift(b->x, b->y);
+        if (bx <= x + 4 || bx >= *nx) {
+            continue;
+        }
+        *nx = bx;
+        best = b;
+    }
+    return best;
+}
+
+/* a line: measured as set; a text box right of it is moved aside (Modern, when its window has
+   room); when the line still does not fit (after growing its window) it is set close and measured
+   again; returns the spacing scale for what is still missing */
+static s32 Text_NativeLine(TextBoxWork *wk, TextBox *r, const u8 *s, s32 x, s32 y) {
+    s32 scale, w, nx, saveTable = Text_NativeTable;
+    TextBox *nb = Text_NativeNeighbour(wk, r, x, y, &nx);
+
+    Text_NativeTight = 0;
+    w = Text_NativeMeasure(r, s);
+    {
+        static s32 dbg = -1;
+        if (dbg < 0) {
+            dbg = getenv("DW2_LAYOUT_BOXES") != NULL;
+        }
+        if (dbg && w > 60) {
+            s32 i;
+            printf("[layout] box x %d y %d w %d next %d:", x, y, w, nx);
+            for (i = 0; i < 0x32; i++) {
+                if (wk->rec[i].inUse && wk->rec[i].x > x) {
+                    printf(" (%d,%d,%d)", wk->rec[i].x, wk->rec[i].y, wk->rec[i].lineAdvance);
+                }
+            }
+            printf("\n");
         }
     }
-    return lim;
+    if (nb != NULL && UiText_Modern() && x + w > nb->x - 4) { /* against its own place: asked again each frame */
+        s32 need = x + w + 4 - nb->x, rt, nw;
+        Text_NativeTable = 0;
+        nw = Text_NativeMeasure(nb, (const u8 *)nb->text);
+        Text_NativeTable = saveTable;
+        rt = UiLayout_MaxRight(nb->x, nb->y);
+        if (need <= 24 && nb->x + need + nw <= rt - 8) {
+            /* the column: boxes at the same x right above and below it, a line apart */
+            s32 top = nb->y, bottom = nb->y, grew = 1, i, gap = nb->lineAdvance + 2;
+            while (grew) {
+                grew = 0;
+                for (i = 0; i < 0x32; i++) {
+                    TextBox *b = &wk->rec[i];
+                    if (b->inUse == 0 || b->x != nb->x) {
+                        continue;
+                    }
+                    if (b->y < top && top - b->y <= gap) {
+                        top = b->y;
+                        grew = 1;
+                    } else if (b->y > bottom && b->y - bottom <= gap) {
+                        bottom = b->y;
+                        grew = 1;
+                    }
+                }
+            }
+            UiLayout_RequestShift(nb->x, top, bottom + 1, need);
+            nx = nb->x + need;
+        }
+    }
+    scale = UiLayout_FitLine(x, y, w, nx);
+    if (scale < 0x10000) {
+        Text_NativeTight = 1;
+        scale = UiLayout_FitLine(x, y, Text_NativeMeasure(r, s), nx);
+    }
+    return scale;
 }
 #endif
 
@@ -392,10 +475,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
     Obj6A8C0 *h;
     PadState *tb;
 #ifdef DW2_NATIVE
-    s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0;
+    s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0, uiShift = 0;
 #define UI_LINE(p)                                                                                           \
     (uiAcc = 0, uiX0 = pos.field_0, uiCells = 0, uiSpaces = 0,                                               \
-     uiScale = Text_NativeLine(r, (p), pos.field_0, pos.field_2, Text_NativeRightLimit(wk, r, pos.field_0, pos.field_2)))
+     uiScale = Text_NativeLine(wk, r, (p), pos.field_0, pos.field_2))
 #define UI_ADV(a) (uiAcc += (a) * uiScale, uiStep = uiAcc >> 16, uiAcc -= uiStep << 16, pos.field_0 += uiStep)
 #endif
 
@@ -418,6 +501,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
             s = (u8 *)r->text;
             nF4c = line = 0;
             pos = *(Pair54 *)&r->x;
+#ifdef DW2_NATIVE
+            uiShift = UiLayout_ColumnShift(r->x, r->y);
+            pos.field_0 += uiShift;
+#endif
             nF4d = 0;
             ot = Sys_State.otLayers.u[r->otIndex];
             page = 0;
@@ -470,6 +557,7 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pos.field_0 = r->x;
                     pos.field_2 += r->lineAdvance;
 #ifdef DW2_NATIVE
+                    pos.field_0 += uiShift;
                     UI_LINE(s + 1);
 #endif
                     break;

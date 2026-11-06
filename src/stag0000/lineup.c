@@ -72,6 +72,20 @@ void Stg00_LineupBuildList(Actor *arg0) {
                 }
             }
             j = k;
+#ifdef DW2_NATIVE
+            /* The USA disc lists 203 models below id 0x12D, the work holds 200 (sortKeys[200],
+             * digiIds[200]): retail's three extra inserts run over count, scrollTop and layout
+             * (203/202/201), SpawnModels then reads digiIds past the list (id 0) and
+             * Digi_GetModelFile(0) dereferences NULL - harmless low RAM on the PS1, a segfault
+             * natively (debug mode 0x101). Keep the 200 lowest sort keys: once full, a model that
+             * sorts last is dropped, else the current last one makes room. */
+            if (w->count >= 200) {
+                if (j >= 200) {
+                    continue;
+                }
+                w->count = 199;
+            }
+#endif
             for (k = w->count; k >= j; k--) {
                 w->sortKeys[k] = w->sortKeys[k - 1];
                 w->digiIds[k] = w->digiIds[k - 1];

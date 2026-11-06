@@ -539,6 +539,20 @@ int UiLayout_FitLine(int x, int y, int width, int limit) {
         return 0x10000;
     }
     fit_lines++;
+    if (w != NULL) {
+        /* a part inside the window, right of the line and at its height (a value bar, a field):
+           the line ends before it, as before a text (result box: "Nächstes Level" and its bar) */
+        const int prev = cur ^ 1;
+        for (int i = 0; i < nrect[prev]; i++) {
+            const Rect *b = &rects[prev][i];
+            if (b == w || same_window(b, w) || b->w < 16 || b->x <= x + 8 || b->x >= limit ||
+                b->x < w->x || b->x + b->w > w->x + w->w || b->y < w->y || b->y + b->h > w->y + w->h ||
+                b->w * b->h >= w->w * w->h || b->y > y + 5 || b->y + b->h < y + 5) {
+                continue;
+            }
+            limit = b->x;
+        }
+    }
     right = w != NULL ? w->x + w->w - PAD_RIGHT : 0x7FFF;
     if (limit - 4 < right) {
         right = limit - 4; /* the next text on this line: no growing helps there */
@@ -610,68 +624,85 @@ static int grow_for(const Rect *r) {
 /* ---- wide backgrounds: a full-width tiled picture continues into the margins ----
  * Menu backgrounds (the field menu grid, its scrolling glass layers ...) are rows of the same tile
  * across the 4:3 picture; in 16:9 / 21:9 the margins stayed black. A part that spans the whole
- * 4:3 width gets copies of its edge tiles into the margins, but only where the edge tile repeats
- * (the tile next to it in the row has the same texture rectangle): a single picture is never
- * repeated. */
+ * 4:3 width as a grid of equal columns made of a few tiles (menu grid, shop circuit board,
+ * DNA lab number rain) continues into the margins: margin column -k repeats column k, mirrored
+ * around the edge, so checkerboards and staggered columns go on as they are. A picture made of
+ * many different pieces is never repeated. */
 static const void *wide_fill(const uint8_t *p, const uint8_t *e) {
-    static uint8_t buf[4][256 * 0x10];
+    static uint8_t buf[4][320 * 0x10];
     static int ring;
     int16_t px;
-    int left = 99999, right = -99999, n = 0, m = 0, margin;
+    int left = 99999, right = -99999, n = 0, m, margin, tw = -1, ncols, k, cols_needed;
+    int uvs[64], nuv = 0, ng = 0;
     uint8_t *out;
 
     if (PsxHd_Wide() <= 0 || e == NULL) {
         return e;
     }
     memcpy(&px, p + 4, 2);
-    for (const uint8_t *c = e; c[0] != 0xFF && n < 200; c += 0x10, n++) {
+    for (const uint8_t *c = e; c[0] != 0xFF && n < 240; c += 0x10, n++) {
         int16_t cx;
+        int uv, q;
         if (c[0xC] != p[0xD]) {
             continue;
         }
         memcpy(&cx, c + 2, 2);
+        if (tw < 0) {
+            tw = c[8];
+        } else if (c[8] != tw) {
+            return e; /* not a grid of equal columns */
+        }
         left = cx < left ? cx : left;
         right = cx + c[8] > right ? cx + c[8] : right;
+        uv = c[0] | c[1] << 8 | c[9] << 16;
+        for (q = 0; q < nuv && uvs[q] != uv; q++) {
+        }
+        if (q == nuv && nuv < 64) {
+            uvs[nuv++] = uv;
+        }
+        ng++;
     }
-    if (n >= 200 || px + left > -160 || px + right < 160) {
+    if (n >= 240 || tw < 8 || px + left > -160 || px + right < 160 || nuv * 2 > ng) {
+        return e; /* not across the whole 4:3 width, or a picture (many different pieces) */
+    }
+    ncols = (right - left) / tw;
+    margin = PsxHd_Margin(320);
+    cols_needed = (margin + tw - 1) / tw;
+    if (ncols < 4 || ncols * tw != right - left || cols_needed + 1 > ncols) {
         return e;
     }
-    margin = PsxHd_Margin(320);
+    for (const uint8_t *c = e; c[0] != 0xFF; c += 0x10) {
+        int16_t cx;
+        memcpy(&cx, c + 2, 2);
+        if (c[0xC] == p[0xD] && (cx - left) % tw != 0) {
+            return e; /* columns not on one grid */
+        }
+    }
     out = buf[ring];
     ring = (ring + 1) & 3;
     memcpy(out, e, (size_t)n * 0x10);
     m = n;
-    for (int i = 0; i < n; i++) {
-        const uint8_t *c = e + i * 0x10;
-        int16_t cx, cy;
-        int w = c[8], side;
-        if (c[0xC] != p[0xD] || w < 8) {
-            continue;
-        }
-        memcpy(&cx, c + 2, 2);
-        memcpy(&cy, c + 4, 2);
-        side = cx == left ? -1 : cx + w == right ? 1 : 0;
-        if (side == 0) {
-            continue;
-        }
-        /* the tile repeats: its inner neighbour in the row has the same texture rectangle */
-        int rep = 0;
-        for (int j = 0; j < n && !rep; j++) {
-            const uint8_t *d = e + j * 0x10;
-            int16_t dx, dy;
-            memcpy(&dx, d + 2, 2);
-            memcpy(&dy, d + 4, 2);
-            rep = j != i && d[0xC] == c[0xC] && dy == cy && dx == cx - side * w && d[0] == c[0] && d[1] == c[1] &&
-                  d[8] == c[8] && d[9] == c[9];
-        }
-        if (!rep) {
-            continue;
-        }
-        for (int k = 1; k * w < margin + w && m < 255; k++) {
-            int16_t nx = (int16_t)(cx + side * k * w);
-            memcpy(out + m * 0x10, c, 0x10);
-            memcpy(out + m * 0x10 + 2, &nx, 2);
-            m++;
+    /* margin column -k shows column k, column ncols-1+k shows column ncols-1-k (mirrored order
+       around the edge column: alternating and staggered patterns stay as they are) */
+    for (k = 1; k <= cols_needed; k++) {
+        for (int side = 0; side < 2; side++) {
+            int src = side == 0 ? k : ncols - 1 - k;
+            int dst = side == 0 ? -k : ncols - 1 + k;
+            for (int i = 0; i < n && m < 319; i++) {
+                const uint8_t *c = e + i * 0x10;
+                int16_t cx, nx;
+                if (c[0xC] != p[0xD]) {
+                    continue;
+                }
+                memcpy(&cx, c + 2, 2);
+                if ((cx - left) / tw != src) {
+                    continue;
+                }
+                nx = (int16_t)(left + dst * tw);
+                memcpy(out + m * 0x10, c, 0x10);
+                memcpy(out + m * 0x10 + 2, &nx, 2);
+                m++;
+            }
         }
     }
     if (m == n) {

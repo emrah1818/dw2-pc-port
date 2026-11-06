@@ -12,6 +12,7 @@
 #include "host/host.h"
 #include "host/fonts.h"
 #include "host/devdata.h"
+#include "host/picturetable.h"
 
 void* Host_PakReadFileLayered(int id, int* size);
 void  Host_PakSetLayer(int id, const uint8_t* data, int size);
@@ -42,35 +43,11 @@ typedef struct {
 
 static int entries(const uint8_t* d, int size)
 {
-    uint32_t first;
-    if (size < 8) {
-        return 0;
-    }
-    first = rd32(d);
-    if (first < 4 || first >= (uint32_t)size || first % 4) {
-        return 0;
-    }
-    return (int)(first / 4);
+    return PictureTable_Count(d, size);
 }
-
 static uint32_t entry(const uint8_t* d, int size, int i)
 {
-    int      n  = entries(d, size);
-    uint32_t lo = 0xFFFFFFFFu;
-    for (int k = 0; k < n; k++) {
-        uint32_t o = rd32(d + 4 * k);
-        if (o != 0 && o < lo) {
-            lo = o; /* entries may be 0 (unused) */
-        }
-    }
-    if (lo == 0xFFFFFFFFu || lo > (uint32_t)size) {
-        return 0;
-    }
-    n = (int)(lo / 4); /* the table ends where the first entry starts */
-    if (i < 0 || i >= n) {
-        return 0;
-    }
-    return rd32(d + 4 * i);
+    return PictureTable_Entry(d, size, i);
 }
 
 static int tex_open(Tex* t, uint8_t* d, int size)
@@ -192,6 +169,8 @@ typedef struct {
     int         narrow; /* letters of the small game font (narrow, like the title's pictures) */
     int         grow;   /* width (texture pixels) the picture may grow to, 0 = keep */
     int         move;   /* 1: when it cannot grow in place, move it to an empty part of the texture */
+    int         role;   /* 0 display, 1 interface, 2 telemetry */
+    int         border; /* preserve the enclosing one-pixel frame */
 } Words;
 
 /* ---- battle status letter cells (file 0x22B, 12 x 15) ---- */
@@ -243,11 +222,50 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
     if (cw <= 8 || ch <= 6 || cw > CW || ch > CH)
         return 0;
     memset(mask, 0, sizeof(mask));
-    int width = Fonts_Mask(FONT_DISPLAY, w->text, mask, CW, cw - 2, ch - 2);
-    if (width <= 0)
+    int role  = w->role == 1 ? FONT_INTERFACE : w->role == 2 ? FONT_TELEMETRY
+                                                             : FONT_DISPLAY;
+    int lines = 1;
+    for (const char* p = w->text; *p; p++)
+        if (*p == '\n')
+            lines++;
+    int line_h = (ch - 2) / lines;
+    if (line_h < 1)
         return 0;
-    int shift = w->align < 0 ? 1 : w->align > 0 ? cw - 1 - width
-                                                : (cw - width) / 2;
+    const char* p = w->text;
+    for (int line = 0; line < lines; line++) {
+        const char* end = strchr(p, '\n');
+        size_t      len = end ? (size_t)(end - p) : strlen(p);
+        char        label[512];
+        uint8_t     row[CW * CH];
+        if (len >= sizeof(label))
+            return 0;
+        memcpy(label, p, len);
+        label[len] = 0;
+        /* The second copyright line has only one cell, while the first spans
+         * three. Fit each line to its actual mapped texture coverage. */
+        int ymid = y0 + 1 + line * line_h + line_h / 2, lo = cw, hi = 0;
+        for (int i = 0; i < n; i++)
+            if (ymid >= c[i].y && ymid < c[i].y + c[i].h) {
+                int a = c[i].x - x0, b = a + c[i].w;
+                if (a < lo)
+                    lo = a;
+                if (b > hi)
+                    hi = b;
+            }
+        int available = hi - lo - 2;
+        if (available < 1)
+            return 0;
+        int width = Fonts_Mask(role, label, row, CW, available, line_h);
+        if (width < 0)
+            return 0;
+        int left = lo + (w->align < 0 ? 0 : w->align > 0 ? available - width
+                                                         : (available - width) / 2);
+        for (int y = 0; y < line_h; y++)
+            memcpy(mask + (line * line_h + y) * CW + left, row + y * CW, (size_t)width);
+        if (end)
+            p = end + 1;
+    }
+    int shift = 1;
     int inks[MAX_CELLS];
     for (int i = 0; i < n; i++)
         inks[i] = picture_ink(t, &c[i]);
@@ -255,6 +273,8 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
         for (int y = 0; y < c[i].h; y++)
             for (int x = 0; x < c[i].w; x++) {
                 int Y = c[i].y - y0 + y, X = c[i].x - x0 + x, sx = X - shift, sy = Y - 1;
+                if (w->border && (X == 0 || X == cw - 1 || Y == 0 || Y == ch - 1))
+                    continue;
                 int v = 0;
                 if (sx >= 0 && sx < cw - 2 && sy >= 0 && sy < ch - 2 && mask[sy * CW + sx] >= 80)
                     v = inks[i];
@@ -601,7 +621,7 @@ static int paint_pic(int file, int e, int first, int count, const Words* w)
         for (int i = first + 1; i < first + count; i++) {
             gaps += c[i].x > c[i - 1].x + c[i - 1].w + 2;
         }
-        if (count > 1 && nw == count && gaps) {
+        if (count > 1 && nw == count && gaps && !strchr(w->text, '\n')) {
             for (int i = 0; i < count; i++) {
                 Words one = { words[i], w->italic, i == 0 ? 1 : -1, w->narrow, 0 };
                 if (!paint(&t, c + first + i, 1, &one)) {
@@ -614,6 +634,56 @@ static int paint_pic(int file, int e, int first, int count, const Words* w)
     }
     f->changed = 1;
     return 1;
+}
+
+/* These image labels were never translated by the old layer; preserve their
+ * existing wording, including the legal notices and controller instruction. */
+static void restyle_title_notices(void)
+{
+    Words copyright  = { "TM & ©AKIYOSHI HONGO, TOEI ANIMATION CO.,LTD.\n©2000 BANDAI CO.,LTD.", 0, -1, 0, 0, 0, 1, 0 };
+    Words controller = { "Please, plug a Controller\nin Controller port 2.", 0, -1, 0, 0, 0, 1, 1 };
+    int   a          = paint_pic(0xB64, 5, 0, 0, &copyright);
+    int   b          = paint_pic(0xB64, 6, 0, 0, &controller);
+    printf("[fonts] title notices: %d of 2\n", a + b);
+}
+
+/* Stats labels share their texture rectangles across several windows. Repaint
+ * those exact rectangles, so every alias changes without touching bars/icons. */
+static void restyle_stats(void)
+{
+    static const struct {
+        int         u, v, w, h;
+        const char* text;
+        int         part;
+    } labels[] = {
+        { 48, 208, 16, 7, "HP", 73 }, { 32, 180, 16, 7, "MP", 75 }, { 88, 100, 16, 11, "MP", 62 }, { 48, 180, 8, 7, "EL", 5 }, { 84, 168, 4, 7, "/", 75 }
+    };
+    Open* f = get_file(0x13B);
+    Tex   t;
+    int   done = 0;
+    if (!f || !f->d || !tex_open(&t, f->d, f->size))
+        return;
+    for (size_t k = 0; k < sizeof(labels) / sizeof(labels[0]); k++) {
+        Cell cells[MAX_CELLS];
+        int  n = cells_of(f->d, f->size, labels[k].part, cells);
+        if (!n)
+            continue;
+        Cell c      = cells[0];
+        c.u         = labels[k].u;
+        c.v         = labels[k].v;
+        c.w         = labels[k].w;
+        c.h         = labels[k].h;
+        int     ink = picture_ink(&t, &c);
+        uint8_t mask[16 * 11];
+        if (Fonts_Mask(FONT_TELEMETRY, labels[k].text, mask, c.w, c.w, c.h) < 0)
+            continue;
+        for (int y = 0; y < c.h; y++)
+            for (int x = 0; x < c.w; x++)
+                tset(&t, c.u + x, c.v + y, mask[y * c.w + x] >= 80 ? ink : 0);
+        done++;
+        f->changed = 1;
+    }
+    printf("[fonts] stats image labels: %d of 5\n", done);
 }
 
 /* the battle effect name: a part list (file, entry) whose parts each draw a picture */
@@ -734,6 +804,8 @@ void PicWords_Apply(void)
             sk_bad++;
         }
     }
+    restyle_stats();
+    restyle_title_notices();
     dump_files();
     flush_files();
     restyle_status(&font22_tex);

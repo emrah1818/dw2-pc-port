@@ -1,8 +1,9 @@
 # Modern typefaces — development status, 6 November 2026
 
 This change implements the requested font system. **It is not yet a verified
-complete replacement of every piece of lettering in the game.** It must remain
-in a draft branch until the outstanding inventory and in-game checks below pass.
+complete replacement of every piece of lettering in the game.** This is the
+implementation basis for 1.5.1; release preparation follows completion of the
+outstanding inventory and checks below.
 
 | Use | Typeface | Integration |
 |---|---|---|
@@ -12,6 +13,9 @@ in a draft branch until the outstanding inventory and in-game checks below pass.
 | Battle-status letter cells | Orbitron Bold | Replaces known alphabet cells, retaining the existing German wording, including ae/oe/ue |
 | Numbers, II, L1–L5 | Roboto Mono Medium | Main font atlases; numeric sprites identified by `Gfx_SetPartsNumber` are also replaced when drawn |
 | Menu word cells | Exo 2 Medium | Restyles the 18 known word ranges; retains existing translations and `words.tsv` overrides |
+| Stats image labels | Roboto Mono Medium | Five shared texture regions in 0x13B (HP, two MP sizes, EL, slash), preserving their spelling and adjacent graphics |
+| Development scene font | Roboto Mono Medium | Rebuilds all 64 8×8 ASCII cells in a private buffer before upload; original disc table remains unchanged |
+| Copyright and controller notice | Exo 2 Medium | Repaints 0xB64:5/6, retaining wording and the controller notice's enclosing frame |
 
 The font binaries are embedded. No system installation, network download or
 SDL_ttf dependency is required to run or build the program. Fonts apply in both
@@ -71,12 +75,31 @@ Additional game-data validation:
 
 ## Required before completion
 
+### Continuation validation
+
+- Both release and development Linux builds pass. `fonts_test`, including new
+  bitmap bounds and picture-table directory regressions, passes; the sanitizer
+  build also passes. `textscript_test` remains 90/90.
+- Picture directory parsing now stops at the earliest payload pointer while
+  scanning. Previously sprite payload bytes could be mistaken for offsets;
+  the affected inventory includes all 76 entries in 0x13B rather than 24.
+- Runtime logs report stats labels 5/5 and title notices 2/2. The title screen
+  was inspected after correcting the narrower second copyright line.
+- A further German battle reached the result screen and returned to the
+  dungeon, producing 23 captures. The party HUD with the new HP/MP labels was
+  visually checked.
+- Development mode 0x104 completed 400 VBlanks and its font display was inspected.
+  A separate attempt to start development mode 0x101 crashed before its requested
+  screenshot. Its cause is not established; this remains an open finding.
+- Pull requests now run the Windows/Linux build-and-test jobs. The release job
+  explicitly excludes pull-request events. Remote CI results must be checked;
+  adding the jobs is not evidence that Windows has passed.
+
 The local game-data checks above are a first pass, not a complete visual audit.
 - Audit all atlas cells and other textures for lettering outside the known
-  mappings, including HP/MP labels rendered as pictures and the title logo,
-  trademark/copyright lettering, intro/boot screens and any lettering in movies.
+  mappings, including any additional stats labels, the title logo, title
+  background text, intro/boot screens and any lettering in movies.
   **Those are not covered merely by replacing the two main atlases.**
-- The development scene's separate 8×8 font has not been replaced.
 - Check the numeric sprite hook in battles, shops, status screens and saves.
 - Check every menu, dialogue, save window and battle banner for clipping,
   readability, baseline, colour and animation at 4:3, 16:9 and 21:9.

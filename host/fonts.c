@@ -234,9 +234,29 @@ int Fonts_Cell(int role, int cp, uint8_t* out, int w, int h)
 }
 
 extern void* Host_PakReadFileLayered(int id, int* size);
-extern void  Host_PakSetLayer(int id, const uint8_t* data, int size);
-extern void  Lang_RestyleWords(uint8_t* data, int size);
-void         Fonts_ApplyGame(void)
+/* The development scene packs 64 ASCII cells as eight one-bit scanlines each.
+ * Build a private replacement; never modify the verified disc table. */
+int Fonts_DevBitmap(uint8_t* out, int size)
+{
+    uint8_t bitmap[512], alpha[64];
+    if (!out || size < 512)
+        return 0;
+    memset(bitmap, 0, sizeof(bitmap));
+    for (int c = 0; c < 64; c++) {
+        if (!Fonts_Cell(FONT_TELEMETRY, c + 32, alpha, 8, 8))
+            return 0;
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++)
+                if (alpha[y * 8 + x] >= 80)
+                    bitmap[c * 8 + y] |= (uint8_t)(128 >> x);
+    }
+    memcpy(out, bitmap, sizeof(bitmap));
+    return 1;
+}
+
+extern void Host_PakSetLayer(int id, const uint8_t* data, int size);
+extern void Lang_RestyleWords(uint8_t* data, int size);
+void        Fonts_ApplyGame(void)
 {
     for (int big = 0; big < 2; big++) {
         int      size = 0, id = big ? 0x110 : 0x13A;

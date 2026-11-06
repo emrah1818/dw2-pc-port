@@ -5,6 +5,9 @@
 name: Build
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
     paths-ignore: ["**.md", "doc/**"]
@@ -212,6 +215,7 @@ jobs:
           path: DW2-PC-Port-linux-x64.zip
 
   release:
+    if: github.event_name != 'pull_request'
     needs: [windows-x64, linux-x64]
     runs-on: ubuntu-latest
     steps:

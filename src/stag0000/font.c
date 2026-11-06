@@ -3,6 +3,9 @@
 #include "stag0000/stag0000_funcs.h"
 #include "stag0000/scrollview.h"
 #include "stag0000/dungsel.h"
+#ifdef DW2_NATIVE
+#include "host/fonts.h"
+#endif
 
 INCLUDE_BIN(Stg00_FontGlyphs, "assets/stag0000/font_glyphs.bin");
 
@@ -29,12 +32,18 @@ void Stg00_FontInit(void) {
     u8 *src;
     u16 *p;
     RECT *r;
+#ifdef DW2_NATIVE
+    u8 modernGlyphs[0x200];
+#endif
 
     Stg00_FontWork = (Stg00Work *)Mem_Alloc(NATIVE_SIZE(Stg00Work, 0x9D8), 2);
     Stg00_FontTextBuf = Stg00_FontWork->textBuf;
     Stg00_FontWork->texSlot = Gfx_ReserveTexSlot();
     n = 0x200;
     src = Stg00_FontGlyphs;
+#ifdef DW2_NATIVE
+    if (Fonts_DevBitmap(modernGlyphs, sizeof(modernGlyphs))) src = modernGlyphs;
+#endif
     r = &Stg00_FontWork->rectBig;
     r->x = ((Stg00TexSlot *)Stg00_FontWork->texSlot)->x;
     r->y = ((Stg00TexSlot *)Stg00_FontWork->texSlot)->y;

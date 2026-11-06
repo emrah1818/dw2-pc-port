@@ -5,6 +5,7 @@
 #include <string.h>
 #include "host/fonts.h"
 #include "backend/psxgpu.h"
+#include "host/picturetable.h"
 
 uint16_t   PsxGpu_Vram[512][1024];
 static int uploads;
@@ -37,6 +38,29 @@ void Lang_RestyleWords(uint8_t* data, int size)
 int main(int argc, char** argv)
 {
     assert(Fonts_Init());
+    uint8_t directory[64] = { 40, 0, 0, 0, 16, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0 };
+    directory[20]         = 4; /* payload bytes that the old parser mistook for an offset */
+    assert(PictureTable_Count(directory, sizeof(directory)) == 4);
+    assert(PictureTable_Entry(directory, sizeof(directory), 2) == 32);
+    assert(PictureTable_Entry(directory, sizeof(directory), 4) == 0);
+    directory[4] = 4;
+    assert(PictureTable_Count(directory, sizeof(directory)) == 0);
+    assert(!PictureTable_Count(NULL, 0));
+    uint8_t developer[514];
+    memset(developer, 0xA5, sizeof(developer));
+    assert(!Fonts_DevBitmap(developer, 511));
+    for (int i = 0; i < 514; i++)
+        assert(developer[i] == 0xA5);
+    assert(Fonts_DevBitmap(developer, 512));
+    assert(developer[512] == 0xA5 && developer[513] == 0xA5);
+    for (int i = 0; i < 8; i++)
+        assert(developer[i] == 0); /* ASCII space */
+    for (int c = '0'; c <= 'Z'; c++) {
+        int ink = 0;
+        for (int y = 0; y < 8; y++)
+            ink |= developer[(c - 32) * 8 + y];
+        assert(ink);
+    }
     const char* samples[] = { "ÄÖÜäöüß", "0123456789 HP/MP", "KAMPF", "STARTTASTE DRÜCKEN", "Magisches Feuer", "Wählen & Bestätigen" };
     for (int role = 0; role < FONT_COUNT; role++) {
         int size;

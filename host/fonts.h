@@ -16,6 +16,7 @@ int                  Fonts_Init(void);
 int  Fonts_Mask(int role, const char* text, uint8_t* dst, int stride, int width, int height);
 int  Fonts_GameCodepoint(int code);
 int  Fonts_Cell(int role, int codepoint, uint8_t* out, int width, int height);
+int  Fonts_DevBitmap(uint8_t* out, int size);
 int  Fonts_PatchGameFont(uint8_t* data, int size, int big);
 void Fonts_ApplyGame(void);
 /* Numeric sprite frames are identified by the game's numeric setter, never by

@@ -52,6 +52,7 @@ void PsxHd_CmdClipAt(const PsxHdCmd *c, int scale, int *x0, int *y0, int *x1, in
  * PsxHw_Read downloads the surface pixels x, y, w, h (surface pixels) as 0x00RRGGBB. */
 int PsxHw_Active(void);
 void PsxHw_MarkDirty(int y, int h);
+void PsxHw_RepReset(void); /* the replacement pool starts over at the next flush (scale change) */
 void PsxHw_Flush(const PsxHdCmd *q, int n, int scale);
 int PsxHw_Read(void *tex, int x, int y, int w, int h, uint32_t *out);
 /* PR.34 smooth frames. PsxHw_VramCopy: a GPU copy of the VRAM buffer as the next batch would see

@@ -30,6 +30,7 @@ typedef struct {
     float u, v;
     uint8_t r, g, b, a;
     uint32_t par[4];
+    uint32_t rep[4]; /* dw2-pc-port texture pack (hd.frag v_rep), rep[1] = 0: none */
 } Vert;
 
 typedef struct {
@@ -72,6 +73,31 @@ static SDL_GPUGraphicsPipeline *sharpen_pipe; /* PR.2b */
 static SDL_GPUSampler *sharpen_sampler;
 static int dirty_y0, dirty_y1 = PSXGPU_VRAM_H; /* VRAM rows to upload before the next batch */
 static Ctx game_ctx = { .alpha = 1.0f }, win_ctx = { .alpha = 1.0f };
+
+/* dw2-pc-port texture packs on the GPU: see rep_lookup */
+#define REP_BYTES (128u << 20)
+#define REP_FRAME_BYTES (32u << 20)
+#define REP_TABLE 8192
+
+typedef struct {
+    const uint32_t *px;
+    uint32_t off; /* words */
+    uint32_t words;
+} RepEnt;
+
+typedef struct {
+    const uint32_t *px;
+    uint32_t off, bytes;
+} RepUp;
+
+static SDL_GPUBuffer *rep_buf, *rep_dummy;
+static RepEnt rep_tab[REP_TABLE];
+static int rep_count, rep_dead, rep_reset_req, rep_full_logged;
+static uint32_t rep_top; /* bytes used */
+static RepUp rep_up[256];
+static int rep_nup;
+static uint32_t rep_frame;
+
 
 static void drain_ctx(Ctx *x);
 
@@ -145,7 +171,7 @@ static int init_sharpen(void) {
 int PsxHw_Init(void *device) {
     SDL_GPUShader *vs, *fs;
     SDL_GPUVertexBufferDescription vbd;
-    SDL_GPUVertexAttribute va[4];
+    SDL_GPUVertexAttribute va[5];
     SDL_GPUColorTargetDescription ctd;
     SDL_GPUGraphicsPipelineCreateInfo pi;
     SDL_GPUBufferCreateInfo bi;
@@ -154,7 +180,7 @@ int PsxHw_Init(void *device) {
 
     dev = device;
     vs = make_shader(spv_hd_vert, sizeof(spv_hd_vert), SDL_GPU_SHADERSTAGE_VERTEX, 0);
-    fs = make_shader(spv_hd_frag, sizeof(spv_hd_frag), SDL_GPU_SHADERSTAGE_FRAGMENT, 1);
+    fs = make_shader(spv_hd_frag, sizeof(spv_hd_frag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2);
     if (vs == NULL || fs == NULL) {
         printf("[gpu] GPU renderer: shaders failed: %s\n", SDL_GetError());
         dev = NULL;
@@ -177,6 +203,9 @@ int PsxHw_Init(void *device) {
     va[3].location = 3;
     va[3].format = SDL_GPU_VERTEXELEMENTFORMAT_UINT4;
     va[3].offset = 24;
+    va[4].location = 4;
+    va[4].format = SDL_GPU_VERTEXELEMENTFORMAT_UINT4;
+    va[4].offset = 40;
     for (i = 0; i < 5; i++) {
         SDL_GPUColorTargetBlendState *b = &ctd.blend_state;
 
@@ -197,7 +226,7 @@ int PsxHw_Init(void *device) {
         pi.vertex_input_state.vertex_buffer_descriptions = &vbd;
         pi.vertex_input_state.num_vertex_buffers = 1;
         pi.vertex_input_state.vertex_attributes = va;
-        pi.vertex_input_state.num_vertex_attributes = 4;
+        pi.vertex_input_state.num_vertex_attributes = 5;
         pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
@@ -221,6 +250,17 @@ int PsxHw_Init(void *device) {
     ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
     ti.size = VRAM_BYTES;
     vram_tb = SDL_CreateGPUTransferBuffer(dev, &ti);
+    {
+        SDL_GPUBufferCreateInfo di;
+
+        SDL_zero(di);
+        di.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
+        di.size = 256;
+        rep_dummy = SDL_CreateGPUBuffer(dev, &di); /* bound while no replacement exists */
+        if (rep_dummy == NULL) {
+            vram_buf = NULL;
+        }
+    }
     if (vram_buf == NULL || vram_tb == NULL) {
         printf("[gpu] GPU renderer: VRAM buffer failed: %s\n", SDL_GetError());
         dev = NULL;
@@ -263,6 +303,17 @@ void PsxHw_Shutdown(void) {
     sharpen_sampler = NULL;
     SDL_ReleaseGPUBuffer(dev, vram_buf);
     SDL_ReleaseGPUTransferBuffer(dev, vram_tb);
+    if (rep_buf != NULL) {
+        SDL_ReleaseGPUBuffer(dev, rep_buf);
+    }
+    if (rep_dummy != NULL) {
+        SDL_ReleaseGPUBuffer(dev, rep_dummy);
+    }
+    rep_buf = rep_dummy = NULL;
+    memset(rep_tab, 0, sizeof(rep_tab));
+    rep_count = rep_nup = 0;
+    rep_top = 0;
+    rep_dead = rep_reset_req = rep_full_logged = 0;
     if (read_tb != NULL) {
         SDL_ReleaseGPUTransferBuffer(dev, read_tb);
     }
@@ -414,6 +465,154 @@ static void emit_prim(Ctx *x, const PsxHdCmd *c, int scale, Vert *v, int n, int 
     emit(x, c->s, 1 + c->abr, &sc, v, n);
 }
 
+/* dw2-pc-port texture packs on the GPU. The replacement pixels (0xAARRGGBB, the level of the
+ * picture TexRep_GpuLevel chose for the current scale) live in one storage buffer, REP_BYTES (the
+ * 128 MiB every Vulkan device must allow in a storage buffer), filled by a bump allocator and
+ * addressed by the vertices (Vert.rep). Uploads go through the game thread's copy pass of a flush
+ * (at most REP_FRAME_BYTES per flush: a texture that does not fit yet is drawn as the original for
+ * a few frames, like one still loading). When the pool or its table is full, or the scale changes,
+ * it starts over at the next flush (a smooth-frame replay of an older flush may show a wrong
+ * texture for one picture then). The window thread only looks up what is resident. */
+void PsxHw_RepReset(void) {
+    rep_reset_req = 1;
+}
+
+static uint32_t rep_hash(const uint32_t *px) {
+    uintptr_t h = (uintptr_t)px;
+    h ^= h >> 17;
+    h *= 0x9E3779B1u;
+    return (uint32_t)(h >> 7) % REP_TABLE;
+}
+
+/* the word offset of a level's pixels in the pool, or UINT32_MAX (not resident, not allowed or no room) */
+static uint32_t rep_lookup(const uint32_t *px, int w, int h, int alloc) {
+    uint32_t i = rep_hash(px), bytes = (uint32_t)w * (uint32_t)h * 4u;
+
+    while (rep_tab[i].px != NULL) {
+        if (rep_tab[i].px == px) {
+            return rep_tab[i].off;
+        }
+        i = (i + 1) % REP_TABLE;
+    }
+    if (!alloc || rep_dead || bytes == 0 || bytes > REP_BYTES) {
+        return UINT32_MAX;
+    }
+    if (rep_top + bytes > REP_BYTES || rep_count >= REP_TABLE / 2 || rep_nup >= 256) {
+        if (rep_nup < 256 && !rep_full_logged) {
+            rep_full_logged = 1;
+            printf("[gpu] texture pack: the replacement memory (%u MiB) is full, it starts over at the next picture\n",
+                   REP_BYTES >> 20);
+        }
+        rep_reset_req = 1;
+        return UINT32_MAX;
+    }
+    if (rep_frame + bytes > REP_FRAME_BYTES && rep_frame > 0) {
+        return UINT32_MAX; /* the next flush */
+    }
+    if (rep_buf == NULL) {
+        SDL_GPUBufferCreateInfo bi;
+
+        SDL_zero(bi);
+        bi.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
+        bi.size = REP_BYTES;
+        rep_buf = SDL_CreateGPUBuffer(dev, &bi);
+        if (rep_buf == NULL) {
+            printf("[gpu] texture pack: no GPU memory for replacements (%s), originals are used\n", SDL_GetError());
+            rep_dead = 1;
+            return UINT32_MAX;
+        }
+    }
+    rep_tab[i].px = px;
+    rep_tab[i].off = rep_top / 4u;
+    rep_tab[i].words = bytes / 4u;
+    rep_up[rep_nup].px = px;
+    rep_up[rep_nup].off = rep_top;
+    rep_up[rep_nup].bytes = bytes;
+    rep_nup++;
+    rep_count++;
+    rep_top += bytes;
+    rep_frame += bytes;
+    return rep_tab[i].off;
+}
+
+/* a flush's start (game thread): a pending reset happens here, between two batches */
+static void rep_begin(void) {
+    rep_frame = 0;
+    if (rep_reset_req) {
+        memset(rep_tab, 0, sizeof(rep_tab));
+        rep_count = 0;
+        rep_top = 0;
+        rep_nup = 0;
+        rep_reset_req = 0;
+        rep_full_logged = 0;
+    }
+}
+
+/* the pending replacement pixels into the pool (game thread, inside the copy pass) */
+static void rep_upload(SDL_GPUCopyPass *copy) {
+    for (int i = 0; i < rep_nup; i++) {
+        SDL_GPUTransferBufferCreateInfo ti;
+        SDL_GPUTransferBuffer *tb;
+        SDL_GPUTransferBufferLocation src;
+        SDL_GPUBufferRegion dst;
+        void *m;
+
+        SDL_zero(ti);
+        ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        ti.size = rep_up[i].bytes;
+        tb = SDL_CreateGPUTransferBuffer(dev, &ti);
+        m = tb != NULL ? SDL_MapGPUTransferBuffer(dev, tb, false) : NULL;
+        if (m == NULL) {
+            if (tb != NULL) {
+                SDL_ReleaseGPUTransferBuffer(dev, tb);
+            }
+            printf("[gpu] texture pack: upload failed (%s)\n", SDL_GetError());
+            rep_reset_req = 1; /* the entry is in the table, the pixels are not: start over */
+            continue;
+        }
+        memcpy(m, rep_up[i].px, rep_up[i].bytes);
+        SDL_UnmapGPUTransferBuffer(dev, tb);
+        src.transfer_buffer = tb;
+        src.offset = 0;
+        dst.buffer = rep_buf;
+        dst.offset = rep_up[i].off;
+        dst.size = rep_up[i].bytes;
+        SDL_UploadToGPUBuffer(copy, &src, &dst, false);
+        SDL_ReleaseGPUTransferBuffer(dev, tb);
+    }
+    rep_nup = 0;
+}
+
+/* the replacement of command c for its vertices (Vert.rep); stays zero = the original */
+static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
+    int kl, nb, w, h, du, dv;
+    const uint32_t *px;
+    uint32_t off;
+    uint32_t r[4];
+
+    if (c->rep.img == NULL || !c->textured || rep_dead) {
+        return;
+    }
+    px = TexRep_GpuLevel(&c->rep, &kl, &nb, &w, &h);
+    du = c->rep.du;
+    dv = c->rep.dv;
+    if (kl < 1 || kl > 16 || w > 0xFFFF || h > 0xFFFF || du < -512 || du > 511 || dv < -512 || dv > 511) {
+        return;
+    }
+    off = rep_lookup(px, w, h, x == &game_ctx);
+    if (off == UINT32_MAX) {
+        return;
+    }
+    r[0] = off;
+    r[1] = (uint32_t)w | (uint32_t)h << 16;
+    r[2] = (uint32_t)kl | (uint32_t)nb << 5 | (uint32_t)(du + 512) << 8 | (uint32_t)(dv + 512) << 18;
+    r[3] = (uint32_t)(c->rep.umin & 255) | (uint32_t)(c->rep.umax & 255) << 8 | (uint32_t)(c->rep.vmin & 255) << 16 |
+           (uint32_t)(c->rep.vmax & 255) << 24;
+    for (int i = 0; i < n; i++) {
+        memcpy(v[i].rep, r, sizeof(r));
+    }
+}
+
 static uint32_t tex_bits(const PsxTex *t) {
     return (uint32_t)t->mode | (t->raw ? 4u : 0u) | 8u | (uint32_t)(t->tx / 64) << 4 | (uint32_t)(t->ty / 256) << 8 |
            (uint32_t)(t->cx / 16) << 9 | (uint32_t)t->cy << 15;
@@ -432,6 +631,7 @@ static void set_par(Vert *v, int n, uint32_t tex, uint32_t win, uint32_t fl, uin
         v[i].par[1] = win;
         v[i].par[2] = fl;
         v[i].par[3] = lim;
+        memset(v[i].rep, 0, sizeof(v[i].rep));
     }
 }
 
@@ -521,6 +721,7 @@ static void tri(Ctx *x, const PsxHdCmd *c, int scale) {
         v[i].a = 0;
     }
     set_par(v, 3, t != NULL ? tex_bits(t) : 0, win_bits(st), fl, lim);
+    set_rep(x, v, 3, c);
     emit_prim(x, c, scale, v, 3, t != NULL);
 }
 
@@ -586,6 +787,7 @@ static void rect(Ctx *x, const PsxHdCmd *c, int scale) {
               (uint32_t)((c->v0 + c->h - 1) & 255) << 24;
     }
     set_par(v, 6, t != NULL ? tex_bits(t) : 0, win_bits(st), fl | (st->set_mask ? F_SETMASK : 0), lim);
+    set_rep(x, v, 6, c);
     emit_prim(x, c, scale, v, 6, t != NULL);
 }
 
@@ -834,7 +1036,10 @@ static void draw_built(Ctx *x, SDL_GPUCommandBuffer *cmd, int scale, SDL_GPUBuff
             vb.buffer = x->vbuf;
             vb.offset = 0;
             SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-            SDL_BindGPUFragmentStorageBuffers(pass, 0, &vram, 1);
+            {
+                SDL_GPUBuffer *sb[2] = { vram, rep_buf != NULL ? rep_buf : rep_dummy };
+                SDL_BindGPUFragmentStorageBuffers(pass, 0, sb, 2);
+            }
             SDL_SetGPUBlendConstants(pass, half);
             size[0] = target != NULL ? (float)tw : (float)((cur->w + 2 * cur->m) * scale);
             size[1] = target != NULL ? (float)th : (float)(cur->h * scale);
@@ -862,13 +1067,17 @@ void PsxHw_Flush(const PsxHdCmd *q, int n, int scale) {
     if (dev == NULL) {
         return;
     }
+    rep_begin();
     build(x, q, n, scale);
     cmd = SDL_AcquireGPUCommandBuffer(dev);
     if (cmd == NULL) {
         printf("[gpu] GPU renderer: no command buffer: %s\n", SDL_GetError());
+        rep_nup = 0;
+        rep_reset_req = 1;
         return;
     }
     copy = SDL_BeginGPUCopyPass(cmd);
+    rep_upload(copy);
     if (!upload(x, copy, 1)) {
         x->ndraws = 0;
     }

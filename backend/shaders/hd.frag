@@ -16,12 +16,21 @@
 layout(location = 0) in vec2 v_uv;
 layout(location = 1) noperspective in vec3 v_col;
 layout(location = 2) flat in uvec4 v_par;
+/* dw2-pc-port texture packs (backend/texrep.c): v_rep.y = 0: none. Else x = the level's first word in
+ * the Rep buffer, y = width | height << 16 (replacement pixels), z = k (replacement pixels per
+ * texel) | n << 5 (block edge of the averaging) | (du + 512) << 8 | (dv + 512) << 18 (page texel ->
+ * upload texel), w = the primitive's texel box umin | umax << 8 | vmin << 16 | vmax << 24 */
+layout(location = 3) flat in uvec4 v_rep;
 
 layout(location = 0) out vec4 o_col;
 
 layout(std430, set = 2, binding = 0) readonly buffer Vram {
     uint px[];
 } vram;
+
+layout(std430, set = 2, binding = 1) readonly buffer Rep {
+    uint px[];
+} rep;
 
 layout(set = 3, binding = 0) uniform Params {
     int scale;
@@ -74,6 +83,59 @@ uint fetch_box(int u, int v, uint tex, uint win, ivec4 box) {
     return u >= box.x && u <= box.y && v >= box.z && v <= box.w ? fetch(u, v, tex, win) : 0u;
 }
 
+/* dw2-pc-port: TexRep_Sample (backend/texrep.c) at (f.x, f.y) = texture page texels, 8.8 fixed
+ * point. Returns the PS1 15-bit colour (R | G << 5 | B << 10), or -1 where the replacement is
+ * transparent. */
+int rep_sample(ivec2 f) {
+    int k = int(v_rep.z & 31u), n = int((v_rep.z >> 5) & 7u);
+    int du = int((v_rep.z >> 8) & 1023u) - 512, dv = int((v_rep.z >> 18) & 1023u) - 512;
+    int W = int(v_rep.y & 0xFFFFu), H = int(v_rep.y >> 16), base = int(v_rep.x);
+    int umin = int(v_rep.w & 255u), umax = int((v_rep.w >> 8) & 255u);
+    int vmin = int((v_rep.w >> 16) & 255u), vmax = int((v_rep.w >> 24) & 255u);
+    int hx = (f.x * k) >> 8, hy = (f.y * k) >> 8;
+    int x0 = umin * k, x1 = (umax + 1) * k - 1, y0 = vmin * k, y1 = (vmax + 1) * k - 1;
+
+    hx = clamp(hx, x0, x1); /* inside the primitive's texels: no atlas bleeding */
+    hy = clamp(hy, y0, y1);
+    if (n >= 2) {
+        uint r = 0u, g = 0u, b = 0u, cnt = 0u, all = 0u;
+
+        hx -= min(hx - x0, n / 2);
+        hy -= min(hy - y0, n / 2);
+        for (int dy = 0; dy < n; dy++) {
+            for (int dx = 0; dx < n; dx++) {
+                int sx = min(hx + dx, x1) + du * k, sy = min(hy + dy, y1) + dv * k;
+                if (sx < 0 || sy < 0 || sx >= W || sy >= H) {
+                    continue;
+                }
+                uint p = rep.px[base + sy * W + sx];
+                all++;
+                if ((p >> 24) < 128u) {
+                    continue;
+                }
+                r += (p >> 16) & 255u;
+                g += (p >> 8) & 255u;
+                b += p & 255u;
+                cnt++;
+            }
+        }
+        if (cnt == 0u || cnt * 2u < all) {
+            return -1; /* mostly transparent there */
+        }
+        return int((r / cnt) >> 3 | ((g / cnt) >> 3) << 5 | ((b / cnt) >> 3) << 10);
+    }
+    hx += du * k;
+    hy += dv * k;
+    if (hx < 0 || hy < 0 || hx >= W || hy >= H) {
+        return -1;
+    }
+    uint p = rep.px[base + hy * W + hx];
+    if ((p >> 24) < 128u) {
+        return -1;
+    }
+    return int(((p >> 19) & 31u) | ((p >> 11) & 31u) << 5 | ((p >> 3) & 31u) << 10);
+}
+
 void main() {
     uint tex = v_par.x, win = v_par.y, fl = v_par.z;
     int S = params.scale;
@@ -87,7 +149,7 @@ void main() {
     ivec3 col, c5;
     ivec2 iuv;
 
-    if ((fl & 2u) != 0u) {
+    if ((fl & 2u) != 0u && v_rep.y == 0u) {
         /* sprite-like: the texel of the 1x pixel's first surface pixel */
         ivec2 m = P % S;
         uv -= dx * float(m.x) + dy * float(m.y);
@@ -104,7 +166,30 @@ void main() {
         return;
     }
     int d = (fl & 1u) != 0u ? dither_tbl[((P.y / S) & 3) * 4 + ((P.x / S) & 3)] : 0;
-    if ((tex & 8u) != 0u && (fl & 0x800u) != 0u) {
+    if ((tex & 8u) != 0u && v_rep.y != 0u) {
+        /* dw2-pc-port texture pack (rep_texel in backend/psxgpu_hd.c): the replacement colour at the
+         * HD pixel's position inside the original texel, with the original texel's mask bit (semi-
+         * transparency as in the game); sprite-like pieces keep their sub-texel position too */
+        ivec2 f = ivec2(floor(v_uv * 256.0));
+        int rc = rep_sample(f);
+
+        if (rc < 0) {
+            discard;
+        }
+        uint t = uint(rc) | (fetch(f.x >> 8, f.y >> 8, tex, win) & 0x8000u);
+        if (t == 0u) {
+            t = 0x0421u; /* opaque black must not read as transparent */
+        }
+        bool tsemi = (t & 0x8000u) != 0u;
+        if ((pass == 1 && tsemi) || (pass == 2 && !tsemi)) {
+            discard;
+        }
+        c5 = ivec3(t & 31u, (t >> 5) & 31u, (t >> 10) & 31u);
+        if ((tex & 4u) == 0u) {
+            c5 = to5((c5 * col) >> 4, d);
+        }
+        mask = mask || tsemi;
+    } else if ((tex & 8u) != 0u && (fl & 0x800u) != 0u) {
         /* dw2-pc-port 2D smoothing (smooth2d_texel in backend/psxgpu_hd.c) */
         ivec2 f = ivec2(floor(uv * 256.0));
         ivec2 b0 = f >> 8;

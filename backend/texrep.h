@@ -37,6 +37,8 @@ typedef struct {
 void TexRep_AddRoot(const char *mods_textures_dir);
 void TexRep_SetDump(const char *dir);
 void TexRep_Disable(void);
+void TexRep_Enable(void); /* tests: undo TexRep_Disable */
+const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h);
 void TexRep_Shutdown(void); /* joins the loader thread (program exit) */
 /* every [textures] line also into this file (Mods/Textures/textures_log.txt) */
 void TexRep_SetLog(const char *path);

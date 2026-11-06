@@ -43,6 +43,12 @@ def main():
     ap.add_argument("--plan", default="lists",
                     help="keys of each battle's first round, comma separated; 'lists': battle k takes the "
                          "list in direction k for all three Digimon (Interrupt, Counter Attack, Assist); empty: random")
+    ap.add_argument("--kind", type=int, default=-1,
+                    help="with --plan lists: always this list (0 Interrupt, 1 Counter Attack, 2 Assist)")
+    ap.add_argument("--enemy-skills", default="a0,82,b9",
+                    help="skill of each enemy (columns 3..5) in every round: counter 0xA0, interrupt 0x82, assist 0xB9 "
+                         "make the enemy turn type 3 / 2 / 4, so the words Counter Attack, Interrupt and Assist and the "
+                         "question to the player appear; empty: the enemies' own skills")
     ap.add_argument("--extra", default="")
     a = ap.parse_args()
     rnd = random.Random(a.seed)
@@ -59,7 +65,12 @@ def main():
         if a.hd:
             g.hdshot(name)
         count[0] += 1
-        log.write("%s mode %x\n" % (name, g.mode()))
+        try:  # Stg30_Battle.turns[0..5] (0x2AC, 0x10 each): turn type and skill
+            t = " ".join("%d/%x" % (g.s32("Stg30_Battle", 0x2AC + i * 0x10), g.s16("Stg30_Battle", 0x2AC + i * 0x10 + 6))
+                         for i in range(6))
+        except Exception:
+            t = "?"
+        log.write("%s mode %x turns %s\n" % (name, g.mode(), t))
 
     def battle(g, st, limit=a.limit):
         st.battles += 1
@@ -76,10 +87,28 @@ def main():
                     alive += 1
             return alive == 0
 
+        if a.enemy_skills:
+            # the enemy AI (Stg30_Battle.enemyAi at 0x240, 0x12 each: skillIds +2, conditions +5, actionKinds
+            # +9): action 1 = skill slot 0 of the enemy, always (condition 0), MP to pay for it
+            g.run(120)
+            ids = [int(x, 16) for x in a.enemy_skills.split(",")]
+            for n, col in enumerate((3, 4, 5)):
+                d = 0x18 + col * 0x5C
+                if g.s16("Stg30_Battle", d + 0x14) <= 0:
+                    continue
+                sk = ids[n % len(ids)]
+                g.poke("Stg30_Battle", d + 0x22, bytes([sk]))
+                g.poke("Stg30_Battle", d + 0x18, (999).to_bytes(2, "little"))   # max MP
+                g.poke("Stg30_Battle", d + 0x1A, (999).to_bytes(2, "little"))   # MP
+                ai = 0x240 + col * 0x12
+                g.poke("Stg30_Battle", ai + 2, bytes([sk, 0, 0]))
+                g.poke("Stg30_Battle", ai + 5, bytes([0, 0, 0, 0]))
+                g.poke("Stg30_Battle", ai + 9, bytes([1, 0, 0, 0]))
+            log.write("battle %d enemy skills %s\n" % (k, a.enemy_skills))
         plan = a.plan
         if plan == "lists":
             # battle k: all three Digimon take the list in direction k (Right, Down, Down+Right)
-            d = [["Right"], ["Down"], ["Down", "Right"]][k % 3]
+            d = [["Right"], ["Down"], ["Down", "Right"]][(k if a.kind < 0 else a.kind) % 3]
             plan = ",".join(["Cross"] + (["Cross"] + d + ["Cross", "Cross", "Cross"]) * 3)
         if plan:
             # first round: Give Orders, then per Digimon Fight and one of the four lists (the

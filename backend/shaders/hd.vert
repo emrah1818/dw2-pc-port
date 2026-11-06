@@ -8,6 +8,7 @@ layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec4 a_col;
 layout(location = 3) in uvec4 a_par;
+layout(location = 4) in uvec4 a_rep;
 
 layout(set = 1, binding = 0) uniform Target {
     vec2 size;
@@ -16,6 +17,7 @@ layout(set = 1, binding = 0) uniform Target {
 layout(location = 0) out vec2 v_uv;
 layout(location = 1) noperspective out vec3 v_col;
 layout(location = 2) flat out uvec4 v_par;
+layout(location = 3) flat out uvec4 v_rep;
 
 void main() {
     float w = a_pos.z;
@@ -25,4 +27,5 @@ void main() {
     v_uv = a_uv;
     v_col = a_col.rgb * 255.0;
     v_par = a_par;
+    v_rep = a_rep;
 }

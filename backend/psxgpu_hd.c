@@ -308,10 +308,10 @@ static Cmd *push(int type, Surf *s, const PsxGpuState *st) {
     return c;
 }
 
-/* dw2-pc-port texture packs: the replacement for a primitive's texel box (software renderer only;
- * the GPU renderer samples VRAM in its shaders). */
+/* dw2-pc-port texture packs: the replacement for a primitive's texel box. The software renderer
+ * samples it itself (rep_texel), the GPU renderer gets it in the vertices (psxgpu_hw.c set_rep). */
 static void find_rep(Cmd *c, const PsxGpuState *st, const PsxTex *t, int umin, int umax, int vmin, int vmax) {
-    if (gpu || t == NULL || !TexRep_Active()) {
+    if (t == NULL || !TexRep_Active()) {
         return;
     }
     TexRep_Find(t->mode, t->tx, t->ty, t->cx, t->cy, st->tw_mask_x, st->tw_mask_y, umin, umax, vmin, vmax, &c->rep);
@@ -372,6 +372,9 @@ void PsxHd_SetScale(int s) {
         release_all();
         scale = s;
         serial++;
+        if (PsxHw_Active()) {
+            PsxHw_RepReset();
+        }
     }
     TexRep_SetScale(scale);
 }

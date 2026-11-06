@@ -230,6 +230,10 @@ void TexRep_Disable(void) {
     disabled = 1;
 }
 
+void TexRep_Enable(void) { /* tests */
+    disabled = 0;
+}
+
 int TexRep_Count(void) {
     return nentries;
 }
@@ -624,6 +628,26 @@ static int out_scale = 1;
 
 void TexRep_SetScale(int s) {
     out_scale = s < 1 ? 1 : s;
+}
+
+/* The GPU renderer's view of a replacement (backend/psxgpu_hw.c, shaders/hd.frag rep_sample): the
+ * level TexRep_Sample would read at the current scale. Returns its pixels (0xAARRGGBB, w x h) and
+ * kl = replacement pixels per original texel at that level, n = the block edge of the averaging
+ * (0 or 1: one pixel, 2..4: n x n pixels). */
+const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h) {
+    const TexRepImg *img0 = use->img;
+    int k = use->k, L = 0;
+
+    while (L + 1 < img0->nlev && (k >> (L + 1)) >= out_scale) {
+        L++;
+    }
+    k >>= L;
+    *kl = k;
+    *n = k / out_scale;
+    *n = *n > 4 ? 4 : *n;
+    *w = img0->lev[L].w;
+    *h = img0->lev[L].h;
+    return img0->lev[L].px;
 }
 
 int TexRep_Sample(const TexRepUse *use, int fu, int fv) {

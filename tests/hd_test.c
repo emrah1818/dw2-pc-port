@@ -228,6 +228,8 @@ static int find_dump(const char *dir, const char *pattern_glob, char *name, size
     return ok;
 }
 
+static uint32_t *soft_pack; /* the software picture with the test pack (kept for the GPU comparison) */
+
 static void texture_pack_tests(int scale, const uint32_t *orig, int w) {
     char dump_dir[1024], root[1024], pack[1024], path[1200], n4[256], n8[256], n15[256];
     uint32_t *a1, *b1, *hd;
@@ -312,7 +314,7 @@ static void texture_pack_tests(int scale, const uint32_t *orig, int w) {
             check(loaded == 1 && failed == 2, "textures: 1 replacement loaded, 2 bad files reported");
         }
     }
-    free(hd);
+    soft_pack = hd;
     /* 1x (classic) with the pack: unchanged */
     PsxHd_SetScale(1);
     PsxGpu_Reset(0);
@@ -501,6 +503,7 @@ int main(int argc, char **argv) {
         }
     }
     if (have_gpu) {
+        TexRep_Disable(); /* the plain comparisons below are without the test pack */
         free(render(1, 0, 0, scale, &w2, &h2)); /* warm-up as above */
         for (i = 0; i < 4; i++) {
             int n, total;
@@ -524,6 +527,42 @@ int main(int argc, char **argv) {
             check(diff_count(gpu[0], gpu[1], w, scale, 178, 148, 285, 213, 0) == 0, "gpu: filter leaves the sprites");
             check(diff_count(gpu[0], gpu[2], w, scale, 178, 148, 285, 213, 4) > 100, "gpu: 2D smoothing changes the sprites");
             check(diff_count(gpu[0], gpu[2], w, scale, 10, 10, 300, 135, 0) == 0, "gpu: 2D smoothing leaves the 3D quads");
+        }
+        /* texture pack on the GPU (hd.frag rep_sample): as the software picture with the pack */
+        TexRep_Enable();
+        {
+            uint32_t *gp = render(1, 0, 0, scale, &w2, &h2);
+            check(gp != NULL && w2 == w && h2 == h, "gpu: picture with the texture pack read back");
+            if (gp != NULL && soft_pack != NULL && w2 == w && h2 == h) {
+                int n = diff_count(soft_pack, gp, w, scale, 0, 0, W, H, 24), total = w * h, bad = 0, opaque = 0;
+
+                write_bmp("gpu_texture_pack", gp, w, h);
+                snprintf(what, sizeof(what), "gpu = soft (texture pack): %d of %d pixels differ by more than 24 (%.2f%%)", n,
+                         total, 100.0 * n / total);
+                check(n * 100 < total * 2, what);
+                check(diff_count(gpu[0], gp, w, scale, 10, 10, 160, 135, 4) > 1000, "gpu: the 4-bit 3D quad uses the replacement");
+                check(diff_count(gpu[0], gp, w, scale, 170, 20, 300, 130, 0) == 0, "gpu: wrong-size 8-bit file ignored (original)");
+                check(diff_count(gpu[0], gp, w, scale, 40, 145, 150, 215, 0) == 0, "gpu: broken 16-bit file ignored (original)");
+                for (int i = 0; i < 3; i++) {
+                    for (int Y = 195 * scale; Y < (195 + 16) * scale; Y++) {
+                        for (int X = (180 + i * 34) * scale; X < (180 + i * 34 + 16) * scale; X++) {
+                            int hx = (i * 16) * scale + (X - (180 + i * 34) * scale), hy = 16 * scale + (Y - 195 * scale);
+                            int r, g, b;
+                            uint32_t p = gp[(size_t)Y * w + X];
+                            pattern(hx, hy, &r, &g, &b);
+                            if (abs((int)((p >> 16) & 255) - r) > 8 || abs((int)((p >> 8) & 255) - g) > 8 ||
+                                abs((int)(p & 255) - (b & 0xF8)) > 8) {
+                                bad++;
+                            }
+                            opaque++;
+                        }
+                    }
+                }
+                snprintf(what, sizeof(what), "gpu: sprites drawn from the 4x replacement, texel-exact (%d of %d pixels off)", bad,
+                         opaque);
+                check(bad == 0 && opaque > 0, what);
+            }
+            free(gp);
         }
         PsxHd_SetGpu(0);
         PsxHw_Shutdown();

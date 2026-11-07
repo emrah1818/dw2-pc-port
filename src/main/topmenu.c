@@ -65,6 +65,62 @@ s32 Text_PrintIdList(s32 *a0, TextIdListEntry *a1, u32 a2) {
     return n;
 }
 
+#ifdef DW2_NATIVE
+/* dw2-pc-port, Modern UI: the Digimon status and technique screens' header as two tabs, Status
+ * and Techniques, plus the back hint. The labels are the game's own button hints (01FD 0xD1
+ * "<circle>: Status", 0xD0 "<circle>: all techniques"), the active page without its button and
+ * ": ", in the normal colour; the other page with its button, in the dim colour the game uses for
+ * inactive technique categories (Text_SetColor 1). Only for the header layout both screens have
+ * (first the page hint, then the back hint) and labels of that form; otherwise 0 and the caller
+ * prints the list as on the PS1. slots: the list's boxes (the tabs in the first two, the rest of the
+ * list as Text_PrintIdList); extra: a free box for the back hint. */
+extern int UiText_Modern(void);
+extern int UiText_Advance(int big, int c, int cell);
+extern int UiText_SpaceAdvance(int big, int cell);
+
+static const u8 *tab_label(const u8 *t) {
+    if (t == NULL || t[0] < 0x3C || t[0] > 0x40 || t[1] != 0x59) return NULL; /* button glyph, ':' */
+    t += 2;
+    while (*t == 0xFD) t++;
+    return *t != 0xFF ? t : NULL;
+}
+
+static s32 tab_width(const u8 *t) { /* 1x pixels, small font */
+    s32 w = 0;
+    for (; *t != 0xFF && *t != 0; t++) w += *t == 0xFD ? UiText_SpaceAdvance(0, 7) : UiText_Advance(0, *t, 7);
+    return (w + 255) >> 8;
+}
+
+s32 Menu_OpenModernTabs(s32 *slots, s32 *extra, TextIdListEntry *list, s32 active, u32 flags) {
+    const u8 *st, *te, *show[2];
+    s32 x, gap = 12;
+    Halves h;
+
+    if (!UiText_Modern() || list[0].key == 0 || list[1].key == 0) return 0;
+    if ((list[0].key & 0xFFF) != (active ? 0xD1 : 0xD0) || (list[1].key & 0xFFF) != 0xD2) return 0;
+    st = (const u8 *)Cd_GetFileEntry(0x1FD00D1);
+    te = (const u8 *)Cd_GetFileEntry(0x1FD00D0);
+    if (tab_label(st) == NULL || tab_label(te) == NULL) return 0;
+    show[0] = active == 0 ? tab_label(st) : st;
+    show[1] = active == 1 ? tab_label(te) : te;
+    h = list[0].h;
+    x = h.lo;
+    for (s32 i = 0; i < 2; i++) {
+        /* each tab as wide as its longer form: the tabs and the back hint stay put when switching */
+        const u8 *full = i == 0 ? st : te;
+        s32 a = tab_width(full), b = tab_width(tab_label(full));
+        h.lo = (s16)x;
+        Text_OpenPacked(&slots[i], (s32)show[i], flags | ((i == active ? 0 : 1) << 2), h);
+        x += (a > b ? a : b) + gap;
+    }
+    h = list[1].h;
+    if (h.lo < x + 4) h.lo = (s16)(x + 4);
+    Text_OpenPacked(extra, (s32)Cd_GetFileEntry(0x1FD0000 | (list[1].key & 0xFFF)), flags | ((list[1].key & 0xF000) >> 10), h);
+    if (list[2].key != 0) Text_PrintIdList(&slots[2], &list[2], flags);
+    return 1;
+}
+#endif
+
 void Text_PrintList(s32 *a0, Halves *a1, s32 *a2, u32 a3) {
     while (*a2 != 0) {
         Text_OpenPacked(a0, *a2, a3, *a1);

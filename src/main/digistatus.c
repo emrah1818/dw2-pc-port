@@ -13,6 +13,12 @@
 #include "main/itemuse.h"
 #include "main/itemmenu.h"
 #include "main/digilist.h"
+#ifdef DW2_NATIVE
+#include "main/model.h"
+extern char *getenv(const char *);
+extern s32 Gfx_ModelScreenBounds(Actor *a0, s32 *b);
+extern int UiText_Modern(void);
+#endif
 
 /* Task callbacks the descriptor below names (defined further down). */
 void Task_DefaultDestroy(Actor *arg0);
@@ -103,6 +109,11 @@ void Menu_DigiStatusTask(Actor *a) {
             if (Math_RampToOne((s32)a, &w->ramp) != 0) {
                 break;
             }
+#ifdef DW2_NATIVE
+            /* Modern UI: Status / Techniques tabs (src/main/topmenu.c); the labels use slots 0..15, slot 19
+             * is free (the name is 20) */
+            if (!Menu_OpenModernTabs((s32 *)w, (s32 *)w + 19, (TextIdListEntry *)Cd_GetFileEntrySubPtr(0x513001D, 0), 0, 1))
+#endif
             Text_PrintIdList((s32 *)w, (TextIdListEntry *)Cd_GetFileEntrySubPtr(0x513001D, 0), 1);
             r = P32(MenuDigiStatusEntry, w->digimon);
             Text_OpenPacked(&w->nameText, (s32)r->name, 0x81, h[0]);
@@ -182,10 +193,6 @@ extern s32 GsSetRefView2(GsRVIEW2 *);
 #endif
 
 #ifdef DW2_NATIVE
-
-extern char *getenv(const char *);
-#include "main/model.h"
-extern s32 Gfx_ModelScreenBounds(Actor *a0, s32 *b);
 
 /* dw2-pc-port, Modern UI: the model preview's scale (4096 = as on the PS1) that fits the model
  * into the picture's window at every turn. Measured once per Digimon: the model's projected

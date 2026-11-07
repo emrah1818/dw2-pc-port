@@ -28,6 +28,39 @@ void Menu_SkillListTask(Actor *a0);
 void Menu_SkillListDraw(Actor *actor);
 
 u16 Menu_SkillPaneMasks[] = { 0xAC, 0xCA, 0xB2, 0x12A };
+#ifdef DW2_NATIVE
+static s32 skill_tab_back = -1;
+/* Modern UI: each listed technique's MP cost at the right of its line ("8 MP": the game's digits
+ * and its own "MP" label letters), in the line's colour */
+extern int UiText_Modern(void);
+extern int UiText_Advance(int big, int c, int cell);
+extern int UiText_SpaceAdvance(int big, int cell);
+static s32 skill_mp[12] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+static u8 skill_mpbuf[12][12];
+#define SKILL_MP_RIGHT 110 /* from a name's left edge: the category window's inner right edge */
+
+static void skill_mp_close(void) {
+    for (s32 i = 0; i < 12; i++) Text_Close(&skill_mp[i]);
+}
+
+static void skill_mp_open(s32 i, s32 id, TextDescHalves *name) {
+    TextDescHalves st = *name;
+    u8 *b = skill_mpbuf[i], *e;
+    s32 w = 0;
+
+    Text_FormatNumber(b, Skill_GetMpCost(id), -3);
+    for (e = b; *e != 0xFF; e++);
+    e[0] = 0xFD;
+    e[1] = 0x16; /* M */
+    e[2] = 0x19; /* P */
+    e[3] = 0xFF;
+    for (e = b; *e != 0xFF; e++) w += *e == 0xFD ? UiText_SpaceAdvance(0, 7) : UiText_Advance(0, *e, 7);
+    st.text = (s32)b;
+    st.strArg0 = 0;
+    st.pos.lo = (s16)(name->pos.lo + SKILL_MP_RIGHT - ((w + 255) >> 8));
+    Text_OpenDesc(&skill_mp[i], (TextDesc *)&st);
+}
+#endif
 TaskDesc Menu_SkillListDesc = {
     (TaskInitFn)Menu_SkillListInit, Menu_SkillListTask, Task_DefaultDestroy, Menu_SkillListDraw, 0x128, 4,
 };
@@ -83,6 +116,9 @@ void Menu_SkillListOpenNames(Actor194C8 *w, s32 arg1)
   {
     Text_Close(&w->textBoxes[i]);
   }
+#ifdef DW2_NATIVE
+  skill_mp_close();
+#endif
 
   st.strArg0 = 0;
   st.packedStyle = arg1;
@@ -117,6 +153,9 @@ void Menu_SkillListOpenNames(Actor194C8 *w, s32 arg1)
       st.text = Skill_GetNameText(w->records[ch].arr[j + i]);
       m = j + 6;
       Text_OpenDesc(&w->textBoxes[(ch * 3) + m], (TextDesc *) (&st));
+#ifdef DW2_NATIVE
+      if (UiText_Modern()) skill_mp_open(ch * 3 + j, w->records[ch].arr[j + i], &st);
+#endif
       st.pos.hi += new_var;
     }
 
@@ -156,6 +195,11 @@ void Menu_SkillListTask(Actor *a0) {
             if (Math_RampToOne((s32)a0, &w->fadeRamp) != 0) {
                 break;
             }
+#ifdef DW2_NATIVE
+            /* Modern UI: Status / Techniques tabs (src/main/topmenu.c); every text slot of this screen
+             * is in use, the back hint gets its own (closed with the others) */
+            if (!Menu_OpenModernTabs(w->textBoxes, &skill_tab_back, (TextIdListEntry *)Cd_GetFileEntrySubPtr(0x5130024, 0), 1, 1))
+#endif
             Text_PrintIdList(&w->textBoxes, (TextIdListEntry *)Cd_GetFileEntrySubPtr(0x5130024, 0), 1);
             Menu_SkillListOpenNames(w, 1);
             h.lo = 0x13;
@@ -222,6 +266,10 @@ void Menu_SkillListTask(Actor *a0) {
         case 0:
         default:
             Text_CloseArray(&w->textBoxes, 0x15);
+#ifdef DW2_NATIVE
+            Text_CloseArray(&skill_tab_back, 1);
+            skill_mp_close();
+#endif
             Task_NextState1(a0);
             break;
         case 1:

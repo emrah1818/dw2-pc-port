@@ -8,6 +8,9 @@ void Text_OpenDesc(void *arg0, TextDesc *arg1);
 void Text_OpenPacked(void *arg0, s32 arg1, u32 arg2, Halves arg3);
 s32 Text_PrintIdList(s32 *a0, TextIdListEntry *a1, u32 a2);
 void Text_PrintList(s32 *a0, Halves *a1, s32 *a2, u32 a3);
+#ifdef DW2_NATIVE
+s32 Menu_OpenModernTabs(s32 *slots, s32 *extra, TextIdListEntry *list, s32 active, u32 flags);
+#endif
 s32 Text_WaitYesNo(s32);
 s32 Math_RampToOne(s32 arg0, s32 *arg1);
 s32 Math_RampToZero(s32 arg0, s32 *arg1);

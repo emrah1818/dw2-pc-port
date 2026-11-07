@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "host/fonts.h"
+#include "host/buttons.h"
 #include "include/include_asm.h"
 #define STBTT_STATIC
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -214,7 +215,7 @@ int Fonts_PatchGameFont(uint8_t* data, int size, int big)
             }
         count++;
     }
-    return count;
+    return count + Buttons_PatchAtlas(data, size, big);
 }
 
 /* Uniform cell metrics: fit the entire supported alphabet, not each glyph's ink.
@@ -603,7 +604,12 @@ static void atlas_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
             }
             if (c < 0 || k > 16)
                 continue;
-            if (c == 0x43 || (c >= 0x4A && c <= 0x4E)) {
+            if (Buttons_FontBit(c) >= 0 && Buttons_AtlasActive(a->big)) {
+                ok = Buttons_Draw(Buttons_FontBit(c), gw*k, gh*k, mask);
+                if (ok)
+                    for (int yy=0;yy<CH;yy++) for (int xx=0;xx<CW;xx++)
+                        cell[yy*CW+xx]=xx<gw*k && yy<gh*k ? mask[yy*gw*k+xx] : 0;
+            } else if (c == 0x43 || (c >= 0x4A && c <= 0x4E)) {
                 char label[3] = { 'L', (char)('1' + c - 0x4A), 0 };
                 if (c == 0x43)
                     label[0] = label[1] = 'I';
@@ -651,9 +657,13 @@ static void hd_register(int big, const uint8_t* data, int size)
     const int cols = big ? 13 : 17;
     for (int c = 0; c <= 0xEC; c++) { /* the cell each code was written to by Fonts_PatchGameFont (last wins) */
         int cc = big && c >= 0x88 ? c - 0x88 : c;
-        if (Fonts_GameCodepoint(c) || c == 0x43 || (c >= 0x4A && c <= 0x4E))
+        if (Fonts_Enabled() && (Fonts_GameCodepoint(c) || c == 0x43 || (c >= 0x4A && c <= 0x4E)))
             if (cc < 256 && cc / cols * (big ? 14 : 10) < h)
                 a->cell_c[cc] = (int16_t)c;
+    }
+    for (int cc=0;cc<256;cc++) {
+        int c=Buttons_SourceCode(big,cc);
+        if (c>=0) a->cell_c[cc]=(int16_t)c;
     }
     TexRep_AddIndexSource((const uint16_t*)a->pix, w, h, 0, big ? 9 : 7, big ? 14 : 10, atlas_index, a);
 }
@@ -673,6 +683,8 @@ void        Fonts_ApplyGame(void)
             hd_register(big, data, size);
         }
         printf("[fonts] %s atlas: %d modern glyphs%s\n", big ? "large" : "small", count, count ? "" : " (FAILED)");
+        printf("[buttons] %s atlas: %s\n", big ? "large" : "small",
+               Buttons_AtlasActive(big) ? "new PlayStation badges ready (Classic originals retained)" : "not installed (atlas allocation unavailable)");
         free(data);
     }
 }

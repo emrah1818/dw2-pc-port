@@ -14,6 +14,9 @@
 #include "main/itemmenu.h"
 #include "main/digilist.h"
 #include "main/sound.h"
+#ifdef DW2_NATIVE
+#include "host/buttons.h"
+#endif
 
 /* .bss */
 TextStack Text_ReturnStack;
@@ -1048,6 +1051,18 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pkt->v0 = pkt->v1 = ((s16)c / cols) * cell.field_2;
                     pkt->v2 = pkt->v3 = pkt->v0 + glyph.field_2;
                     pkt->clut = ((font[page]->vramY + (r->color + 0xF8)) << 6) | ((font[page]->vramX >> 4) & 0x3F);
+#ifdef DW2_NATIVE
+                    if (UiText_Modern()) {
+                        int u, v;
+                        if (Buttons_FontUV(r->bigFont != 0, uiCode, &u, &v)) {
+                            pkt->u0 = pkt->u2 = font[page]->uOffset + u;
+                            pkt->u1 = pkt->u3 = pkt->u0 + glyph.field_0;
+                            pkt->v0 = pkt->v1 = v;
+                            pkt->v2 = pkt->v3 = v + glyph.field_2;
+                            pkt->clut = Buttons_FontClut(r->bigFont != 0, uiCode, pkt->clut);
+                        }
+                    }
+#endif
                     pkt->tpage = font[page]->tpage;
                     if (Sys_State.centerX.s == 0x140) {
                         pkt->x0 *= 2;

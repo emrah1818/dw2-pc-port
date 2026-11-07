@@ -241,7 +241,7 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/psyq/snd_hw.c PROPERTIES
 
 # dw2-pc-port text/script layout test (tests/textscript_test.c): made-up bytes, no game data.
 add_executable(fonts_test ${CMAKE_SOURCE_DIR}/tests/fonts_test.c ${CMAKE_SOURCE_DIR}/host/fonts.c
-    ${CMAKE_SOURCE_DIR}/host/fontnumbers.c)
+    ${CMAKE_SOURCE_DIR}/host/fontnumbers.c ${CMAKE_SOURCE_DIR}/host/buttons.c)
 target_include_directories(fonts_test PRIVATE ${CMAKE_SOURCE_DIR})
 target_compile_definitions(fonts_test PRIVATE DW2_NATIVE)
 target_compile_options(fonts_test PRIVATE -UNDEBUG "-Wa,-I${CMAKE_SOURCE_DIR}")

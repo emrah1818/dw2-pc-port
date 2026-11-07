@@ -146,6 +146,7 @@ jobs:
           Copy-Item doc/FONTS.md "$pkg/FontLicenses/FONTS.md"
           Copy-Item README_PORT.md "$pkg/README_PORT.md"
           Copy-Item TESTBERICHT.md "$pkg/TESTBERICHT.md"
+          Copy-Item doc/MODERN_BUTTONS.md "$pkg/NEW_BUTTONS.md"
           Copy-Item -Recurse Languages "$pkg/Languages"
           # Windows test run for the player's PC (tools/wintest): renderer test + reference hashes
           New-Item -ItemType Directory -Force "$pkg/tests" | Out-Null
@@ -212,6 +213,7 @@ jobs:
           mkdir -p DW2-PC-Port/DW2-PC/FontLicenses
           cp misc/fonts/*-OFL.txt doc/FONTS.md DW2-PC-Port/DW2-PC/FontLicenses/
           cp README_PORT.md TESTBERICHT.md DW2-PC-Port/DW2-PC/
+          cp doc/MODERN_BUTTONS.md DW2-PC-Port/DW2-PC/NEW_BUTTONS.md
           cp -r Languages DW2-PC-Port/DW2-PC/
           (cd DW2-PC-Port && zip -r ../DW2-PC-Port-linux-x64.zip DW2-PC)
 
@@ -257,8 +259,12 @@ jobs:
             done
             [ "$ok" = 1 ]
           else
+            TITLE="Test-Build (${GITHUB_SHA::7})"
+            if gh api "repos/$GH_REPO/contents/misc/release/test-build-name.txt?ref=${{ github.sha }}" -H "Accept: application/vnd.github.raw" > title.txt 2>/dev/null && [ -s title.txt ]; then
+              TITLE="$(head -n 1 title.txt)"
+            fi
             gh release delete test-build --yes --cleanup-tag || true
             gh release create test-build DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
-              --prerelease --target "${{ github.sha }}" --title "Test-Build (${GITHUB_SHA::7})" \
+              --prerelease --target "${{ github.sha }}" --title "$TITLE" \
               --notes "Automatischer Test-Build ohne Spieldaten. Beim ersten Start braucht das Programm dein eigenes Digimon World 2 (USA) Image (.cue/.bin). Siehe README_PORT.md."
           fi

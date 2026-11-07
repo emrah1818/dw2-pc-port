@@ -10,7 +10,7 @@
 | Kampf mit 1, 2 und 3 Gegnern (Domänen 6, 10, 14, 16:9) | Gegnerfenster links, Mitte und rechts auf einer Höhe, passend zu den Digimon-Fenstern |
 | Referenzen, Speichern, Cheats, Schrift-, HD- und Textskript-Tests | 6/6, 9/9, 31/31, bestanden |
 
-**Nicht vom Nutzer getestet:** 21:9 im Technik-Menü (er hat 16:9 bestätigt).
+**Nutzer, 7.11. 23:01:** 21:9 im Technik-Menü ebenfalls bestätigt („funktioniert, sieht gut aus“). Der deutsche Text darf veröffentlicht werden; in 1.6.0-preview9 sind die Menü-, Item- und Technik-Texte öffentlich (`menu.tsv`), Story-Dialoge nicht.
 
 ## 1.6.0-preview7 (7.11.2026, Master-Prompt)
 

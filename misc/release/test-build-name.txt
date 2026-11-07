@@ -1,1 +1,1 @@
-Bugfix Screen Issue 69219 – Graphic Glitch (1.6.0-preview8)
+1.6.0-preview9 (Modern-UI-Entwicklungsstand, deutsche Menütexte)

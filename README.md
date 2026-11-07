@@ -39,6 +39,12 @@ Die Release-Seite enthält die jeweils veröffentlichten Downloads und Versionsh
 
 ## Visueller Zwischenstand – deutsche Übersetzung (7. November 2026)
 
+![Digimon World 2 PC-Port – aktueller Zwischenstand mit deutscher Übersetzung](Screenshot_20261107_174624_Claude.jpg)
+
+*Screenshot des Entwicklungsstands: Statusansicht, Techniken, Agumon-Modell und Teamübersicht mit teilweise übersetzter deutscher Benutzeroberfläche.*
+
+
+
 Ein aktueller, vom Projektinhaber bereitgestellter Screenshot zeigt vier Spielsituationen: zweimal Agumons Statusansicht, die Technik-Auswahl und die Digimon-Teamübersicht. Sichtbar sind bereits deutsche Bezeichnungen wie **Status**, **alle Techniken**, **Zurück**, **Kleine Flamme**, **Unterbrechen**, **Gegenangriff**, **Hilfe**, **Angriff**, **Abwehr**, **Tempo**, **Nächstes Level** sowie die Angriffsbeschreibung **„Schießt einen Feuerball“** und **„MP-Verbrauch 8“**.
 
 Der Screenshot dokumentiert einen **Zwischenstand der deutschen Lokalisierung und Menügestaltung**, keine abgeschlossene Übersetzung oder Freigabe aller Ansichten. Er bestätigt für sich genommen weder die Performance noch die vollständige Funktionsfähigkeit sämtlicher Menüs. Das Originalbild wurde im Projektchat bereitgestellt; eine Bilddatei ist mit diesem Dokumentations-Commit noch nicht ins Repository hochgeladen worden.

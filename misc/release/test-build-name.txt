@@ -1,1 +1,1 @@
-1.6.0-preview9 (Modern-UI-Entwicklungsstand, deutsche Menütexte)
+1.6.0-preview10 (Modern-UI-Entwicklungsstand, deutsche Fan-Übersetzung)

@@ -913,10 +913,21 @@ static void transfer(Ctx *x, const PsxHdCmd *c, int scale) {
  * with the speed-up. Fences are released only after a wait: releasing one early once
  * SDL_QueryGPUFence said done crashed SDL's Vulkan backend (uniform buffer pool) in long runs. */
 static void submit_ctx(Ctx *x, SDL_GPUCommandBuffer *cmd) {
+    Uint64 start = x == &game_ctx ? SDL_GetTicksNS() : 0;
     SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
 
+    if (x == &game_ctx) {
+        texrep_perf.gpu_submit_ns += SDL_GetTicksNS() - start;
+        texrep_perf.gpu_submits++;
+    }
+
     if (x->nfences == FENCES) {
+        start = x == &game_ctx ? SDL_GetTicksNS() : 0;
         SDL_WaitForGPUFences(dev, true, &x->fences[0], 1);
+        if (x == &game_ctx) {
+            texrep_perf.gpu_wait_ns += SDL_GetTicksNS() - start;
+            texrep_perf.gpu_waits++;
+        }
         SDL_ReleaseGPUFence(dev, x->fences[0]);
         memmove(&x->fences[0], &x->fences[1], (FENCES - 1) * sizeof(x->fences[0]));
         x->nfences--;
@@ -938,6 +949,15 @@ static void drain_ctx(Ctx *x) {
 
 static void submit(SDL_GPUCommandBuffer *cmd) {
     submit_ctx(&game_ctx, cmd);
+}
+
+static SDL_GPUCommandBuffer *acquire_ctx(Ctx *x) {
+    Uint64 start = x == &game_ctx ? SDL_GetTicksNS() : 0;
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+    if (x == &game_ctx) {
+        texrep_perf.gpu_acquire_ns += SDL_GetTicksNS() - start;
+    }
+    return cmd;
 }
 
 /* The dirty VRAM rows (game thread only, with_vram) and x's vertices to the GPU. */
@@ -1096,19 +1116,23 @@ void PsxHw_Flush(const PsxHdCmd *q, int n, int scale) {
     Ctx *x = &game_ctx;
     SDL_GPUCommandBuffer *cmd;
     SDL_GPUCopyPass *copy;
+    Uint64 start;
 
     if (dev == NULL) {
         return;
     }
     rep_begin();
+    start = SDL_GetTicksNS();
     build(x, q, n, scale);
-    cmd = SDL_AcquireGPUCommandBuffer(dev);
+    texrep_perf.gpu_build_ns += SDL_GetTicksNS() - start;
+    cmd = acquire_ctx(x);
     if (cmd == NULL) {
         printf("[gpu] GPU renderer: no command buffer: %s\n", SDL_GetError());
         rep_nup = 0;
         rep_reset_req = 1;
         return;
     }
+    start = SDL_GetTicksNS();
     copy = SDL_BeginGPUCopyPass(cmd);
     rep_upload(copy);
     if (!upload(x, copy, 1)) {
@@ -1116,6 +1140,7 @@ void PsxHw_Flush(const PsxHdCmd *q, int n, int scale) {
     }
     SDL_EndGPUCopyPass(copy);
     draw_built(x, cmd, scale, vram_buf, NULL, 0, 0);
+    texrep_perf.gpu_record_ns += SDL_GetTicksNS() - start;
     submit(cmd);
 }
 
@@ -1138,7 +1163,7 @@ void *PsxHw_VramCopy(void *buf) {
             return NULL;
         }
     }
-    cmd = SDL_AcquireGPUCommandBuffer(dev);
+    cmd = acquire_ctx(&game_ctx);
     if (cmd == NULL) {
         return buf;
     }
@@ -1189,7 +1214,7 @@ void PsxHw_Replay(const PsxHdCmd *q, int n, int scale, int ox, int oy, float alp
     x->oy = oy;
     x->alpha = alpha;
     build(x, q, n, scale);
-    cmd = SDL_AcquireGPUCommandBuffer(dev);
+    cmd = acquire_ctx(x);
     if (cmd == NULL) {
         return;
     }
@@ -1209,7 +1234,7 @@ void PsxHw_Copy(void *src, int x, int y, int w, int h, void *dst) {
     if (dev == NULL || src == NULL || dst == NULL) {
         return;
     }
-    cmd = SDL_AcquireGPUCommandBuffer(dev);
+    cmd = acquire_ctx(&game_ctx);
     if (cmd == NULL) {
         return;
     }
@@ -1233,7 +1258,7 @@ static void sharpen_ctx(Ctx *cx, void *src, int x, int y, int w, int h, void *ds
     if (dev == NULL || src == NULL || dst == NULL) {
         return;
     }
-    cmd = SDL_AcquireGPUCommandBuffer(dev);
+    cmd = acquire_ctx(cx);
     if (cmd == NULL) {
         return;
     }

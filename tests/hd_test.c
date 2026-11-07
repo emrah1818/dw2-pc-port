@@ -440,6 +440,48 @@ static uint32_t *render(int gpu, int filter, int s2d, int scale, int *w, int *h)
     return px;
 }
 
+static void replay_frame(void) {
+    PsxHd_BeginFrame();
+    PsxHd_SmoothScene();
+    scene();
+    PsxHd_SetFrameTime(SDL_GetTicksNS());
+    PsxHd_EndFrame();
+}
+
+/* Exercise actual GPU packages: overload must stop both publication and replay, resume
+ * without an old package, and leave the independent speed-up hold intact. */
+static void test_replay_pause(void) {
+    void *tex = NULL;
+    int w, h, margin;
+    uint64_t before;
+    unsigned seq;
+
+    PsxHd_SetSmooth(1);
+    replay_frame();
+    seq = PsxHd_PackageSeq();
+    check(seq != 0, "replay: normal frame publishes a package");
+    check(PsxHd_SmoothPicture(SDL_GetTicksNS(), &tex, &w, &h, &margin), "replay: normal package is drawable");
+    PsxHd_SmoothPause(1);
+    check(PsxHd_PackageSeq() == 0 && PsxHd_SmoothSeq() == 0, "replay: pause withdraws package and overlay sequence");
+    check(!PsxHd_SmoothPicture(SDL_GetTicksNS(), &tex, &w, &h, &margin), "replay: pause falls back to the game picture");
+    before = texrep_perf.packages;
+    replay_frame();
+    check(PsxHd_PackageSeq() == 0 && texrep_perf.packages == before, "replay: paused frame makes no base/VRAM package copies");
+    PsxHd_SmoothPause(0);
+    check(!PsxHd_SmoothPicture(SDL_GetTicksNS(), &tex, &w, &h, &margin), "replay: resume cannot draw a stale package");
+    replay_frame();
+    check(PsxHd_PackageSeq() > seq, "replay: resume publishes a fresh package");
+    PsxHd_SmoothHold(1);
+    PsxHd_SmoothPause(1);
+    PsxHd_SmoothPause(0);
+    replay_frame();
+    check(PsxHd_PackageSeq() == 0, "replay: pause/resume preserves speed-up hold");
+    PsxHd_SmoothHold(0);
+    replay_frame();
+    check(PsxHd_PackageSeq() != 0, "replay: clearing speed-up hold restores packages");
+    PsxHd_SetSmooth(0);
+}
+
 /* pixels differing by more than tol in any 8-bit channel, inside the rect (1x coordinates) */
 static int diff_count(const uint32_t *a, const uint32_t *b, int w, int scale, int x0, int y0, int x1, int y1, int tol) {
     int n = 0, x, y;
@@ -647,6 +689,7 @@ int main(int argc, char **argv) {
             }
             free(gp);
         }
+        test_replay_pause();
         PsxHd_SetGpu(0);
         PsxHw_Shutdown();
         SDL_DestroyGPUDevice(dev);

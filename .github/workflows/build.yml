@@ -230,15 +230,21 @@ jobs:
           TAG="${{ github.event.inputs.release }}"
           NOTES="Windows- und Linux-Version ohne Spieldaten: beim ersten Start wird dein eigenes Digimon World 2 (USA) Image importiert. Anleitung: README_PORT.md, Testbericht: TESTBERICHT.md (was getestet ist und was nicht). Vorabversion, weil Grafik, Ton und Controller auf echter Windows-Hardware noch nicht geprüft sind."
           if [ -n "$TAG" ]; then
+            # release notes of their own: doc/releases/<tag>.md at the built commit, when present
+            if gh api "repos/$GH_REPO/contents/doc/releases/$TAG.md?ref=${{ github.sha }}" -H "Accept: application/vnd.github.raw" > notes.md 2>/dev/null && [ -s notes.md ]; then
+              NOTES="$(cat notes.md)"
+            fi
+            TITLE="DW2 PC-Port $TAG"
+            case "$TAG" in *-preview*) TITLE="DW2 PC-Port $TAG (Testversion)";; esac
             ok=0
             for try in 1 2 3 4; do
               # an earlier try may have left the release (as a draft): finish that one
               if gh release view "$TAG" >/dev/null 2>&1; then
                 gh release upload "$TAG" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip --clobber &&
-                gh release edit "$TAG" --draft=false --prerelease --title "DW2 PC-Port $TAG" --notes "$NOTES" && ok=1
+                gh release edit "$TAG" --draft=false --prerelease --title "$TITLE" --notes "$NOTES" && ok=1
               else
                 gh release create "$TAG" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
-                  --prerelease --target "${{ github.sha }}" --title "DW2 PC-Port $TAG" --notes "$NOTES" && ok=1
+                  --prerelease --target "${{ github.sha }}" --title "$TITLE" --notes "$NOTES" && ok=1
               fi
               [ "$ok" = 1 ] && break
               echo "try $try failed, waiting"; sleep 45

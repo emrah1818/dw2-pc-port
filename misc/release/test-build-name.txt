@@ -1,1 +1,1 @@
-1.6.0-preview7 (Modern-UI-Entwicklungsstand)
+Bugfix Screen Issue 69219 – Graphic Glitch (1.6.0-preview8)

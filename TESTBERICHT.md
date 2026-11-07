@@ -1,5 +1,32 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## 1.6.0-preview2 (7.11.2026, nach dem Test des Nutzers)
+
+**Messung des Nutzers mit 1.6.0-preview** (GTX 1070, 1080p, 5× intern, GPU, Smooth + VSync, Mailbox):
+
+| Wert | perf-test1 | 1.6.0-preview |
+|---|---|---|
+| Bildzeit (Median) | – | 16,7 ms (60 Hz) |
+| Zeit in SDL_Submit | 195.058 ms in 582 s | 11.084 ms in 177 s |
+| Spiel-Thread zu spät | – | 20 von 10.602 Wartepunkten |
+
+Der Nutzer meldet: „läuft flüssig, auch bei den Kämpfen“. Die GPU-Submit-Wartezeit ist damit auf seinem PC weitgehend weg.
+
+**Noch auffällig:** Kachelspeicher 255 MiB, 204 Mal voll (5×, Modern). Das ist noch zu untersuchen.
+
+**Behoben und hier getestet:**
+
+| Fehler | Test |
+|---|---|
+| Schrift zittert über bewegten Modellen (PGXP) | Kampf 3× mit PGXP: 663 → 0 verschobene Buchstaben; Ergebnisbild geändert, andere 22 von 24 Bildern bitgleich |
+| Striche im Dialogfenster | Dialog Zudokorn 16:9 sauber; Menüs und Kampf mit Kanten |
+| MetalGreymon/Greymon größer als das Fenster | Greymon 0,88×, im Fenster |
+| Regressionen | Referenzen 6/6, Speichern 9/9, Cheats 31/31, Schrift-, HD- und Textskript-Tests bestanden |
+
+**Nicht getestet:**
+- MetalGreymon selbst (kein Spielstand damit hier).
+- Der Gegner-Infokasten im Kampf (Meldung des Nutzers). Er ist noch nicht umgebaut.
+
 ## 1.6.0-preview: Modern-UI-Entwicklungsstand (7.11.2026)
 
 Interne Version `1.6.0-preview`. Alles hier wurde auf dieser Maschine getestet (Linux, 2 Kerne, keine GPU; GPU-Pfad auf Mesa lavapipe), außerdem der Windows-Build in CI.

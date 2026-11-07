@@ -547,6 +547,30 @@ static void patch_types(uint8_t *d, int size, const char *dir, int umlauts) {
     note("Digimon types: %s%s", "German names set (types.csv)", "");
 }
 
+/* German: the Digimon level label LV instead of the game's EL (player's choice), built in so it
+ * does not depend on the private texts.tsv: system texts 0x81 ("EL": status screens, the party
+ * boxes of the tamer status) and 0x106 (the status screen's label column, "EL / HP / MP ...").
+ * Only a text that starts with the word EL is changed, in place (same length); the level values
+ * and everything else stay. */
+static void patch_level_label(uint8_t *d, int size) {
+    static const int ids[] = { 0x81, 0x106 };
+    int done = 0;
+    for (int k = 0; k < 2; k++) {
+        uint32_t at = (uint32_t)ids[k] * 4, o;
+        if ((int)at + 4 > size)
+            continue;
+        o = rd32(d + at);
+        if ((int)o + 3 > size)
+            continue;
+        if (d[o] == 0x0E && d[o + 1] == 0x15 && !(d[o + 2] >= 0x0A && d[o + 2] <= 0x3D)) { /* E L, not a longer word */
+            d[o]     = 0x15; /* L */
+            d[o + 1] = 0x1F; /* V */
+            done++;
+        }
+    }
+    note("level label: %d of 2 texts LV%s", done, "");
+}
+
 /* Main thread, after Host_PakOpen and DevData_InitConst, before the game thread. */
 
 /* ---- text inventory and the generic translation file ---- */
@@ -1369,6 +1393,12 @@ void Lang_Apply(void) {
     }
     load_dict(dir, umlauts);
     patch_texts(dir, umlauts); /* after the types: texts.tsv may not touch the type entries */
+    d = Host_PakReadFileLayered(F_SYSTEXT, &size);
+    if (d != NULL) {
+        patch_level_label(d, size);
+        Host_PakSetLayer(F_SYSTEXT, d, size);
+        free(d);
+    }
     PicWords_Apply(); /* after all text changes: render exactly the current names */
     { extern void UiPanels_Apply(int modern);
       UiPanels_Apply(Settings_Get(SET_UI_STYLE) == SET_UI_MODERN); } /* after the word pictures: their sheets keep their drawing */

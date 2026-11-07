@@ -6,6 +6,16 @@ Dieses Repository dokumentiert unsere Weiterentwicklung eines nativen PC-Ports v
 
 > **Entwicklungsprojekt:** Nicht alle Funktionen sind fertig oder auf echter Windows-Hardware geprüft. Die untenstehenden Statusangaben unterscheiden zwischen implementiert, automatisiert getestet, teilweise getestet und offen.
 
+## Download / Releases
+
+**[⬇️ Aktuelle Version herunterladen](https://github.com/emrah1818/dw2-pc-port/releases/latest)**
+
+**[📦 Alle Releases und ältere Versionen ansehen](https://github.com/emrah1818/dw2-pc-port/releases)**
+
+Die Release-Seite enthält die jeweils veröffentlichten Downloads und Versionshinweise. Falls noch kein Release veröffentlicht wurde, ist dort entsprechend kein Download verfügbar. Für die Nutzung benötigst du ein eigenes kompatibles Spielimage; Spieldaten werden nicht mitgeliefert.
+
+---
+
 ## Funktionsübersicht
 
 | Bereich | Stand | Hinweise |

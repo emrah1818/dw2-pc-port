@@ -173,6 +173,7 @@ typedef struct {
     int         border; /* preserve the enclosing one-pixel frame */
     int         squeeze; /* dw2-pc-port: up to this many tenths narrower instead of smaller (25: the
                             title's code, set in a very narrow face) */
+    int         tight;   /* the whole cell, no margin (the tiny stats labels HP / MP / EL) */
 } Words;
 
 /* ---- battle status letter cells (file 0x22B, 12 x 15) ---- */
@@ -229,7 +230,7 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
         y1 = c[i].y + c[i].h > y1 ? c[i].y + c[i].h : y1;
     }
     int cw = x1 - x0, ch = y1 - y0;
-    if (cw <= 8 || ch <= 6 || cw > CW || ch > CH || cw * k > stride)
+    if ((w->tight ? cw < 3 || ch < 5 : cw <= 8 || ch <= 6) || cw > CW || ch > CH || cw * k > stride)
         return 0;
     memset(mask, 0, (size_t)stride * ch * k);
     int role  = w->role == 1 ? FONT_INTERFACE : w->role == 2 ? FONT_TELEMETRY : w->role == 3 ? FONT_INTERFACE_BOLD
@@ -238,7 +239,7 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
     for (const char* p = w->text; *p; p++)
         if (*p == '\n')
             lines++;
-    int line_h = (ch - 2) / lines, LH = line_h * k - 2 * pad, LS = line_h * k;
+    int m2 = w->tight ? 0 : 2, line_h = (ch - m2) / lines, LH = line_h * k - 2 * pad, LS = line_h * k;
     /* the big battle and title words in Orbitron Black: the originals are heavy letters with
        outline rings and a bevel (their colours by depth, depth_colour), Bold left no body inside
        the rings; small lines and the narrow title code keep Orbitron Bold */
@@ -262,7 +263,7 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
         label[len] = 0;
         /* The second copyright line has only one cell, while the first spans
          * three. Fit each line to its actual mapped texture coverage. */
-        int ymid = y0 + 1 + line * line_h + line_h / 2, lo = cw, hi = 0;
+        int ymid = y0 + m2 / 2 + line * line_h + line_h / 2, lo = cw, hi = 0;
         for (int i = 0; i < n; i++)
             if (ymid >= c[i].y && ymid < c[i].y + c[i].h) {
                 int a = c[i].x - x0, b = a + c[i].w;
@@ -271,7 +272,7 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
                 if (b > hi)
                     hi = b;
             }
-        int available = (hi - lo - 2) * k - 2 * pad;
+        int available = (hi - lo - m2) * k - 2 * pad;
         if (available < 1) {
             ok = 0;
             break;
@@ -1013,9 +1014,10 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
             for (int tv = v0 * k; tv < v1 * k; tv++)
                 for (int tu = u0 * k; tu < u1 * k; tu++) {
                     int X = (c->x - p->x0) * k + tu - c->u * k, Y = (c->y - p->y0) * k + tv - c->v * k, v = 0;
-                    int X1 = X / k, Y1 = Y / k, mx = X - k, my = Y - k; /* shift 1 texel right, 1 down */
+                    int sh = p->w.tight ? 0 : k, m2 = p->w.tight ? 0 : 2;
+                    int X1 = X / k, Y1 = Y / k, mx = X - sh, my = Y - sh; /* shift 1 texel right, 1 down */
                     if (!(p->w.border && (X1 == 0 || X1 == p->cw - 1 || Y1 == 0 || Y1 == p->ch - 1)) && mx >= 0 &&
-                        mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k) {
+                        mx < (p->cw - m2) * k && my >= 0 && my < (p->ch - m2) * k) {
                         if (p->nring >= 0) {
                             v = hm[my * stride + mx]; /* the palette index of its layer (layer_colour) */
                             if (p->box && v == 0)
@@ -1418,13 +1420,40 @@ static void restyle_stats(void)
         c.v         = labels[k].v;
         c.w         = labels[k].w;
         c.h         = labels[k].h;
+        {
+            /* the original label's ink box: the new one takes no more room (the bars beside HP / MP
+               are drawn over the rest of the cell) */
+            int bx0 = c.w, bx1 = -1, by0 = c.h, by1 = -1;
+            for (int y = 0; y < c.h; y++)
+                for (int x = 0; x < c.w; x++)
+                    if (tget(&t, c.u + x, c.v + y)) {
+                        bx0 = x < bx0 ? x : bx0;
+                        bx1 = x > bx1 ? x : bx1;
+                        by0 = y < by0 ? y : by0;
+                        by1 = y > by1 ? y : by1;
+                    }
+            if (bx1 >= bx0 + 2 && by1 >= by0 + 3) {
+                c.u += bx0;
+                c.v += by0;
+                c.w = bx1 - bx0 + 1;
+                c.h = by1 - by0 + 1;
+            }
+        }
         int     ink = picture_ink(&t, &c);
         uint8_t mask[16 * 11];
-        if (Fonts_Mask(FONT_TELEMETRY, labels[k].text, mask, c.w, c.w, c.h) < 0)
+        /* Exo 2 Bold, the whole cell; drawn again at the output resolution (a 1x label of 7 pixels
+           enlarged was unreadable at 4K) */
+        if (Fonts_Mask(FONT_INTERFACE_BOLD, labels[k].text, mask, c.w, c.w, c.h) < 0)
             continue;
         for (int y = 0; y < c.h; y++)
             for (int x = 0; x < c.w; x++)
                 tset(&t, c.u + x, c.v + y, mask[y * c.w + x] >= 80 ? ink : 0);
+        {
+            Words   w   = { labels[k].text, 0, 0, 0, 0, 0, 3, 0, 0, 1 };
+            uint8_t col = (uint8_t)ink;
+            c.x = c.y = 0;
+            hipic_add(&t, &c, 1, &w, &col, NULL);
+        }
         done++;
         f->changed = 1;
     }

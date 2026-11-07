@@ -129,11 +129,12 @@ static void load_textures(void) {
     {
         /* the index-source test texture (runtime fonts): 16 x 16 texels of index 1 at (512, 64),
            CLUT (0, 482): index 1 red, 2 blue */
+        extern int idx_swap;
         static uint16_t ti[16][4], ci[16];
         for (y = 0; y < 16; y++)
             for (x = 0; x < 4; x++) ti[y][x] = 0x1111;
-        ci[1] = rgb15(248, 0, 0);
-        ci[2] = rgb15(0, 0, 248);
+        ci[1] = idx_swap ? rgb15(0, 0, 248) : rgb15(248, 0, 0); /* idx_swap: a palette change (cycling) */
+        ci[2] = idx_swap ? rgb15(248, 0, 0) : rgb15(0, 0, 248);
         PsxGpu_LoadImage(512, 64, 4, 16, &ti[0][0]);
         PsxGpu_LoadImage(0, 482, 16, 1, ci);
     }
@@ -195,6 +196,7 @@ static void scene(void) {
 
 /* ---- runtime index sources (texrep.h TexRep_AddIndexSource, the modern fonts) ---- */
 static int idx_calls;
+int idx_swap;
 static void checker_index(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx) {
     (void)ctx;
     (void)x0;
@@ -210,7 +212,7 @@ static int checker_off(const uint32_t *px, int w, int scale) {
     for (int Y = 200 * scale; Y < 216 * scale; Y++)
         for (int X = 296 * scale; X < 312 * scale; X++) {
             uint32_t p = px[(size_t)Y * w + X];
-            int red = ((X - 296 * scale) + (Y - 200 * scale)) & 1, r = (p >> 16) & 255, b = p & 255;
+            int red = (((X - 296 * scale) + (Y - 200 * scale)) & 1) ^ idx_swap, r = (p >> 16) & 255, b = p & 255;
             if (red ? (r < 240 || b > 8) : (b < 240 || r > 8)) bad++;
         }
     return bad;
@@ -522,6 +524,15 @@ int main(int argc, char **argv) {
         check(bad == 0 && idx_calls == 1, what);
         if (a != NULL) write_bmp("soft_index_source", a, w, h);
         free(a);
+        /* the palette changes (battle banners cycle theirs): the same tile, the new colours */
+        idx_swap = 1;
+        a = render(0, 0, 0, scale, &w, &h);
+        bad = a != NULL ? checker_off(a, w, scale) : -1;
+        snprintf(what, sizeof(what), "index source (soft): a palette change recolours the same tile (%d of %d pixels off, %d tile(s) made)",
+                 bad, 256 * scale * scale, idx_calls);
+        check(bad == 0 && idx_calls == 1, what);
+        free(a);
+        idx_swap = 0;
     }
     {
         int bad = TexRep_SelfTestAverage();
@@ -625,6 +636,14 @@ int main(int argc, char **argv) {
                 snprintf(what, sizeof(what), "index source (gpu): drawn at output resolution through the game palette (%d of %d pixels off)",
                          bad, 256 * scale * scale);
                 check(bad == 0, what);
+                idx_swap = 1;
+                free(gp);
+                gp = render(1, 0, 0, scale, &w2, &h2);
+                bad = gp != NULL && w2 == w && h2 == h ? checker_off(gp, w, scale) : -1;
+                snprintf(what, sizeof(what), "index source (gpu): a palette change recolours the same tile (%d of %d pixels off, %d tile(s) made)",
+                         bad, 256 * scale * scale, idx_calls);
+                check(bad == 0 && idx_calls == 1, what);
+                idx_swap = 0;
             }
             free(gp);
         }

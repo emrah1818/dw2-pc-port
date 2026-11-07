@@ -4,6 +4,7 @@
 #include "host/host_sdl.h"
 #include "host/settings.h"
 #include "backend/psxgpu_hd.h"
+#include "backend/texrep.h"
 #include "backend/xadec.h"
 #include "psyq/psyq_vblank.h"
 
@@ -145,14 +146,17 @@ void Host_VBlank(void) {
         return;
     }
     while (now < deadline(next)) {
+        Uint64 w = now;
         SDL_DelayPrecise(deadline(next) - now);
         now = SDL_GetTicksNS();
+        texrep_perf.sleep_ns += now - w;
     }
     for (n = 0; n < MAX_CATCH_UP && now >= deadline(next); n++) {
         PsxHd_SetFrameTime(deadline(next)); /* PR.34: a frame drawn after it shows from it */
         run_vblank();
         next++;
     }
+    texrep_perf.vblanks += n;
     if (n >= 2) {
         if (now - late_win_ns > 1000000000ull) {
             late_win_ns = now;

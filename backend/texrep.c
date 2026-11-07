@@ -14,7 +14,8 @@
 
 struct TexRepImg {
     int w, h;
-    uint32_t *px; /* 0xAARRGGBB */
+    uint32_t *px; /* 0xAARRGGBB, or with idx8 one palette index per byte (4 per word, low byte first) */
+    int idx8;     /* runtime tiles: palette indices, coloured where drawn through the primitive's CLUT */
     /* dw2-pc-port: halved copies for a power-of-two factor (level 0 = px), averaged with alpha:
        each output pixel reads the level that matches the HD renderer's scale */
     int nlev;
@@ -299,8 +300,14 @@ typedef struct {
     uint64_t src; /* the source's pixel hash: tiles stay valid when the sources are registered again */
     int ox, oy, rw, rh, k;
     uint32_t clut;
+    uint32_t used; /* the picture it was last drawn in (perf) */
     TexRepImg *img;
 } IdxTile;
+static uint32_t perf_pic = 1;
+void TexRep_PerfPicture(void) {
+    perf_pic++;
+}
+TexRepPerf texrep_perf;
 static IdxSrc srcs[MAX_SRCS];
 static int src_of(uint64_t hv, int w, int h);
 static IdxTile *idx_tab;
@@ -487,6 +494,7 @@ int TexRep_TileResetWanted(void) {
 
 /* every runtime tile freed: only when no queued primitive uses one (psxgpu_hd.c, after a flush) */
 void TexRep_DropTiles(void) {
+    if (idx_tiles > 0) texrep_perf.drops++;
     if (idx_tab != NULL) {
         for (int i = 0; i < IDX_TABLE; i++) {
             if (idx_tab[i].img != NULL) {
@@ -519,15 +527,23 @@ static uint32_t argb_of(uint16_t c) {
     return 0xFF000000u | (r << 19 | (r >> 2) << 16) | (g << 11 | (g >> 2) << 8) | (b << 3 | b >> 2);
 }
 
-/* the tile of source si covering texels [ox, ox+rw) x [oy, oy+rh) at k for the palette pal */
+/* The tile of source si covering texels [ox, ox+rw) x [oy, oy+rh) at k. A tile holds palette
+ * indices (1 byte per pixel): the primitive's CLUT colours it where it is drawn (TexRep_Sample, the
+ * GPU's rep_sample), so palette changes and cycling (battle banners, the title's pulsing text, fades)
+ * use the same tile and the GPU keeps it: before, every palette state was a full colour tile of its
+ * own (made, stored and uploaded again for each state). A source with the Modern UI panel style is
+ * coloured here (the style's colours are not the palette's): those tiles are per palette (pal, clut). */
 static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const uint16_t *pal, uint32_t clut) {
     uint64_t sh = srcs[si].hash;
-    uint32_t h = (uint32_t)fnv(fnv(0xCBF29CE484222325ull, &sh, sizeof(sh)), &clut, sizeof(clut));
+    int styled = srcs[si].cls != NULL;
+    uint32_t h;
     int key[5] = { ox, oy, rw, rh, k };
-    size_t n = (size_t)rw * k * (size_t)rh * k;
+    size_t n = (size_t)rw * k * (size_t)rh * k, bytes = styled ? n * 4 : (n + 3) & ~(size_t)3;
     uint8_t *idx;
     TexRepImg *img;
 
+    if (!styled) clut = 0;
+    h = (uint32_t)fnv(fnv(0xCBF29CE484222325ull, &sh, sizeof(sh)), &clut, sizeof(clut));
     h = (uint32_t)fnv(h, key, sizeof(key)) % IDX_TABLE;
     if (idx_tab == NULL) {
         idx_tab = calloc(IDX_TABLE, sizeof(*idx_tab));
@@ -536,10 +552,17 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     for (int probe = 0; probe < IDX_TABLE; probe++, h = (h + 1) % IDX_TABLE) {
         IdxTile *t = &idx_tab[h];
         if (t->img == NULL) break;
-        if (t->src == sh && t->ox == ox && t->oy == oy && t->rw == rw && t->rh == rh && t->k == k && t->clut == clut)
+        if (t->src == sh && t->ox == ox && t->oy == oy && t->rw == rw && t->rh == rh && t->k == k && t->clut == clut) {
+            texrep_perf.idx_hits++;
+            if (t->used != perf_pic) {
+                t->used = perf_pic;
+                texrep_perf.used_kib += (uint64_t)t->img->w * t->img->h * (t->img->idx8 ? 1 : 4) >> 10;
+            }
+            texrep_perf.mag_hist[prim_mag]++;
             return t->img;
+        }
     }
-    if (idx_tab[h].img != NULL || idx_tiles >= IDX_TABLE / 2 || idx_bytes + n * 5 > IDX_MEM_LIMIT) {
+    if (idx_tab[h].img != NULL || idx_tiles >= IDX_TABLE / 2 || idx_bytes + bytes + (styled ? n : 0) > IDX_MEM_LIMIT) {
         /* full: this primitive draws the game's texture; the tiles are dropped after the picture
            (PsxHd_TrimRuntimeTiles at the frame's end) and made again when drawn */
         if (!idx_reset_wanted && idx_full_logged < 3) {
@@ -548,27 +571,43 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
                  idx_bytes >> 20);
         }
         idx_reset_wanted = 1;
+        texrep_perf.idx_full++;
         return NULL;
     }
-    idx = calloc(n, 1);
     img = calloc(1, sizeof(*img));
-    uint32_t *px = malloc(n * 4);
+    uint32_t *px = malloc(bytes);
+    idx = styled ? malloc(n) : (uint8_t *)px;
     if (idx == NULL || img == NULL || px == NULL) {
-        free(idx);
+        if (styled) free(idx);
         free(img);
         free(px);
         return NULL;
     }
+    memset(idx, 0, styled ? n : bytes);
+    Uint64 t0 = SDL_GetTicksNS();
     srcs[si].fn(srcs[si].ctx, k, ox, oy, rw, rh, idx);
-    for (size_t i = 0; i < n; i++) {
-        uint16_t c = pal[idx[i] & (srcs[si].mode == 0 ? 15 : 255)];
-        px[i] = idx[i] == 0 || c == 0 ? 0u : argb_of(c); /* index 0 and colour 0: transparent, as on the PS1 */
+    Uint64 t1 = SDL_GetTicksNS();
+    if (styled) {
+        for (size_t i = 0; i < n; i++) {
+            uint16_t c = pal[idx[i] & (srcs[si].mode == 0 ? 15 : 255)];
+            px[i] = idx[i] == 0 || c == 0 ? 0u : argb_of(c); /* index 0 and colour 0: transparent, as on the PS1 */
+        }
+        free(idx);
+    } else if (srcs[si].mode == 0) {
+        for (size_t i = 0; i < n; i++) idx[i] &= 15;
     }
-    free(idx);
-    if (srcs[si].cls != NULL) style_panels(&srcs[si], k, ox, oy, rw, rh, px);
+    Uint64 t2 = SDL_GetTicksNS();
+    if (styled) style_panels(&srcs[si], k, ox, oy, rw, rh, px);
+    Uint64 t3 = SDL_GetTicksNS();
+    texrep_perf.raster_ns += t1 - t0;
+    texrep_perf.conv_ns += t2 - t1;
+    texrep_perf.style_ns += t3 - t2;
+    texrep_perf.idx_new++;
+    texrep_perf.idx_new_px += n;
     img->w = rw * k;
     img->h = rh * k;
     img->px = px;
+    img->idx8 = !styled;
     img->nlev = 1;
     img->lev[0].w = img->w;
     img->lev[0].h = img->h;
@@ -581,8 +620,14 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     idx_tab[h].k = k;
     idx_tab[h].clut = clut;
     idx_tab[h].img = img;
+    idx_tab[h].used = perf_pic;
+    texrep_perf.used_kib += bytes >> 10;
+    texrep_perf.mag_hist[prim_mag]++;
+    if (getenv("DW2_PERF_TILES") != NULL)
+        printf("[perf] tile src %d (%dx%d tiles %dx%d) at %d,%d %dx%d k %d mag %d: %zu kpx\n", si, srcs[si].w, srcs[si].h,
+               srcs[si].tw, srcs[si].th, ox, oy, rw, rh, k, prim_mag, n / 1000);
     idx_tiles++;
-    idx_bytes += n * 4;
+    idx_bytes += bytes;
     return img;
 }
 
@@ -919,6 +964,7 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
     int tpw = mode == 0 ? 4 : mode == 1 ? 2 : 1;
 
     use->img = NULL;
+    texrep_perf.finds++;
     if (nuploads == 0 || tw_mask_x || tw_mask_y || mode > 2 || umin < 0 || vmin < 0 || umax > 255 || vmax > 255) {
         return 0;
     }
@@ -930,7 +976,12 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
         int e = -1, k = 1;
         TexRepImg *img;
 
-        if (umin + du < 0 || umax + du >= bw || vmin + dv < 0 || vmax + dv >= bh) continue;
+        /* a quad's far UV edge is exclusive (u1 = u0 + w): a box reaching exactly one texel past
+           the upload is still inside it (the result windows' boxes end at u 128 of a 128 wide page) */
+        int um = umax + du == bw ? umax - 1 : umax, vm = vmax + dv == bh ? vmax - 1 : vmax;
+        if (umin + du < 0 || um + du >= bw || vmin + dv < 0 || vm + dv >= bh) continue;
+        umax = um;
+        vmax = vm;
         if (u->src >= 0 && u->src < nsrcs && srcs[u->src].mode == mode && out_scale >= 2) {
             const IdxSrc *s = &srcs[u->src];
             uint16_t pal[256];
@@ -951,9 +1002,16 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
                     u->dirty[d].y <= vy1)
                     return 0;
             }
-            for (int j = 0; j < n; j++) pal[j] = vram(cx + j, cy);
-            ti = idx_tile(u->src, ox, oy, rw, rh, k, pal, (uint32_t)fnv(0xCBF29CE484222325ull, pal, (size_t)n * 2));
+            uint32_t ch = 0;
+            if (s->cls != NULL) { /* a styled tile is coloured when made: per palette */
+                for (int j = 0; j < n; j++) pal[j] = vram(cx + j, cy);
+                ch = (uint32_t)fnv(0xCBF29CE484222325ull, pal, (size_t)n * 2);
+            }
+            ti = idx_tile(u->src, ox, oy, rw, rh, k, pal, ch);
             if (ti == NULL) return 0;
+            use->cx = cx;
+            use->cy = cy;
+            use->mode = mode;
             use->img = ti;
             use->k = k;
             use->du = du - ox;
@@ -962,6 +1020,7 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             use->umax = umax;
             use->vmin = vmin;
             use->vmax = vmax;
+            use->mag = prim_mag;
             stat_uses++;
             return 1;
         }
@@ -994,6 +1053,7 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
         use->umax = umax;
         use->vmin = vmin;
         use->vmax = vmax;
+        use->mag = prim_mag;
         stat_uses++;
         return 1;
     }
@@ -1012,16 +1072,27 @@ void TexRep_SetScale(int s) {
  * level TexRep_Sample would read at the current scale. Returns its pixels (0xAARRGGBB, w x h) and
  * kl = replacement pixels per original texel at that level, n = the block edge of the averaging
  * (0 or 1: one pixel, 2..4: n x n pixels). */
-const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h) {
-    const TexRepImg *img0 = use->img;
-    int k = use->k, L = 0;
+/* Output pixels per texel of the primitive: the scale times its magnification. A magnified
+   primitive (zooming battle words) covers fewer replacement pixels per output pixel: averaging
+   k / scale of them there blurred its edges and cost up to 16 reads per pixel for one that
+   matches (runtime tiles are made at k = scale x magnification: one read). */
+static int out_px(const TexRepUse *use) {
+    int m = use->mag < 1 ? 1 : use->mag;
+    return out_scale * m;
+}
 
-    while (L + 1 < img0->nlev && (k >> (L + 1)) >= out_scale) {
+const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h, int *idx8) {
+    const TexRepImg *img0 = use->img;
+    *idx8 = img0->idx8;
+    int k = use->k, L = 0, op = out_px(use);
+
+    while (L + 1 < img0->nlev && (k >> (L + 1)) >= op) {
         L++;
     }
     k >>= L;
     *kl = k;
-    *n = k / out_scale;
+    *n = k / op;
+    *n = *n < 1 ? 1 : *n;
     *n = *n > 4 ? 4 : *n;
     *w = img0->lev[L].w;
     *h = img0->lev[L].h;
@@ -1030,8 +1101,8 @@ const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, i
 
 int TexRep_Sample(const TexRepUse *use, int fu, int fv) {
     const TexRepImg *img0 = use->img;
-    int k = use->k, L = 0;
-    while (L + 1 < img0->nlev && (k >> (L + 1)) >= out_scale) {
+    int k = use->k, L = 0, op = out_px(use);
+    while (L + 1 < img0->nlev && (k >> (L + 1)) >= op) {
         L++; /* the level with about one replacement pixel per output pixel */
     }
     k >>= L;
@@ -1041,11 +1112,21 @@ int TexRep_Sample(const TexRepUse *use, int fu, int fv) {
     } lv = { img0->lev[L].w, img0->lev[L].h, img0->lev[L].px }, *img = &lv;
     int hx = (int)(((int64_t)fu * k) >> 8), hy = (int)(((int64_t)fv * k) >> 8);
     int x0 = use->umin * k, x1 = (use->umax + 1) * k - 1, y0 = use->vmin * k, y1 = (use->vmax + 1) * k - 1;
-    int n = k / out_scale;
+    int n = k / op;
     uint32_t p;
 
     hx = hx < x0 ? x0 : hx > x1 ? x1 : hx; /* inside the primitive's texels: no atlas bleeding */
     hy = hy < y0 ? y0 : hy > y1 ? y1 : hy;
+    if (img0->idx8) {
+        /* a runtime tile (made at this primitive's output size: one pixel each) through the CLUT */
+        hx += use->du * k;
+        hy += use->dv * k;
+        if (hx < 0 || hy < 0 || hx >= img->w || hy >= img->h) return -1;
+        int i = ((const uint8_t *)img->px)[(size_t)hy * (size_t)img->w + (size_t)hx];
+        uint16_t c = i != 0 ? vram(use->cx + i, use->cy) : 0;
+        if (c == 0) return -1; /* index 0 and colour 0: transparent, as on the PS1 */
+        return c & 0x7FFF;
+    }
     if (n >= 2) {
         /* the block of the output pixel, kept inside the primitive's texels */
         unsigned r = 0, g = 0, b = 0, cnt = 0, all = 0;

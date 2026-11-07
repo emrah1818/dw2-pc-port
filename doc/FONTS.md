@@ -43,14 +43,18 @@ that pixel size, with the same scale, baseline, centring and line fitting as the
 1x texture, as palette indices. The tile is then coloured through the game's
 palette of that primitive, so text colours, palette cycling (battle banners),
 drawing order, clipping and fades stay the game's. Both renderers use it
-(software: `rep_texel`; GPU: the replacement pool and `hd.frag rep_sample`).
+(software: `rep_texel`; GPU: the replacement pool and `hd.frag rep_sample`, which looks the
+index up in the CLUT in VRAM).
 
 - Coverage → ink: index 1 where ≥ 28 % of the output pixel is covered (the 1x
   cells' stroke weight). There is no per-pixel blending against the background:
   the PS1 pipeline the renderers emulate has no alpha per texel. Edges are exact
   at the output pixel, not smoothed by partial transparency.
-- Tiles are cached per cell, palette and k (at most 256 MiB, at most 1 M pixels
-  per tile); when full they are dropped after the current picture and made again.
+- Tiles hold palette indices (1 byte per pixel) and are cached per cell and k,
+  independent of the palette: the primitive's CLUT colours them when drawn, so palette
+  cycling and fades reuse them (at most 256 MiB, at most 1 M pixels per tile; when full
+  they are dropped after the current picture and made again). Measurements and the
+  slow-motion fix of 7 November 2026: [PERFORMANCE.md](PERFORMANCE.md).
 - Partial VRAM writes into such a page mark only that part dirty (the original is
   drawn there).
 - Kerning and advance: the game positions each glyph by its own layout (1x pixel

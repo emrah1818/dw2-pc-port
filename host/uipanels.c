@@ -75,7 +75,7 @@ static void classify(Sheet* s, const uint8_t* d, int size)
     if (!s->cls || !s->cid || !s->comp)
         return;
     static int rects[4096][4];
-    int        nrect = 0;
+    int        nrect = 0, pairs_a[16], pairs_b[16], npairs = 0;
     for (int e = 1; e < count; e++) {
         uint32_t o = PictureTable_Entry(d, size, e);
         for (int k = 0; o != 0 && o + 16 <= (uint32_t)size && d[o] != 0xFF && k < 64; k++, o += 16) {
@@ -133,6 +133,11 @@ static void classify(Sheet* s, const uint8_t* d, int size)
         } else {
             continue;
         }
+        if (ba != bb && npairs < 16) { /* a stippled fill: also searched outside the cells below */
+            pairs_a[npairs] = ba;
+            pairs_b[npairs] = bb;
+            npairs++;
+        }
         int id = s->ncomp++;
         s->comp[2 * id]     = (uint16_t)v;
         s->comp[2 * id + 1] = (uint16_t)(v + h - 1);
@@ -144,6 +149,48 @@ static void classify(Sheet* s, const uint8_t* d, int size)
                 s->cls[i] = (uint8_t)(t == ba || t == bb ? 1 : 2);
                 s->cid[i] = (uint16_t)id;
             }
+    }
+    /* Pieces whose layouts are in other files (the result's per-Digimon boxes are drawn from
+       0x25C by layouts elsewhere): a texel in one of the stippled fills found above, next to its
+       partner colour, is fill too; the opaque texels within 2 of it are detail on that panel. */
+    if (npairs > 0 && s->ncomp < 1024) {
+        int id = s->ncomp++;
+        s->comp[2 * id]     = 0;
+        s->comp[2 * id + 1] = 0; /* no gradient span: the middle tone */
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                int i = y * W + x, t = texel(s, x, y), hit = 0;
+                if (s->cls[i] != 0 || t == 0)
+                    continue;
+                for (int q = 0; q < npairs && !hit; q++) {
+                    int partner = t == pairs_a[q] ? pairs_b[q] : t == pairs_b[q] ? pairs_a[q] : -1;
+                    if (partner < 0)
+                        continue;
+                    hit = texel(s, x + 1, y) == partner || texel(s, x - 1, y) == partner || texel(s, x, y + 1) == partner ||
+                          texel(s, x, y - 1) == partner;
+                }
+                if (hit) {
+                    s->cls[i] = 3; /* marked; turned into 1 below */
+                    s->cid[i] = (uint16_t)id;
+                }
+            }
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                int i = y * W + x;
+                if (s->cls[i] != 0 || texel(s, x, y) == 0)
+                    continue;
+                for (int dy = -2; dy <= 2 && s->cls[i] == 0; dy++)
+                    for (int dx = -2; dx <= 2; dx++) {
+                        int X = x + dx, Y = y + dy;
+                        if (X >= 0 && Y >= 0 && X < W && Y < H && s->cls[Y * W + X] == 3) {
+                            s->cls[i] = 4; /* detail of such a panel */
+                            s->cid[i] = (uint16_t)id;
+                            break;
+                        }
+                    }
+            }
+        for (int i = 0; i < n; i++)
+            s->cls[i] = s->cls[i] == 3 ? 1 : s->cls[i] == 4 ? 2 : s->cls[i];
     }
 }
 

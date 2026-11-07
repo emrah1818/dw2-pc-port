@@ -1,6 +1,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "backend/psxgpu.h"
 #include "backend/pgxp.h"
@@ -174,6 +175,16 @@ static int init_gpu(void) {
         return 0;
     }
     renderer = SDL_CreateGPURenderer(gpudev, window);
+    if (renderer == NULL && headless && getenv("DW2_GPU_HEADLESS") != NULL) {
+        /* measurements without a display (lavapipe has no headless surface): the GPU draws, the
+           pictures are not shown (no_present), the window gets a plain renderer */
+        printf("[host] GPU renderer: no presentation (%s), the GPU draws headless\n", SDL_GetError());
+        renderer = SDL_CreateRenderer(window, NULL);
+        if (renderer != NULL) {
+            PsxHd_SetGpu(1);
+            return 1;
+        }
+    }
     if (renderer == NULL) {
         printf("[host] GPU renderer: SDL_CreateGPURenderer failed (%s), software HD output\n", SDL_GetError());
         PsxHw_Shutdown();
@@ -595,9 +606,55 @@ static int ensure_px(Frame *f, size_t n) {
 
 static void publish_frame(void);
 
+/* DW2_PERF_LOG=<file>: one CSV line per picture of the game thread (frame time, the time in the
+   HD renderer's flushes and in Host_Publish, the runtime font tiles, the GPU pool uploads) */
+static FILE *perf_f;
+static int perf_init;
+static Uint64 perf_last, perf_frame;
+
+static void perf_close(void) {
+    if (perf_f != NULL) fclose(perf_f);
+    perf_f = NULL;
+}
+
+static void perf_line(Uint64 pub_ns) {
+    Uint64 now = SDL_GetTicksNS();
+    TexRepPerf *p = &texrep_perf;
+    int srcs, tiles, kib;
+
+    if (!perf_init) {
+        const char *path = getenv("DW2_PERF_LOG");
+        perf_init = 1;
+        perf_f = path != NULL && path[0] ? fopen(path, "w") : NULL;
+        if (perf_f != NULL) atexit(perf_close);
+        if (perf_f != NULL)
+            fprintf(perf_f, "frame,t_ms,frame_ms,flush_ms,publish_ms,finds,hits,new_tiles,new_kpx,full,drops,raster_ms,"
+                            "conv_ms,style_ms,gpu_ups,gpu_kib,gpu_up_ms,gpu_deferred,tiles,tile_kib,sleep_ms,vblanks,used_kib,mag1,mag2,mag3,mag4\n");
+    }
+    if (perf_f != NULL && perf_last != 0) {
+        TexRep_IndexStats(&srcs, &tiles, &kib);
+        fprintf(perf_f, "%llu,%.1f,%.3f,%.3f,%.3f,%llu,%llu,%llu,%llu,%llu,%llu,%.3f,%.3f,%.3f,%llu,%llu,%.3f,%llu,%d,%d,%.3f,%llu,%llu,%llu,%llu,%llu,%llu\n",
+                (unsigned long long)perf_frame, now / 1e6, (now - perf_last) / 1e6, p->flush_ns / 1e6, pub_ns / 1e6,
+                (unsigned long long)p->finds, (unsigned long long)p->idx_hits, (unsigned long long)p->idx_new,
+                (unsigned long long)(p->idx_new_px / 1000), (unsigned long long)p->idx_full,
+                (unsigned long long)p->drops, p->raster_ns / 1e6, p->conv_ns / 1e6, p->style_ns / 1e6,
+                (unsigned long long)p->gpu_ups, (unsigned long long)(p->gpu_up_bytes >> 10), p->gpu_up_ns / 1e6,
+                (unsigned long long)p->gpu_refused, tiles, kib, p->sleep_ns / 1e6, (unsigned long long)p->vblanks,
+                (unsigned long long)p->used_kib, (unsigned long long)p->mag_hist[1], (unsigned long long)p->mag_hist[2],
+                (unsigned long long)p->mag_hist[3], (unsigned long long)p->mag_hist[4]);
+        if ((perf_frame & 63) == 0) fflush(perf_f);
+    }
+    memset(p, 0, sizeof(*p));
+    TexRep_PerfPicture();
+    perf_last = now;
+    perf_frame++;
+}
+
 void Host_Publish(void) {
+    Uint64 t0 = SDL_GetTicksNS();
     publish_frame();
     PsxHd_TrimRuntimeTiles(); /* the picture is out: runtime font tiles may go */
+    perf_line(SDL_GetTicksNS() - t0);
 }
 
 static void publish_frame(void) {

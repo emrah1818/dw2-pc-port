@@ -31,6 +31,8 @@ typedef struct {
     int k;          /* replacement texels per original texel */
     int du, dv;     /* texture page texel -> upload texel */
     int umin, umax, vmin, vmax; /* the primitive's texel box (texture page coordinates) */
+    int mag;        /* output pixels per texel / scale of the primitive (TexRep_SetMagnify), 1..4 */
+    int cx, cy, mode; /* the primitive's CLUT and texture mode: runtime index tiles are coloured with it */
 } TexRepUse;
 
 /* Setup (main thread, before the game runs). A pack root is a "Mods/Textures" folder. */
@@ -38,7 +40,9 @@ void TexRep_AddRoot(const char *mods_textures_dir);
 void TexRep_SetDump(const char *dir);
 void TexRep_Disable(void);
 void TexRep_Enable(void); /* tests: undo TexRep_Disable */
-const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h);
+/* The replacement level for the GPU: its pixels (w x h; idx8: palette index bytes, (w*h+3)/4 words,
+   coloured in the shader through the primitive's CLUT; else 0xAARRGGBB words) */
+const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h, int *idx8);
 void TexRep_Shutdown(void); /* joins the loader thread (program exit) */
 /* every [textures] line also into this file (Mods/Textures/textures_log.txt) */
 void TexRep_SetLog(const char *path);
@@ -91,6 +95,29 @@ void TexRep_SetSourceStyle(const uint16_t *words, int w, int h, const uint8_t *c
  * is drawn at k = scale x this (at most 16), so magnified text (zooming battle words) stays sharp */
 void TexRep_SetMagnify(int m);
 void TexRep_IndexStats(int *sources, int *tiles, int *kib);
+
+/* Performance counters (DW2_PERF_LOG, host/sdl.c writes one line per picture and resets the
+   per-picture fields): game thread only. */
+typedef struct {
+    uint64_t finds;      /* TexRep_Find calls */
+    uint64_t idx_hits;   /* runtime tiles found in the cache */
+    uint64_t idx_new;    /* runtime tiles made */
+    uint64_t idx_new_px; /* their output pixels */
+    uint64_t idx_full;   /* tile requests refused (memory full) */
+    uint64_t drops;      /* TexRep_DropTiles with tiles */
+    uint64_t raster_ns;  /* in the sources' drawing functions (glyph / picture rasterization) */
+    uint64_t conv_ns;    /* palette -> ARGB */
+    uint64_t style_ns;   /* Modern UI panel style */
+    uint64_t gpu_ups, gpu_up_bytes, gpu_up_ns; /* replacement pool uploads (backend/psxgpu_hw.c) */
+    uint64_t gpu_refused; /* pool lookups deferred (per-flush limit) or refused (full) */
+    uint64_t flush_ns;   /* the HD renderer's flushes (backend/psxgpu_hd.c) */
+    uint64_t sleep_ns;   /* the game thread waiting for its VBlank (host/vblank.c) */
+    uint64_t used_kib;   /* the distinct runtime tiles drawn in this picture (the GPU pool's working set) */
+    uint64_t mag_hist[5]; /* runtime tile uses by the primitive's magnification 1..4 */
+    uint64_t vblanks;    /* VBlanks run at this wait (more than 1: the game thread was late) */
+} TexRepPerf;
+extern TexRepPerf texrep_perf;
+void TexRep_PerfPicture(void); /* a new picture (Host_Publish) */
 int TexRep_TileResetWanted(void); /* the tile memory filled up: drop the tiles after the picture */
 void TexRep_DropTiles(void);      /* frees all tiles (no queued primitive may use one) */
 

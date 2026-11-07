@@ -145,7 +145,7 @@ jobs:
           New-Item -ItemType Directory -Force "$pkg/tests" | Out-Null
           Copy-Item "$b/hd_test.exe" "$pkg/tests/"
           Copy-Item tests/referenz_md5.txt "$pkg/tests/"
-          Copy-Item tools/wintest/DW2-Test.bat, tools/wintest/DW2-Test.ps1 $pkg
+          Copy-Item tools/wintest/DW2-Test.bat, tools/wintest/DW2-Test.ps1, tools/wintest/DW2-Leistung.bat, tools/wintest/DW2-Leistung.ps1 $pkg
           Compress-Archive -Path $pkg -DestinationPath DW2-PC-Port-windows-x64.zip -Force
 
       - uses: actions/upload-artifact@v4

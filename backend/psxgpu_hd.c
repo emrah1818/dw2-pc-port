@@ -261,16 +261,17 @@ static void flush(void) {
     if (queued == 0) {
         return;
     }
+    Uint64 t0 = SDL_GetTicksNS();
     if (logging) {
         smooth_log();
     }
     if (gpu) {
         PsxHw_Flush(queue, queued, scale);
-        queued = 0;
-        return;
+    } else {
+        run_parts();
     }
-    run_parts();
     queued = 0;
+    texrep_perf.flush_ns += SDL_GetTicksNS() - t0;
 }
 
 void PsxHd_Parallel(void (*fn)(int part, int parts, void *arg), void *arg) {

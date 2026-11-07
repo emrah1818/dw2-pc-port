@@ -321,9 +321,12 @@ typedef struct {
     uint8_t        col[MAX_CELLS]; /* the palette index of each cell's letters */
     Words          w;
     char           text[512];
-    uint8_t*       hmask; /* the last runtime mask (k = hk) */
-    int            hk;
+    uint8_t*       hmask[2]; /* runtime masks at k = hk[i] (the zooming words use two sizes at once) */
+    int            hk[2];
+    size_t         hbytes[2];
 } HiPic;
+static size_t hmask_bytes; /* all runtime masks; past HMASK_LIMIT they are made again when needed */
+#define HMASK_LIMIT ((size_t)64 << 20)
 #define MAX_HIPICS 1024
 static HiPic hipics[MAX_HIPICS];
 static int   nhipics;
@@ -351,8 +354,9 @@ static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const 
     h->w    = *w;
     snprintf(h->text, sizeof(h->text), "%s", w->text);
     h->w.text = h->text;
-    h->hmask  = NULL;
-    h->hk     = 0;
+    memset(h->hmask, 0, sizeof(h->hmask));
+    memset(h->hk, 0, sizeof(h->hk));
+    memset(h->hbytes, 0, sizeof(h->hbytes));
     nhipics++;
 }
 
@@ -645,17 +649,44 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
             idx[y * W + x] = (uint8_t)hifile_texel(f, x0 + x / k, y0 + y / k);
     for (int q = 0; q < f->nids; q++) {
         HiPic* p = &hipics[f->ids[q]];
-        int    stride = p->cw * k;
-        if (p->hk != k) {
-            free(p->hmask);
-            p->hmask = malloc((size_t)stride * p->ch * k);
-            p->hk    = k;
-            if (p->hmask && !words_mask(p->c, p->n, &p->w, k, p->hmask, stride)) {
-                free(p->hmask);
-                p->hmask = NULL;
+        int    stride = p->cw * k, touch = 0, slot = -1;
+        /* only pictures with a cell in this tile; their mask at this k from the cache (each was
+           painted again for every tile whenever k changed: all pictures of the file, at k up to 16) */
+        for (int i = 0; i < p->n && !touch; i++)
+            touch = p->c[i].u < x0 + w && p->c[i].u + p->c[i].w > x0 && p->c[i].v < y0 + h && p->c[i].v + p->c[i].h > y0;
+        if (!touch)
+            continue;
+        for (int j = 0; j < 2; j++)
+            if (p->hmask[j] && p->hk[j] == k)
+                slot = j;
+        if (slot < 0) {
+            size_t need = (size_t)stride * p->ch * k;
+            if (hmask_bytes + need > HMASK_LIMIT) {
+                for (int i = 0; i < nhipics; i++) /* over the budget: all made again when needed */
+                    for (int j = 0; j < 2; j++) {
+                        free(hipics[i].hmask[j]);
+                        hipics[i].hmask[j]  = NULL;
+                        hipics[i].hbytes[j] = 0;
+                    }
+                hmask_bytes = 0;
             }
+            free(p->hmask[1]); /* the older size goes, the newer moves to slot 1 */
+            hmask_bytes -= p->hbytes[1];
+            p->hmask[1]  = p->hmask[0];
+            p->hk[1]     = p->hk[0];
+            p->hbytes[1] = p->hbytes[0];
+            slot         = 0;
+            p->hmask[0]  = malloc(need);
+            p->hk[0]     = k;
+            if (p->hmask[0] && !words_mask(p->c, p->n, &p->w, k, p->hmask[0], stride)) {
+                free(p->hmask[0]);
+                p->hmask[0] = NULL;
+            }
+            p->hbytes[0] = p->hmask[0] ? need : 0;
+            hmask_bytes += p->hbytes[0];
         }
-        if (!p->hmask)
+        const uint8_t* hm = p->hmask[slot];
+        if (!hm)
             continue;
         for (int i = 0; i < p->n; i++) {
             const Cell* c  = &p->c[i];
@@ -666,7 +697,7 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
                     int X = (c->x - p->x0) * k + tu - c->u * k, Y = (c->y - p->y0) * k + tv - c->v * k, v = 0;
                     int X1 = X / k, Y1 = Y / k, mx = X - k, my = Y - k; /* shift 1 texel right, 1 down */
                     if (!(p->w.border && (X1 == 0 || X1 == p->cw - 1 || Y1 == 0 || Y1 == p->ch - 1)) && mx >= 0 &&
-                        mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k && p->hmask[my * stride + mx] >= 80)
+                        mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k && hm[my * stride + mx] >= 80)
                         v = p->col[i];
                     idx[(tv - y0 * k) * W + tu - x0 * k] = (uint8_t)v;
                 }
@@ -1149,7 +1180,13 @@ void PicWords_Apply(void)
     /* the runtime pictures of an earlier call (language switch): Fonts_ApplyGame cleared their
        sources; tiles already made keep their own pixels */
     for (int i = 0; i < nhipics; i++)
-        free(hipics[i].hmask);
+        for (int j = 0; j < 2; j++) {
+            free(hipics[i].hmask[j]);
+            hipics[i].hmask[j] = NULL;
+            hipics[i].hk[j]    = 0;
+            hipics[i].hbytes[j] = 0;
+        }
+    hmask_bytes = 0;
     nhipics = 0;
     for (int i = 0; i < nhifiles; i++)
         free(hifiles[i].pix);

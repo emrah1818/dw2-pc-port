@@ -1,5 +1,36 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## Leistungsfehler „Zeitlupe bei Attacken“ (v1.5.0-preview, 7.11.2026)
+
+Meldung: Beim Anzeigen deutscher Attackennamen und Kampfwörter bricht die Bildrate ein (Zeitlupe), CPU 5–7 %, Nvidia-GPU 18–30 %. Einzelheiten, Messspalten und Rohwerte: [doc/PERFORMANCE.md](doc/PERFORMANCE.md).
+
+**Ursache (gemessen):** Die Laufzeitschrift-Kacheln waren fertig eingefärbt und wurden **pro Palettenzustand** neu erzeugt. Kampfbanner, Attackennamen und der pulsierende Titeltext wechseln ihre Palette laufend. Darum entstand jedes Mal eine neue Kachel in voller 4K-Größe (bis 4 MiB) auf dem Spiel-Thread und wurde neu zur GPU hochgeladen. Der GPU-Ersatzspeicher (128 MiB) lief ständig über und begann von vorn. Weil der Spiel-Thread auch die Spiellogik rechnet, lief das Spiel langsamer, obwohl CPU und GPU insgesamt wenig ausgelastet waren.
+
+**Korrektur:**
+1. Kacheln speichern Palettenindizes (1 statt 4 Byte pro Pixel), unabhängig von der Palette; die Farbe kommt beim Zeichnen aus der CLUT (Shader und Software-Renderer).
+2. Vergrößerte Wörter werden mit einem Lesezugriff pro Pixel abgetastet statt mit 4–16.
+3. Ein gemeinsamer GPU-Transferpuffer pro Durchgang.
+4. Wortbild-Masken werden pro Größe zwischengespeichert und nur für die betroffenen Bilder neu gemacht.
+
+| Messung (diese Maschine: 2 Kerne, GPU = Mesa lavapipe) | vorher | nachher |
+|---|---|---|
+| GPU 4K, 591 Bilder: Kacheln erzeugt | 378 (43,2 Mio. Pixel) | 30 (4,1 Mio.) |
+| GPU 4K, 591 Bilder: Uploads | 2471 (1076 MiB, 630 ms) | 30 (4,0 MiB, 2,5 ms) |
+| GPU 4K: Speicherüberläufe / mit Pixelschrift gezeichnet | 9 / 528 | 0 / 0 |
+| Software 4K, ein Kampf: Kacheln | 925 (276 Mio. Pixel) | 225 (36 Mio.) |
+| Software 4K, ein Kampf: Rastern + Umrechnen | 1,87 s | 0,20 s |
+| Software 4K, ein Kampf: Kachelspeicher max. / voll / geleert | 254 MiB / 284 / 4 | 34 MiB / 0 / 0 |
+
+**Tests:**
+- `hd_test` mit neuem Test „Palettenwechsel färbt dieselbe Kachel“: Software und GPU (lavapipe), 0 Fehler.
+- `fonts_test`, textscript 90/90.
+- Referenzbilder Classic 6/6 (bitgleich).
+- Speichertest 9/9, Cheattest 31/31.
+
+**Nicht geprüft:**
+- **Kein Test auf echter Nvidia-Hardware** (hier keine GPU; lavapipe liefert exakte Zählwerte, aber keine aussagekräftigen Bildzeiten).
+- Für die Messung beim Spieler: `DW2-Leistung.bat` im Programmordner schreibt `test_out\leistung.txt` und `test_out\leistung.csv`.
+
 ## Modern-UI-Masterauftrag (7.11.2026): Laufzeitschrift und erste Panel-Stufe
 
 Commits: 4eb3429 (Laufzeitschrift), 1e68287 (Wortbilder in Ausgabeauflösung, Abtastung vergrößerter Vierecke), 5b0a84f und 54346ff (Panel-Stufe, noch abgeschaltet). Linux x64, echtes Image, privates deutsches Sprachpaket (nicht im Repository).

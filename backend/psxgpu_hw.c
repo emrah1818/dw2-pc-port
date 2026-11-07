@@ -7,6 +7,7 @@
 #include "backend/psxgpu.h"
 #include "backend/psxgpu_hd_int.h"
 #include "backend/psxgpu_hw_spv.h"
+#include "backend/texrep.h"
 
 /* GPU renderer for the HD surfaces (PG.10b), the DuckStation GPU_HW model on SDL_GPU (Vulkan,
  * SPIR-V from backend/shaders/). The queue of backend/psxgpu_hd.c is turned into triangles: each
@@ -91,6 +92,8 @@ typedef struct {
 } RepUp;
 
 static SDL_GPUBuffer *rep_buf, *rep_dummy;
+static SDL_GPUTransferBuffer *rep_tb; /* rep_upload */
+static uint32_t rep_tb_size;
 static RepEnt rep_tab[REP_TABLE];
 static int rep_count, rep_dead, rep_reset_req, rep_full_logged;
 static uint32_t rep_top; /* bytes used */
@@ -310,6 +313,11 @@ void PsxHw_Shutdown(void) {
         SDL_ReleaseGPUBuffer(dev, rep_dummy);
     }
     rep_buf = rep_dummy = NULL;
+    if (rep_tb != NULL) {
+        SDL_ReleaseGPUTransferBuffer(dev, rep_tb);
+    }
+    rep_tb = NULL;
+    rep_tb_size = 0;
     memset(rep_tab, 0, sizeof(rep_tab));
     rep_count = rep_nup = 0;
     rep_top = 0;
@@ -485,8 +493,8 @@ static uint32_t rep_hash(const uint32_t *px) {
 }
 
 /* the word offset of a level's pixels in the pool, or UINT32_MAX (not resident, not allowed or no room) */
-static uint32_t rep_lookup(const uint32_t *px, int w, int h, int alloc) {
-    uint32_t i = rep_hash(px), bytes = (uint32_t)w * (uint32_t)h * 4u;
+static uint32_t rep_lookup(const uint32_t *px, uint32_t bytes, int alloc) {
+    uint32_t i = rep_hash(px);
 
     while (rep_tab[i].px != NULL) {
         if (rep_tab[i].px == px) {
@@ -497,6 +505,7 @@ static uint32_t rep_lookup(const uint32_t *px, int w, int h, int alloc) {
     if (!alloc || rep_dead || bytes == 0 || bytes > REP_BYTES) {
         return UINT32_MAX;
     }
+    texrep_perf.gpu_refused++; /* undone below when it is taken */
     if (rep_top + bytes > REP_BYTES || rep_count >= REP_TABLE / 2 || rep_nup >= 256) {
         if (rep_nup < 256 && !rep_full_logged) {
             rep_full_logged = 1;
@@ -522,6 +531,7 @@ static uint32_t rep_lookup(const uint32_t *px, int w, int h, int alloc) {
             return UINT32_MAX;
         }
     }
+    texrep_perf.gpu_refused--;
     rep_tab[i].px = px;
     rep_tab[i].off = rep_top / 4u;
     rep_tab[i].words = bytes / 4u;
@@ -548,44 +558,67 @@ static void rep_begin(void) {
     }
 }
 
-/* the pending replacement pixels into the pool (game thread, inside the copy pass) */
+/* the pending replacement pixels into the pool (game thread, inside the copy pass): one transfer
+ * buffer for all of them, kept and cycled (SDL gives a free one when the GPU still reads the last):
+ * a buffer per texture meant a GPU memory allocation and release for each new runtime font tile */
 static void rep_upload(SDL_GPUCopyPass *copy) {
-    for (int i = 0; i < rep_nup; i++) {
-        SDL_GPUTransferBufferCreateInfo ti;
-        SDL_GPUTransferBuffer *tb;
-        SDL_GPUTransferBufferLocation src;
-        SDL_GPUBufferRegion dst;
-        void *m;
+    Uint64 t0 = SDL_GetTicksNS();
+    uint32_t total = 0, at = 0;
+    uint8_t *m;
 
+    for (int i = 0; i < rep_nup; i++) {
+        total += rep_up[i].bytes;
+    }
+    if (total == 0) {
+        rep_nup = 0;
+        return;
+    }
+    if (total > rep_tb_size) {
+        SDL_GPUTransferBufferCreateInfo ti;
+
+        if (rep_tb != NULL) {
+            SDL_ReleaseGPUTransferBuffer(dev, rep_tb);
+        }
         SDL_zero(ti);
         ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-        ti.size = rep_up[i].bytes;
-        tb = SDL_CreateGPUTransferBuffer(dev, &ti);
-        m = tb != NULL ? SDL_MapGPUTransferBuffer(dev, tb, false) : NULL;
-        if (m == NULL) {
-            if (tb != NULL) {
-                SDL_ReleaseGPUTransferBuffer(dev, tb);
-            }
-            printf("[gpu] texture pack: upload failed (%s)\n", SDL_GetError());
-            rep_reset_req = 1; /* the entry is in the table, the pixels are not: start over */
-            continue;
-        }
-        memcpy(m, rep_up[i].px, rep_up[i].bytes);
-        SDL_UnmapGPUTransferBuffer(dev, tb);
-        src.transfer_buffer = tb;
-        src.offset = 0;
+        ti.size = total > (8u << 20) ? total : (8u << 20);
+        rep_tb = SDL_CreateGPUTransferBuffer(dev, &ti);
+        rep_tb_size = rep_tb != NULL ? ti.size : 0;
+    }
+    m = rep_tb != NULL ? SDL_MapGPUTransferBuffer(dev, rep_tb, true) : NULL;
+    if (m == NULL) {
+        printf("[gpu] texture pack: upload failed (%s)\n", SDL_GetError());
+        rep_reset_req = 1; /* the entries are in the table, the pixels are not: start over */
+        rep_nup = 0;
+        return;
+    }
+    for (int i = 0; i < rep_nup; i++) {
+        memcpy(m + at, rep_up[i].px, rep_up[i].bytes);
+        at += rep_up[i].bytes;
+    }
+    SDL_UnmapGPUTransferBuffer(dev, rep_tb);
+    at = 0;
+    for (int i = 0; i < rep_nup; i++) {
+        SDL_GPUTransferBufferLocation src;
+        SDL_GPUBufferRegion dst;
+
+        src.transfer_buffer = rep_tb;
+        src.offset = at;
         dst.buffer = rep_buf;
         dst.offset = rep_up[i].off;
         dst.size = rep_up[i].bytes;
         SDL_UploadToGPUBuffer(copy, &src, &dst, false);
-        SDL_ReleaseGPUTransferBuffer(dev, tb);
+        at += rep_up[i].bytes;
+        texrep_perf.gpu_ups++;
+        texrep_perf.gpu_up_bytes += rep_up[i].bytes;
     }
+    texrep_perf.gpu_up_ns += SDL_GetTicksNS() - t0;
     rep_nup = 0;
 }
 
 /* the replacement of command c for its vertices (Vert.rep); stays zero = the original */
 static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
-    int kl, nb, w, h, du, dv;
+    int kl, nb, w, h, du, dv, idx8;
     const uint32_t *px;
     uint32_t off;
     uint32_t r[4];
@@ -593,19 +626,19 @@ static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
     if (c->rep.img == NULL || !c->textured || rep_dead) {
         return;
     }
-    px = TexRep_GpuLevel(&c->rep, &kl, &nb, &w, &h);
+    px = TexRep_GpuLevel(&c->rep, &kl, &nb, &w, &h, &idx8);
     du = c->rep.du;
     dv = c->rep.dv;
     if (kl < 1 || kl > 16 || w > 0xFFFF || h > 0xFFFF || du < -512 || du > 511 || dv < -512 || dv > 511) {
         return;
     }
-    off = rep_lookup(px, w, h, x == &game_ctx);
+    off = rep_lookup(px, idx8 ? ((uint32_t)w * (uint32_t)h + 3u) & ~3u : (uint32_t)w * (uint32_t)h * 4u, x == &game_ctx);
     if (off == UINT32_MAX) {
         return;
     }
     r[0] = off;
     r[1] = (uint32_t)w | (uint32_t)h << 16;
-    r[2] = (uint32_t)kl | (uint32_t)nb << 5 | (uint32_t)(du + 512) << 8 | (uint32_t)(dv + 512) << 18;
+    r[2] = (uint32_t)kl | (uint32_t)nb << 5 | (uint32_t)(du + 512) << 8 | (uint32_t)(dv + 512) << 18 | (uint32_t)(idx8 != 0) << 28;
     r[3] = (uint32_t)(c->rep.umin & 255) | (uint32_t)(c->rep.umax & 255) << 8 | (uint32_t)(c->rep.vmin & 255) << 16 |
            (uint32_t)(c->rep.vmax & 255) << 24;
     for (int i = 0; i < n; i++) {

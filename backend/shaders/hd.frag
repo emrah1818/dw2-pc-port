@@ -19,7 +19,8 @@ layout(location = 2) flat in uvec4 v_par;
 /* dw2-pc-port texture packs (backend/texrep.c): v_rep.y = 0: none. Else x = the level's first word in
  * the Rep buffer, y = width | height << 16 (replacement pixels), z = k (replacement pixels per
  * texel) | n << 5 (block edge of the averaging) | (du + 512) << 8 | (dv + 512) << 18 (page texel ->
- * upload texel), w = the primitive's texel box umin | umax << 8 | vmin << 16 | vmax << 24 */
+ * upload texel) | 1 << 28 (palette index bytes, coloured through the primitive's CLUT: runtime font
+ * tiles), w = the primitive's texel box umin | umax << 8 | vmin << 16 | vmax << 24 */
 layout(location = 3) flat in uvec4 v_rep;
 
 layout(location = 0) out vec4 o_col;
@@ -86,7 +87,7 @@ uint fetch_box(int u, int v, uint tex, uint win, ivec4 box) {
 /* dw2-pc-port: TexRep_Sample (backend/texrep.c) at (f.x, f.y) = texture page texels, 8.8 fixed
  * point. Returns the PS1 15-bit colour (R | G << 5 | B << 10), or -1 where the replacement is
  * transparent. */
-int rep_sample(ivec2 f) {
+int rep_sample(ivec2 f, uint tex) {
     int k = int(v_rep.z & 31u), n = int((v_rep.z >> 5) & 7u);
     int du = int((v_rep.z >> 8) & 1023u) - 512, dv = int((v_rep.z >> 18) & 1023u) - 512;
     int W = int(v_rep.y & 0xFFFFu), H = int(v_rep.y >> 16), base = int(v_rep.x);
@@ -97,6 +98,18 @@ int rep_sample(ivec2 f) {
 
     hx = clamp(hx, x0, x1); /* inside the primitive's texels: no atlas bleeding */
     hy = clamp(hy, y0, y1);
+    if ((v_rep.z & 0x10000000u) != 0u) {
+        /* a runtime tile: one index per pixel, the CLUT's colour (TexRep_Sample) */
+        hx += du * k;
+        hy += dv * k;
+        if (hx < 0 || hy < 0 || hx >= W || hy >= H) {
+            return -1;
+        }
+        uint a = uint(hy * W + hx);
+        uint i = (rep.px[uint(base) + (a >> 2)] >> ((a & 3u) * 8u)) & 255u;
+        uint c = i != 0u ? vram16(int((tex >> 9) & 63u) * 16 + int(i), int((tex >> 15) & 511u)) : 0u;
+        return c == 0u ? -1 : int(c & 0x7FFFu);
+    }
     if (n >= 2) {
         uint r = 0u, g = 0u, b = 0u, cnt = 0u, all = 0u;
 
@@ -171,7 +184,7 @@ void main() {
          * HD pixel's position inside the original texel, with the original texel's mask bit (semi-
          * transparency as in the game); sprite-like pieces keep their sub-texel position too */
         ivec2 f = ivec2(floor(v_uv * 256.0));
-        int rc = rep_sample(f);
+        int rc = rep_sample(f, tex);
 
         if (rc < 0) {
             discard;

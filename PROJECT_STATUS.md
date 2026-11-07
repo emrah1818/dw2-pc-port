@@ -135,8 +135,23 @@ Siehe TESTBERICHT.md. Kurzfassung:
 - Nicht bestätigt: Wirkung von perf-test2 auf die GPU-Submit-Wartezeit (195 s von 582 s im GTX-1070-Log) auf dem Nvidia-PC des Nutzers. Das ist nicht als behoben anzusehen.
 - Erledigt: Reiter Status/Techniken (Labels aus 01FD 0xD0/0xD1) und MP-Kosten je Zeile in der Attackenliste (96d8fcd).
 - **Veröffentlicht: v1.6.0-preview** (Vorabversion, Commit d833f7e, interne Version 1.6.0-preview). Die fertige 1.6.0 kommt erst nach der Nvidia-Bestätigung des Nutzers.
+- **Nach den Tests des Nutzers (7.11.), erledigt (preview2–5):**
+  - PGXP-Schriftzittern.
+  - Dialogfenster-Striche.
+  - Große Digimon im Status-Menü.
+  - LV statt EL.
+  - Lesbare Level-Zahl.
+  - Gegner-Fenster im Breitbild.
+  - Grüne Linien im Kampfmenü.
+  - Titel-Buttons.
+  - ZIEL lesbar.
+- Leistung beim Nutzer (GTX 1070, 1.6.0-preview): Median 16,7 ms, GPU-Submit 195 s → 11 s; der Nutzer meldet „läuft flüssig“.
+- Offen aus den Nutzerfotos:
+  - Porträtrahmen im Dialog verpixelt. Er ist eine gestrichelte Linie und läuft nicht über das Fensterdesign; braucht eigenen Weg.
+  - LV-Beschriftung schöner. Die Original-Zelle ist nur 8×7 Pixel.
+  - Kampf mit 3 Gegnern hier nicht getestet.
 - Offen, in dieser Reihenfolge:
-  1. Digitation.
+  1. Digitation (DNA-Digitation; Texte 01FD:045C–0468).
   2. Lexikon.
   3. Restliche Panel-Kanten.
   4. P3–P5.

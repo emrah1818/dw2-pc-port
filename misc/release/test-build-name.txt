@@ -1,1 +1,1 @@
-1.6.0-preview4 (Modern-UI-Entwicklungsstand)
+1.6.0-preview5 (Modern-UI-Entwicklungsstand)

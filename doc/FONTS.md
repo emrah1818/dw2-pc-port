@@ -1,9 +1,9 @@
-# Modern typefaces — development status, 6 November 2026
+# Modern typefaces — status, 7 November 2026
 
-This change implements the requested font system. **It is not yet a verified
-complete replacement of every piece of lettering in the game.** This is the
-implementation basis for 1.5.1; release preparation follows completion of the
-outstanding inventory and checks below.
+The typefaces are embedded TrueType fonts (below) and the game's lettering is
+**rasterized from their outlines at the output resolution while the game runs**
+(details: "Runtime rendering"). This is not yet a verified complete replacement
+of every piece of lettering in the game; the open items are listed at the end.
 
 | Use | Typeface | Integration |
 |---|---|---|
@@ -23,13 +23,47 @@ languages and with both interface styles, as requested. Existing Classic visual
 reference hashes therefore describe the **previous font system**; they must not
 be updated before reviewing the intentional image changes.
 
-The game atlases retain the original 7×9 and 8×13 glyph dimensions. This is a
-typeface replacement, not yet a vector-text renderer at window resolution.
-The PC interface remains scalable. Large word pictures are rasterized directly
-at their available texture size, with uniform scaling rather than horizontal
-stretching. Old outline/bold dilation is removed; it closes the counters of the
-new letters. Each cell uses a visible ink colour from its actual palette. A missing character in Orbitron uses Exo 2; unsupported characters
-cause an explicit failure rather than silent character deletion.
+The game atlases keep their 7×9 and 8×13 glyph cells in VRAM (the game's layout,
+spacing and the save/compatibility rules do not change). What reaches the screen
+is drawn at the output resolution (next section). Old outline/bold dilation is
+removed; it closes the counters of the new letters. A missing character in
+Orbitron uses Exo 2; unsupported characters cause an explicit failure rather
+than silent character deletion.
+
+## Runtime rendering at the output resolution
+
+Path: `host/fonts.c` / `host/picwords.c` register each texture that holds
+lettering (both game atlases, every file with a painted word picture) as a
+*runtime index source* (`backend/texrep.h`, `TexRep_AddIndexSource`). When the
+HD renderer (scale k ≥ 2: 3 at 720 lines, 6 at 1440, 9 at 2160) draws a primitive
+from such a texture, `backend/texrep.c` asks the source for that glyph cell or
+picture tile **k times larger** (times the primitive's magnification, at most
+16): the letters are rasterized with stb_truetype from the outlines at exactly
+that pixel size, with the same scale, baseline, centring and line fitting as the
+1x texture, as palette indices. The tile is then coloured through the game's
+palette of that primitive, so text colours, palette cycling (battle banners),
+drawing order, clipping and fades stay the game's. Both renderers use it
+(software: `rep_texel`; GPU: the replacement pool and `hd.frag rep_sample`).
+
+- Coverage → ink: index 1 where ≥ 28 % of the output pixel is covered (the 1x
+  cells' stroke weight). There is no per-pixel blending against the background:
+  the PS1 pipeline the renderers emulate has no alpha per texel. Edges are exact
+  at the output pixel, not smoothed by partial transparency.
+- Tiles are cached per cell, palette and k (at most 256 MiB, at most 1 M pixels
+  per tile); when full they are dropped after the current picture and made again.
+- Partial VRAM writes into such a page mark only that part dirty (the original is
+  drawn there).
+- Kerning and advance: the game positions each glyph by its own layout (1x pixel
+  positions, `host/uilayout.c` measures the glyph widths); the sharper glyphs sit
+  in those positions.
+- Not covered: Classic UI in English (bit-exact PS1 picture), scale 1, the
+  numeric sprites of `host/fontnumbers.c` and the multi-cell words inside the
+  atlas (they are the 1x texels enlarged), letters burned into movies.
+
+Checked: `fonts_test` (registered atlas source at k 2, 7, 12), `hd_test` (an
+index source drawn exactly through a palette, software and GPU on lavapipe in
+CI), and in the running game at scale 3, 6 and 9 (load screen, result window,
+battle words including zooming banners, attack names, title copyright and code).
 
 ## Content and data
 
@@ -89,8 +123,8 @@ Additional game-data validation:
   dungeon, producing 23 captures. The party HUD with the new HP/MP labels was
   visually checked.
 - Development mode 0x104 completed 400 VBlanks and its font display was inspected.
-  A separate attempt to start development mode 0x101 crashed before its requested
-  screenshot. Its cause is not established; this remains an open finding.
+  The 0x101 crash was a lineup overflow in the original debug menu (fixed in
+  9b5fefd, see TESTBERICHT.md); it was unrelated to the fonts.
 - Pull requests now run the Windows/Linux build-and-test jobs. The release job
   explicitly excludes pull-request events. Remote CI results must be checked;
   adding the jobs is not evidence that Windows has passed.
@@ -120,6 +154,11 @@ under that licence; the repository's CC0 declaration does not relicense them.
 - [Exo 2 sources](https://github.com/google/fonts/tree/main/ofl/exo2)
 - [Orbitron sources](https://github.com/google/fonts/tree/main/ofl/orbitron)
 - [Roboto Mono sources](https://github.com/google/fonts/tree/main/ofl/robotomono)
+
+Licence check (7 November 2026): the three OFL files declare no Reserved Font
+Name, so the renamed static instances are permitted; embedding in the program and
+distributing them with their copyright notice and licence is permitted by the OFL
+(sections 1 and 2); they are not sold on their own.
 
 Consult `tools/fonts/build_fonts.py` to reproduce the static instances with
 fontTools. Normal builds consume the committed binaries directly.

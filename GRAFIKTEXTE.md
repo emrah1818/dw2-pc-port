@@ -2,6 +2,8 @@
 
 Texte, die das Spiel nicht als Schrift, sondern als **Bild** zeigt (Wortgrafiken). Der Port malt sie beim Start neu (`host/picwords.c`): Deutsch mit deutschen Wörtern, Englisch mit den englischen. Seit PR #1 stammen die Buchstaben aus den eingebetteten Schriften: **Orbitron Bold** für Kampf- und Titelwörter, **Exo 2** für Hinweise, Copyright und Titelcode, **Roboto Mono** für Zahlen und Werte ([doc/FONTS.md](doc/FONTS.md)). Die Farbe ist die Körperfarbe des Originalbilds (seine häufigste Farbe ab drei Pixeln Abstand vom Rand), eine Farbe je Bild. Classic UI auf Englisch bleibt das PS1-Bild (Referenzbilder 6/6). Im Repository liegen weder Bilder noch Spieldaten, nur der Code und die Wörter.
 
+**Laufzeitschrift (7.11.2026):** Ab Skalierung 2 zeichnet der Renderer diese Bilder nicht mehr als vergrößerte 1×-Texel, sondern rastert sie in Ausgabeauflösung neu aus den Schriftumrissen, mit demselben Layout und durch die Spielpalette (Pfad und Grenzen: [doc/FONTS.md](doc/FONTS.md)). Im Spiel in 4K geprüft: Kampfwörter mit Zoom, Attackennamen, LEVELAUFSTIEG/SIEG-Bildschirm, Titel-Copyright, Titelcode.
+
 Geprüft in 1.6.0 (nach dem Zusammenführen von PR #1): Deutsch in 4:3, 16:9 und 21:9 im laufenden Spiel (`battle_words.py`, Sieg und Niederlage), Englisch Modern UI und Classic in 4:3. Bilder, die der Testlauf nicht erreicht, wurden aus den gemalten Dateien (`DW2_PICDUMP`) mit ihren Zellen und der Palette des Bildes gerendert und neben dem Original verglichen.
 
 Spalten: **Ort** = Datei:Eintrag der Bildliste; **Form** = wie das Bild entsteht; **Test**:

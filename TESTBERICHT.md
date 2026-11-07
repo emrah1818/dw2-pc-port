@@ -1,5 +1,44 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## Modern-UI-Masterauftrag (7.11.2026): Laufzeitschrift und erste Panel-Stufe
+
+Commits: 4eb3429 (Laufzeitschrift), 1e68287 (Wortbilder in Ausgabeauflösung, Abtastung vergrößerter Vierecke), 5b0a84f und 54346ff (Panel-Stufe, noch abgeschaltet). Linux x64, echtes Image, privates deutsches Sprachpaket (nicht im Repository).
+
+### Umgesetzt und geprüft
+
+| Punkt | Umsetzung | Prüfung |
+|---|---|---|
+| Schrift in Ausgabeauflösung | Spieltext und alle gemalten Wortbilder werden zur Laufzeit aus den TTF-Umrissen in Renderer-Auflösung gerastert (k = Skalierung × Vergrößerung, höchstens 16) und durch die Spielpalette gefärbt. Beschreibung: [doc/FONTS.md](doc/FONTS.md), Abschnitt „Runtime rendering“. | im Spiel bei Skalierung 3, 6 und 9 (720p, 1440p, 2160p): Lade-Bildschirm, Ergebnisfenster, Kampfwörter mit Zoom, Attackennamen, Titel-Copyright und Titelcode. `fonts_test`, `hd_test` (Index-Quelle Software exakt; GPU in der CI auf lavapipe: 0 von 4096 Pixeln falsch, [Lauf 42310204488](https://github.com/emrah1818/dw2-pc-port/actions/runs/42310204488)). |
+| Streifen bei vergrößertem Text (480-Zeilen-Bildschirme) | Der Software-Renderer nimmt für sprite-artige Vierecke mit Ersatz die Texturposition am Ausgabepixel. | Ergebnisfenster in 4K ohne Streifen |
+| Ersatz ging verloren | Teil-Schreibzugriffe auf eine Font-Seite markieren nur diesen Teil; die Suche bricht an einem Upload ohne Ersatz nicht mehr ab (die Liste ist nicht in Upload-Reihenfolge). | Kampfwörter in 4K aus Umrissen (vorher blockig) |
+| Kachelspeicher | höchstens 256 MiB und 1 Mio. Pixel je Kachel; bei vollem Speicher werden die Kacheln nach dem Bild verworfen und neu gemacht. | 4K-Kampf: dreimal neu begonnen, danach scharf |
+| 1×-Bilder unverändert | Der Maskenaufbau ist geteilt (k = 1 gibt das bisherige Bild). | 76 von 76 gemalten Dateien bytegleich |
+| Classic UI Englisch | keine Laufzeitschrift, keine Panels | Referenzbilder 6/6 |
+| Font-Lizenzen | OFL ohne reservierte Namen; Einbettung mit Lizenz zulässig | [doc/FONTS.md](doc/FONTS.md) |
+
+Regressionen: Commit 1e68287 Speichertest 9/9, Cheattest 31/31, CI grün ([Lauf 42318687718](https://github.com/emrah1818/dw2-pc-port/actions/runs/42318687718)); Commit 54346ff Referenzbilder 6/6, `fonts_test`, textscript 90/90, `hd_test` 0 Fehler; Speichertest, Cheattest und CI siehe unten.
+
+### Umgesetzt, aber noch nicht freigegeben (abgeschaltet)
+
+**Modern-UI-Panels** (`host/uipanels.c`, `backend/texrep.c style_panels`, nur mit `DW2_MODERN_PANELS=1` und Modern UI): eigener Panel-Stil nach Bild 3 in Ausgabeauflösung, mit Kontur aus einem Abstandsfeld, türkisem Rand und dunkelblauem Verlauf; alte graue Linien werden türkis, Text, Balken und Symbole bleiben. Gesehen im 4×-Kampf: Kampf-HUD, Befehlsleiste, EXP/BITs- und Gesprächsboxen. **Nicht freigegeben**, weil Bildschirme sonst gemischt aussehen: Die Ergebnisfelder pro Digimon werden nur teilweise erkannt (ihre Layouts liegen außerhalb von 0x25C). Die Erkennung nach Blatt reicht nicht; jeder Bildschirm braucht eine eigene Zuordnung seiner Stücke.
+
+### Offen
+
+- **Eigene Menü-Layouts nach Bild 1 und 2** (Status mit großer Modellvorschau und Tabs, Lexikon, Attacken, Digitation): nicht begonnen. Dafür müssen die Menüs selbst neu gezeichnet werden (Code der Spielmenüs, nicht nur Texturen); das ist größer als 1.6.0.
+- Panel-Stil je Bildschirm vervollständigen und prüfen: Shops, Speicher/Laden, Feldmenü, Status, Digitation, Dialoge.
+- Zahlen-Sprites (`host/fontnumbers.c`) und die mehrzelligen Wörter im Atlas (z. B. „EXP“) noch in 1×-Texeln.
+- Laufzeitschrift ohne Teiltransparenz an den Rändern (die nachgebildete PS1-Pipeline hat kein Alpha je Texel).
+- 1280×720, 1920×1080, 2560×1440, 3840×2160 im **Fenster** und 16:9/21:9 mit der Laufzeitschrift: geprüft wurden die internen Skalierungen 3, 4, 6 und 9 und 16:9/21:9 bei 4× (frühere Runde); die Fensterausgabe selbst nicht.
+- Gezielte Szenen für Konter, Unterbrechen, die Ja/Nein-Frage und NIEDERLAGE sind weiterhin nicht ausgelöst.
+- Ressourcen-Export (Abschnitt 6 des Auftrags): nicht begonnen.
+- PGXP-Mischpolygone, 3D-Clipping: unverändert offen (siehe unten).
+
+### Blockiert
+
+- Windows mit echtem Image, echte GPU-Hardware, Controller, Vollbild: In dieser Umgebung gibt es weder Windows noch Wine noch eine echte Grafikkarte. Die CI prüft nur Build und synthetische Renderertests (lavapipe).
+
+Release: **1.6.0 nicht veröffentlicht.** Die Modern-UI ist nicht fertig, und die Hardwaretests fehlen.
+
 ## Nach dem Zusammenführen von PR #1 (moderne Schrift), für 1.6.0
 
 Ausgangspunkt: PR #1 (`codex/modern-fonts`, Exo 2 / Orbitron Bold / Roboto Mono) ist in `main` (Merge 6ee0f01). Getestet auf Linux x64 mit echtem Image und dem privaten deutschen Sprachpaket (nicht im Repository). Ergebnisse gelten für den genannten Commit; Ergebnisse früherer Commits sind als solche gekennzeichnet.

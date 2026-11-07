@@ -1,4 +1,5 @@
 /* dw2-pc-port: external replacement textures (see texrep.h). */
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -288,6 +289,11 @@ typedef struct {
     int w, h, mode, tw, th;
     TexRepIndexFn fn;
     void *ctx;
+    const uint8_t *cls;   /* Modern UI panels (TexRep_SetSourceStyle) or NULL */
+    const uint16_t *cid;  /* per texel: its panel */
+    const uint16_t *comp; /* per panel: top, bottom texel row */
+    int ncomp;
+    float *dist; /* per texel: distance (texels) from its centre to the panel outline, inside > 0 */
 } IdxSrc;
 typedef struct {
     uint64_t src; /* the source's pixel hash: tiles stay valid when the sources are registered again */
@@ -296,6 +302,7 @@ typedef struct {
     TexRepImg *img;
 } IdxTile;
 static IdxSrc srcs[MAX_SRCS];
+static int src_of(uint64_t hv, int w, int h);
 static IdxTile *idx_tab;
 static int idx_tiles;
 static size_t idx_bytes;
@@ -324,11 +331,152 @@ void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw
     srcs[nsrcs].th = th > 0 ? th : h;
     srcs[nsrcs].fn = fn;
     srcs[nsrcs].ctx = ctx;
+    srcs[nsrcs].cls = NULL;
+    srcs[nsrcs].cid = NULL;
+    srcs[nsrcs].comp = NULL;
+    srcs[nsrcs].ncomp = 0;
+    srcs[nsrcs].dist = NULL;
     nsrcs++;
+}
+
+/* the 1x texels of a source as plain indices, k times larger (sources without a drawing of
+   their own: a sheet that only gets the panel style) */
+void TexRep_SetSourceStyle(const uint16_t *words, int w, int h, const uint8_t *cls, const uint16_t *cid,
+                           const uint16_t *comp, int ncomp) {
+    int dims[2] = { w, h };
+    uint64_t hv;
+
+    if (words == NULL) return;
+    hv = fnv(0xCBF29CE484222325ull, dims, sizeof(dims));
+    hv = fnv(hv, words, (size_t)w * (size_t)h * 2);
+    for (int i = 0; i < nsrcs; i++) {
+        if (srcs[i].hash == hv && srcs[i].w == w && srcs[i].h == h) {
+            srcs[i].cls = cls;
+            srcs[i].cid = cid;
+            srcs[i].comp = comp;
+            srcs[i].ncomp = ncomp;
+            free(srcs[i].dist);
+            srcs[i].dist = NULL;
+            if (cls != NULL) {
+                /* the distance field: to the nearest texel outside every panel, at most 4 texels */
+                int tpw = srcs[i].mode == 0 ? 4 : 2, W = w * tpw, H = h;
+                float *d = malloc(sizeof(float) * (size_t)W * H);
+                if (d != NULL) {
+                    for (int y = 0; y < H; y++)
+                        for (int x = 0; x < W; x++) {
+                            float best = 4.0f;
+                            if (cls[y * W + x] == 0) {
+                                d[y * W + x] = -0.5f;
+                                continue;
+                            }
+                            for (int dy = -4; dy <= 4; dy++)
+                                for (int dx = -4; dx <= 4; dx++) {
+                                    int X = x + dx, Y = y + dy;
+                                    if (X < 0 || Y < 0 || X >= W || Y >= H) continue; /* the sheet's edge: an open end */
+                                    if (cls[Y * W + X] != 0) continue;
+                                    float e = sqrtf((float)(dx * dx + dy * dy)) - 0.5f;
+                                    best = e < best ? e : best;
+                                }
+                            d[y * W + x] = best;
+                        }
+                }
+                srcs[i].dist = d;
+            }
+            return;
+        }
+    }
+}
+
+/* ---- Modern UI panel style (design: the port's own; blue / cyan accents, after the reference
+   "partner status" screen): computed per output pixel from the 1x panel shape ---- */
+static float panel_dist(const IdxSrc *s, float x, float y) {
+    /* the distance field bilinearly between texel centres: 0 is the smoothed outline */
+    int tpw = s->mode == 0 ? 4 : 2, W = s->w * tpw, H = s->h;
+    float fx = x - 0.5f, fy = y - 0.5f;
+    int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
+    float ax = fx - x0, ay = fy - y0, v[4];
+    for (int j = 0; j < 4; j++) {
+        int X = x0 + (j & 1), Y = y0 + (j >> 1);
+        X = X < 0 ? 0 : X >= W ? W - 1 : X; /* outside the sheet: as the nearest texel (open end) */
+        Y = Y < 0 ? 0 : Y >= H ? H - 1 : Y;
+        v[j] = s->dist[Y * W + X];
+    }
+    return (v[0] * (1 - ax) + v[1] * ax) * (1 - ay) + (v[2] * (1 - ax) + v[3] * ax) * ay;
+}
+
+static uint32_t mix_rgb(uint32_t a, uint32_t b, float t) {
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    uint32_t r = (uint32_t)(((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t);
+    uint32_t g = (uint32_t)(((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t);
+    uint32_t bl = (uint32_t)((a & 255) * (1 - t) + (b & 255) * t);
+    return 0xFF000000u | r << 16 | g << 8 | bl;
+}
+
+static void style_panels(const IdxSrc *s, int k, int ox, int oy, int rw, int rh, uint32_t *px) {
+    int tpw = s->mode == 0 ? 4 : 2, W = s->w * tpw;
+    /* edge cyan, a darker blue inside it, the fill a dark blue gradient; old frame lines and
+       labels (grey / white on the panel) become light cyan lines */
+    const uint32_t edge = 0xFF46D2FFu, inner = 0xFF1A6FA8u, fill_top = 0xFF10305Eu, fill_bot = 0xFF081A38u,
+                   line = 0xFF5CC8F0u;
+    float px1 = 1.0f / k; /* one output pixel in texels */
+    if (s->dist == NULL) return;
+    for (int Y = 0; Y < rh * k; Y++) {
+        for (int X = 0; X < rw * k; X++) {
+            int tx = ox + X / k, ty = oy + Y / k;
+            uint8_t c = s->cls[ty * W + tx];
+            if (c == 0) continue; /* not a panel: as drawn */
+            float x = ox + (X + 0.5f) / k, y = oy + (Y + 0.5f) / k;
+            float d = panel_dist(s, x, y);
+            uint32_t *p = &px[(size_t)Y * rw * k + X];
+            if (d < 0.0f) { /* outside the smoothed outline */
+                *p = 0;
+                continue;
+            }
+            int n = s->cid[ty * W + tx];
+            float t = 0.5f;
+            if (n < s->ncomp && s->comp[2 * n + 1] > s->comp[2 * n])
+                t = (y - s->comp[2 * n]) / (float)(s->comp[2 * n + 1] + 1 - s->comp[2 * n]);
+            uint32_t base = mix_rgb(fill_top, fill_bot, t);
+            if (c == 2) {
+                uint32_t o = *p;
+                if ((o >> 24) == 0) continue;
+                int r = (o >> 16) & 255, g = (o >> 8) & 255, b = o & 255;
+                int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+                int lum = (r * 3 + g * 6 + b) / 10;
+                if (mx - mn < 48 && lum > 110) {
+                    *p = line; /* old frame lines, labels */
+                    continue;
+                }
+                if (!(b > r + 30 && b >= g && lum < 150)) continue; /* bars, slots, icons: as drawn */
+                /* the old blue shading: fill */
+            }
+            /* the edge: 0.35 texel and at least 1.5 output pixels, then 0.35 texel of inner blue */
+            float e = 0.35f > 1.5f * px1 ? 0.35f : 1.5f * px1;
+            if (d < e) {
+                *p = mix_rgb(edge, inner, d / e);
+            } else if (d < e + 0.35f) {
+                *p = mix_rgb(inner, base, (d - e) / 0.35f);
+            } else {
+                *p = base;
+            }
+        }
+    }
+}
+
+void TexRep_AddIndexSourceIfNew(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx) {
+    int dims[2] = { w, h };
+    uint64_t hv;
+
+    if (words == NULL || w <= 0 || h <= 0) return;
+    hv = fnv(0xCBF29CE484222325ull, dims, sizeof(dims));
+    hv = fnv(hv, words, (size_t)w * (size_t)h * 2);
+    if (src_of(hv, w, h) >= 0) return;
+    TexRep_AddIndexSource(words, w, h, mode, tw, th, fn, ctx);
 }
 
 /* Sources only: the tiles already made stay (a primitive of the current frame may use one). */
 void TexRep_ClearIndexSources(void) {
+    idx_reset_wanted = idx_tiles > 0; /* tiles of the old drawing or style go after the next picture */
     nsrcs = 0;
     for (int i = 0; i < nuploads; i++) uploads[i].src = -1;
 }
@@ -417,6 +565,7 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
         px[i] = idx[i] == 0 || c == 0 ? 0u : argb_of(c); /* index 0 and colour 0: transparent, as on the PS1 */
     }
     free(idx);
+    if (srcs[si].cls != NULL) style_panels(&srcs[si], k, ox, oy, rw, rh, px);
     img->w = rw * k;
     img->h = rh * k;
     img->px = px;

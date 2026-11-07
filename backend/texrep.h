@@ -78,6 +78,15 @@ int TexRep_Sample(const TexRepUse *use, int fu, int fv);
 typedef void (*TexRepIndexFn)(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx);
 void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx);
 void TexRep_ClearIndexSources(void);
+/* as TexRep_AddIndexSource, but an existing source with these pixels keeps its drawing */
+void TexRep_AddIndexSourceIfNew(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx);
+/* Modern UI panels on a source: cls holds one class per texel of the upload (0 not a panel,
+ * 1 panel fill, 2 other texel on a panel: text, bars, icons) and cid its panel's number, whose
+ * rows are comp[2 n] .. comp[2 n + 1]. Panel fills are drawn in the port's own style at the output
+ * resolution (an outline smoothed from the 1x shape, cyan edge, dark blue gradient); the other
+ * texels as the source draws them. The caller keeps the arrays. */
+void TexRep_SetSourceStyle(const uint16_t *words, int w, int h, const uint8_t *cls, const uint16_t *cid,
+                           const uint16_t *comp, int ncomp);
 /* the screen pixels per texel of the next TexRep_Find's primitive (1..4, rounded up): an index source
  * is drawn at k = scale x this (at most 16), so magnified text (zooming battle words) stays sharp */
 void TexRep_SetMagnify(int m);

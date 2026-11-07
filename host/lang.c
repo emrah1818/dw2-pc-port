@@ -1304,6 +1304,8 @@ void Lang_Apply(void) {
         if (Fonts_Enabled()) {
             PicWords_Apply();
         }
+        { extern void UiPanels_Apply(int modern);
+          UiPanels_Apply(Fonts_Enabled() && Settings_Get(SET_UI_STYLE) == SET_UI_MODERN); }
         return;
     }
     snprintf(dir, sizeof(dir), "%sLanguages/German/", base != NULL ? base : "");
@@ -1355,6 +1357,8 @@ void Lang_Apply(void) {
     load_dict(dir, umlauts);
     patch_texts(dir, umlauts); /* after the types: texts.tsv may not touch the type entries */
     PicWords_Apply(); /* after all text changes: render exactly the current names */
+    { extern void UiPanels_Apply(int modern);
+      UiPanels_Apply(Settings_Get(SET_UI_STYLE) == SET_UI_MODERN); } /* after the word pictures: their sheets keep their drawing */
     if (rep) {
         fclose(rep);
         rep = NULL;

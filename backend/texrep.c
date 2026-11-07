@@ -556,6 +556,20 @@ static void style_plans_free(void) {
     plan_bytes = 0;
 }
 
+static float piece_dist(const float *ld, int rw, int rh, float x, float y) {
+    /* bilinearly between texel centres, clamped to the piece (as panel_dist to the sheet) */
+    float fx = x - 0.5f, fy = y - 0.5f;
+    int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
+    float ax = fx - x0, ay = fy - y0, v[4];
+    for (int j = 0; j < 4; j++) {
+        int X = x0 + (j & 1), Y = y0 + (j >> 1);
+        X = X < 0 ? 0 : X >= rw ? rw - 1 : X;
+        Y = Y < 0 ? 0 : Y >= rh ? rh - 1 : Y;
+        v[j] = ld[Y * rw + X];
+    }
+    return (v[0] * (1 - ax) + v[1] * ax) * (1 - ay) + (v[2] * (1 - ax) + v[3] * ax) * ay;
+}
+
 static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int rw, int rh) {
     int tpw = s->mode == 0 ? 4 : 2, W = s->w * tpw;
     /* edge cyan, a darker blue inside it, the fill a dark blue gradient */
@@ -580,6 +594,41 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
         free(pl->col);
         return NULL;
     }
+    /* the distance to the outline inside this piece (texels outside it: the window continues) */
+    float *ld = malloc(sizeof(float) * (size_t)rw * rh);
+    if (ld == NULL) {
+        free(pl->tag);
+        free(pl->col);
+        return NULL;
+    }
+    /* a piece's border columns / rows without any panel texel (a transparent last column that the
+       next piece overlaps) are past the piece too */
+    int cx0 = 0, cx1 = rw - 1, cy0 = 0, cy1 = rh - 1;
+#define COL_EMPTY(X) ({ int e_ = 1; for (int y_ = cy0; y_ <= cy1 && e_; y_++) e_ = s->cls[(oy + y_) * W + ox + (X)] == 0; e_; })
+#define ROW_EMPTY(Y) ({ int e_ = 1; for (int x_ = cx0; x_ <= cx1 && e_; x_++) e_ = s->cls[(oy + (Y)) * W + ox + x_] == 0; e_; })
+    while (cx0 < cx1 && COL_EMPTY(cx0)) cx0++;
+    while (cx1 > cx0 && COL_EMPTY(cx1)) cx1--;
+    while (cy0 < cy1 && ROW_EMPTY(cy0)) cy0++;
+    while (cy1 > cy0 && ROW_EMPTY(cy1)) cy1--;
+#undef COL_EMPTY
+#undef ROW_EMPTY
+    for (int y = 0; y < rh; y++)
+        for (int x = 0; x < rw; x++) {
+            float best = 4.0f;
+            if (s->cls[(oy + y) * W + ox + x] == 0) {
+                ld[y * rw + x] = -0.5f;
+                continue;
+            }
+            for (int dy = -4; dy <= 4; dy++)
+                for (int dx = -4; dx <= 4; dx++) {
+                    int X = x + dx, Y = y + dy;
+                    if (X < cx0 || Y < cy0 || X > cx1 || Y > cy1) continue; /* past the piece: open */
+                    if (s->cls[(oy + Y) * W + ox + X] != 0) continue;
+                    float e = sqrtf((float)(dx * dx + dy * dy)) - 0.5f;
+                    best = e < best ? e : best;
+                }
+            ld[y * rw + x] = best;
+        }
     pl->src = s->style_hash;
     pl->ox = ox;
     pl->oy = oy;
@@ -588,7 +637,7 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
     pl->k = k;
     float e = 0.35f > 1.5f * px1 ? 0.35f : 1.5f * px1; /* the edge: 0.35 texel, at least 1.5 output pixels */
     float deep = e + 0.35f + 1e-3f; /* margin: the bilinear sum of values above it stays above e + 0.35 */
-    int H = s->h, RW = rw * k;
+    int RW = rw * k;
     for (int ty = oy; ty < oy + rh; ty++) {
         for (int tx = ox; tx < ox + rw; tx++) {
             uint8_t c = s->cls[ty * W + tx];
@@ -605,10 +654,10 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
             float mn = 4.0f;
             for (int dy = -1; dy <= 1; dy++)
                 for (int dx = -1; dx <= 1; dx++) {
-                    int X = tx + dx, Y = ty + dy;
-                    X = X < 0 ? 0 : X >= W ? W - 1 : X;
-                    Y = Y < 0 ? 0 : Y >= H ? H - 1 : Y;
-                    float v = s->dist[Y * W + X];
+                    int X = tx - ox + dx, Y = ty - oy + dy;
+                    X = X < 0 ? 0 : X >= rw ? rw - 1 : X;
+                    Y = Y < 0 ? 0 : Y >= rh ? rh - 1 : Y;
+                    float v = ld[Y * rw + X];
                     mn = v < mn ? v : mn;
                 }
             int m = s->cid[ty * W + tx];
@@ -630,7 +679,7 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
                         continue;
                     }
                     float x = ox + (Xo + 0.5f) / k;
-                    float d = panel_dist(s, x, y);
+                    float d = piece_dist(ld, rw, rh, x - ox, y - oy);
                     uint32_t v;
                     if (d < 0.0f) { /* outside the smoothed outline */
                         pl->col[i] = 0;
@@ -650,6 +699,7 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
             }
         }
     }
+    free(ld);
     nplans++;
     plan_bytes += n * 5;
     return pl;
@@ -1234,6 +1284,16 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             int ox = tx0 * s->tw, oy = ty0 * s->th, rw = (tx1 - tx0 + 1) * s->tw, rh = (ty1 - ty0 + 1) * s->th;
             TexRepImg *ti;
 
+            if (s->cls != NULL && s->dist != NULL) {
+                /* Modern panel style: the tile is exactly this piece's texels. The game builds a
+                   window from pieces of its sheet; the style's outline is taken inside the piece
+                   (past its texels the window continues), so seams between pieces get no edge
+                   (lines inside the dialog window, player report) */
+                ox = umin + du;
+                oy = vmin + dv;
+                rw = umax - umin + 1;
+                rh = vmax - vmin + 1;
+            }
             if (ox + rw > bw) rw = bw - ox;
             if (oy + rh > bh) rh = bh - oy;
             if (rw > 256 || rh > 256) return 0;

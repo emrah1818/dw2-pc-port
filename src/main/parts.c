@@ -26,7 +26,7 @@ GfxPartRotCache Gfx_PartRotCache = {
 
 void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
 #ifdef DW2_NATIVE
-    s32 wdx = 0;
+    s32 wdx = 0, wdy = 0;
 #endif
     GfxPartCell *e;
     GfxPartTexSlot *t;
@@ -48,7 +48,9 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
 #ifdef DW2_NATIVE
     {
         extern int UiLayout_PartShift(const void *part);
+        extern int UiLayout_PartShiftY(const void *part);
         wdx = UiLayout_PartShift(s); /* dw2-pc-port: a battle window in the wide margin */
+        wdy = UiLayout_PartShiftY(s); /* (enemy boxes: one row) */
     }
 #endif
     for (; e->u != 0xFF; e++) {
@@ -71,7 +73,11 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
 #endif
         p->s.u0 = e->u + t->u;
         p->s.w = e->w;
+#ifdef DW2_NATIVE
+        p->s.y0 = e->y + s->y + wdy;
+#else
         p->s.y0 = e->y + s->y;
+#endif
         p->s.v0 = e->v;
         p->s.h = e->h;
         if (p->s.h == 0) {
@@ -109,7 +115,7 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
     s32 u;
     s32 y;
 #ifdef DW2_NATIVE
-    s32 wdx = 0;
+    s32 wdx = 0, wdy = 0;
 #endif
 
     e = (GfxPartCell *)Cd_GetFileEntry(((GfxPartSprite *)arg0)->fileId);
@@ -126,7 +132,9 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
 #ifdef DW2_NATIVE
     {
         extern int UiLayout_PartShift(const void *part);
+        extern int UiLayout_PartShiftY(const void *part);
         wdx = UiLayout_PartShift(arg0); /* dw2-pc-port: a battle window in the wide margin */
+        wdy = UiLayout_PartShiftY(arg0);
     }
 #endif
     for (; e->u != 0xFF; e++) {
@@ -154,7 +162,11 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
 #else
             p->v[i].x = out.vx + ((GfxPartSprite *)arg0)->x;
 #endif
+#ifdef DW2_NATIVE
+            p->v[i].y = out.vy + ((GfxPartSprite *)arg0)->y + wdy;
+#else
             p->v[i].y = out.vy + ((GfxPartSprite *)arg0)->y;
+#endif
         }
         u = e->u + t->u;
         p->v[0].u = p->v[2].u = u;

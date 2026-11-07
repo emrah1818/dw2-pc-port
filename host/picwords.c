@@ -348,6 +348,8 @@ typedef struct {
     int            nring;
     uint8_t        ring[4], body, bevel_tl, bevel_br;
     int            box;          /* the letters sit in a box (title menu): the box stays */
+    int            ib[4];        /* a box's inside (picture texels x0, x1, y0, y1): fill at HD */
+    int            fill;
     uint8_t        rowcol[CH];   /* the letters' colour per row of the original (its vertical gradient) */
     int            oy0, oy1;     /* the rows of the original's letters */
     int            gradient;     /* body colour by row (else flat: body) */
@@ -369,6 +371,7 @@ typedef struct {
     uint8_t rowcol[CH];
     int oy0, oy1;
     uint8_t fill; /* a box picture's fill */
+    int ib[4];    /* its inside */
     int gradient; /* the letters' colour changes by row (four or more bands: the title words) */
 } Layers;
 
@@ -419,6 +422,8 @@ static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const 
         h->bevel_tl = ly->bevel_tl;
         h->bevel_br = ly->bevel_br;
         h->box      = ly->box;
+        memcpy(h->ib, ly->ib, sizeof(h->ib));
+        h->fill = ly->fill;
         memcpy(h->rowcol, ly->rowcol, sizeof(h->rowcol));
         h->oy0 = ly->oy0;
         h->oy1 = ly->oy1;
@@ -698,11 +703,28 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                         ny0 = y;
                     ny1 = y;
                 }
+        /* a box picture's inside (3 texels in from its opaque rectangle): all fill. The old
+           letters' dark edges had the frame's colour and stayed as thin lines in the box */
+        int ibx0 = 99999, ibx1 = -1, iby0 = 99999, iby1 = -1;
+        if (ly.box)
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                    if (orig[y * CW + x]) {
+                        ibx0 = x < ibx0 ? x : ibx0;
+                        ibx1 = x > ibx1 ? x : ibx1;
+                        iby0 = y < iby0 ? y : iby0;
+                        iby1 = y > iby1 ? y : iby1;
+                    }
+        ly.ib[0] = ibx0 + 3;
+        ly.ib[1] = ibx1 - 3;
+        ly.ib[2] = iby0 + 3;
+        ly.ib[3] = iby1 - 3;
         for (int i = 0; i < n; i++)
             for (int y = 0; y < c[i].h; y++)
                 for (int x = 0; x < c[i].w; x++) {
                     int Y = c[i].y - y0 + y, X = c[i].x - x0 + x, k = Y * CW + X, v = 0;
-                    if (dist[k]) {
+                    int inside = !ly.box || (X >= ibx0 + 3 && X <= ibx1 - 3 && Y >= iby0 + 3 && Y <= iby1 - 3);
+                    if (dist[k] && inside) {
                         /* one colour: the letter body of the original (its most common colour at
                            depth 3 from its rim), never the dark rim. A per-row colour put the rim's
                            rows of the original (top and bottom of its letters) as dark bands across
@@ -716,6 +738,8 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                         /* the box (fill and frame) stays; the old letters in it become fill */
                         v = orig[k];
                         if (v && v != ly.fill && v != all[0] && v != all[1])
+                            v = ly.fill;
+                        if (v && X >= ibx0 + 3 && X <= ibx1 - 3 && Y >= iby0 + 3 && Y <= iby1 - 3)
                             v = ly.fill;
                     }
                     tset(t, c[i].u + x, c[i].v + y, v);
@@ -892,7 +916,9 @@ static int hifile_texel(const HiFile* f, int x, int y)
  * the PS1 rings are one texel each; at the output resolution half of it reads as a clean outline
  * without filling the letters. */
 static int ring_w(int k) { return k >= 2 ? (k + 1) / 2 : 1; }
-static int layer_pad(const HiPic* p, int k) { return p->nring > 0 && !p->box ? p->nring * ring_w(k) + 1 : 0; }
+/* the new letters' margin: outside their rings; in a box picture (the title menu) 2 texels inside
+   the box, so they do not reach over its frame */
+static int layer_pad(const HiPic* p, int k) { return p->box ? 2 * k : p->nring > 0 ? p->nring * ring_w(k) + 1 : 0; }
 
 /* chamfer (3-4) distance to the nearest pixel where in != inside, in 1/3 pixels (0 there) */
 static void chamfer(const uint8_t* m, int w, int h, int inside, uint16_t* d)
@@ -1041,8 +1067,14 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
                         mx < (p->cw - m2) * k && my >= 0 && my < (p->ch - m2) * k) {
                         if (p->nring >= 0) {
                             v = hm[my * stride + mx]; /* the palette index of its layer (layer_colour) */
-                            if (p->box && v == 0)
-                                continue; /* the box of the 1x picture stays */
+                            if (p->box && v == 0) {
+                                /* the box of the 1x picture stays; inside it the fill (the 1x
+                                   letters are larger than the new ones with their margin) */
+                                if (X1 >= p->ib[0] && X1 <= p->ib[1] && Y1 >= p->ib[2] && Y1 <= p->ib[3])
+                                    v = p->fill;
+                                else
+                                    continue;
+                            }
                         }
                         else if (hm[my * stride + mx] >= 80)
                             v = p->col[i];

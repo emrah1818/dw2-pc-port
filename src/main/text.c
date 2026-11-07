@@ -527,6 +527,8 @@ void Text_UpdateAllBoxes(Actor *a0) {
             {
                 extern int UiLayout_TextShift(int x, int y);
                 uiWide = UiLayout_TextShift(r->x, r->y); /* drawn moved with its window (wide battle HUD) */
+                extern int UiLayout_TextShiftY(int x, int y);
+                pos.field_2 += UiLayout_TextShiftY(r->x, r->y); /* (enemy boxes: one row) */
             }
 #endif
             nF4d = 0;

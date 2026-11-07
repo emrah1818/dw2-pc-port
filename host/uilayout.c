@@ -168,6 +168,9 @@ static int log_parts = -1;
 static int fit_lines, grown_lines, squeezed_lines; /* stats for the log */
 
 static int nwwin[2], nwpart[2]; /* wide HUD: windows moved / parts moved this frame (below) */
+/* the enemy boxes (0x13B entry 0x48): the PS1 places them in a stair; in the wide HUD they
+   share the top-most one's height (the player's own boxes are in one row too) */
+static int enemy_top[2] = { 99999, 99999 };
 
 void UiLayout_Flip(void) {
     cur ^= 1;
@@ -176,6 +179,7 @@ void UiLayout_Flip(void) {
     nshift[cur] = 0;
     nwwin[cur] = 0;
     nwpart[cur] = 0;
+    enemy_top[cur] = 99999;
 }
 
 /* GfxPartSprite (include/main/156C.h): fileId 0, x 4, y 6, partGroup 0xD; cells 0x10 each:
@@ -297,12 +301,13 @@ extern int PsxHd_Margin(int w);
 #define MAX_WPART 256
 static struct {
     Rect r;
-    int dx;
+    int dx, dy;
 } wwin[2][MAX_WWIN];
 static struct {
     const void *part;
-    int dx;
+    int dx, dy;
 } wpart[2][MAX_WPART];
+
 static int wide_table = -1; /* the game mode's table (gameMode >> 8): 5 battle */
 
 void UiLayout_SetWideScene(int table) {
@@ -340,9 +345,9 @@ static int wide_scene_entry(int entry) {
     return entry == 2 || entry == 3 || entry == 22 || (entry >= 0x0B && entry <= 0x0F);
 }
 
-static int wide_dx_at(const Rect *r) {
+static int wide_dx_at(const Rect *r, int *dy) {
     const int prev = cur ^ 1;
-    int best = 0, area = 1 << 30;
+    int best = 0, bdy = 0, area = 1 << 30;
 
     for (int b = 0; b < 2; b++) {
         int k = b == 0 ? prev : cur;
@@ -352,15 +357,17 @@ static int wide_dx_at(const Rect *r) {
                 w->w * w->h < area) {
                 area = w->w * w->h;
                 best = wwin[k][i].dx;
+                bdy = wwin[k][i].dy;
             }
         }
     }
+    if (dy != NULL) *dy = bdy;
     return best;
 }
 
 static void wide_note(const uint8_t *p, const Rect *r) {
     uint32_t id;
-    int file, entry, dx = 0;
+    int file, entry, dx = 0, dy = 0;
 
     if (!wide_on() || nwpart[cur] >= MAX_WPART) {
         return;
@@ -379,14 +386,16 @@ static void wide_note(const uint8_t *p, const Rect *r) {
             if (dx != 0 && entry == 1 && nwwin[cur] < MAX_WWIN) {
                 wwin[cur][nwwin[cur]].r = *r;
                 wwin[cur][nwwin[cur]].dx = dx;
+                wwin[cur][nwwin[cur]].dy = 0;
                 nwwin[cur]++;
             }
         } else if (file != 0x315) {
-            dx = wide_dx_at(r); /* the face picture inside the portrait frame */
+            dx = wide_dx_at(r, NULL); /* the face picture inside the portrait frame */
         }
         if (dx != 0) {
             wpart[cur][nwpart[cur]].part = p;
             wpart[cur][nwpart[cur]].dx = dx;
+            wpart[cur][nwpart[cur]].dy = 0;
             nwpart[cur]++;
         }
         return;
@@ -394,20 +403,28 @@ static void wide_note(const uint8_t *p, const Rect *r) {
     if (file != 0x13B || wide_scene_entry(entry)) {
         return;
     }
-    if (wide_window_entry(entry)) {
+    if (wide_window_entry(entry) || entry == 0x48) {
         int cx = r->x + r->w / 2, m = PsxHd_Margin(320);
         dx = cx < -40 ? -m : cx > 40 ? m : 0;
-        if (dx != 0 && nwwin[cur] < MAX_WWIN) {
+        if (entry == 0x48) {
+            /* an enemy box: spread like the party's boxes, at the top-most enemy box's height (last
+               frame's) */
+            enemy_top[cur] = r->y < enemy_top[cur] ? r->y : enemy_top[cur];
+            if (enemy_top[cur ^ 1] < 99999 && enemy_top[cur ^ 1] < r->y) dy = enemy_top[cur ^ 1] - r->y;
+        }
+        if ((dx != 0 || dy != 0) && nwwin[cur] < MAX_WWIN) {
             wwin[cur][nwwin[cur]].r = *r;
             wwin[cur][nwwin[cur]].dx = dx;
+            wwin[cur][nwwin[cur]].dy = dy;
             nwwin[cur]++;
         }
     } else {
-        dx = wide_dx_at(r);
+        dx = wide_dx_at(r, &dy);
     }
-    if (dx != 0) {
+    if ((dx != 0 || dy != 0) && nwpart[cur] < MAX_WPART) {
         wpart[cur][nwpart[cur]].part = p;
         wpart[cur][nwpart[cur]].dx = dx;
+        wpart[cur][nwpart[cur]].dy = dy;
         nwpart[cur]++;
     }
 }
@@ -422,6 +439,15 @@ int UiLayout_PartShift(const void *part) {
     return 0;
 }
 
+int UiLayout_PartShiftY(const void *part) {
+    for (int i = nwpart[cur] - 1; i >= 0; i--) {
+        if (wpart[cur][i].part == part) {
+            return wpart[cur][i].dy;
+        }
+    }
+    return 0;
+}
+
 /* text.c: how far a text box starting at x, y is drawn moved (the window it is in) */
 int UiLayout_TextShift(int x, int y) {
     Rect r = { x, y, 1, 1, 0 };
@@ -429,7 +455,18 @@ int UiLayout_TextShift(int x, int y) {
     if (!wide_on()) {
         return 0;
     }
-    return wide_dx_at(&r);
+    return wide_dx_at(&r, NULL);
+}
+
+int UiLayout_TextShiftY(int x, int y) {
+    Rect r = { x, y, 1, 1, 0 };
+    int dy = 0;
+
+    if (!wide_on()) {
+        return 0;
+    }
+    wide_dx_at(&r, &dy);
+    return dy;
 }
 
 void UiLayout_NotePart(const void *part, const void *cells) {

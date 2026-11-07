@@ -732,6 +732,12 @@ static void style_panels(const IdxSrc *s, int k, int ox, int oy, int rw, int rh,
                 px[i] = line; /* old frame lines, labels */
                 break;
             }
+            if (g > 200 && r < 70 && b < 100) {
+                /* the battle menus' pure green frame lines (0, 255, 33): the cyan line too (HP / MP
+                   bars: their bright segments are pale (206, 255, 231), the empty ones dark: kept) */
+                px[i] = line;
+                break;
+            }
             if (!(b > r + 30 && b >= g && lum < 150)) break; /* bars, slots, icons: as drawn */
             px[i] = pl->col[i]; /* the old blue shading: fill */
         }

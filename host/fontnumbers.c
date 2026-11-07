@@ -188,12 +188,28 @@ static void num_overlay(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
 }
 
 /* the cell at HD: noted on its sheet; 1 = drawn at the output resolution (no VRAM write) */
+/* a digit drawn in at most two colours (body and shadow): the modern digits keep exactly that.
+   Digits with more layers (the battle's damage numbers: outline rings) keep their sprite. */
+static int simple_digit(const NumSheet* s, int u, int v, int w, int h)
+{
+    int seen[256] = { 0 }, n = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int t = sheet_texel(s, u + x, v + y);
+            if (t && !seen[t]++)
+                n++;
+        }
+    return n >= 1 && n <= 2;
+}
+
 static int note_hd(int id, const uint8_t* e, int vx, int vy)
 {
     NumSheet* s = sheet_of(id >> 16);
     if (!s)
         return 0;
     int u = e[0], v = e[1], w = e[8], h = e[9], d = e[12], i;
+    if (!simple_digit(s, u, v, w, h))
+        return 1; /* the original sprite (no VRAM write either) */
     for (i = 0; i < s->ncell; i++)
         if (s->cell[i].u == u && s->cell[i].v == v && s->cell[i].w == w && s->cell[i].h == h)
             break;
@@ -262,6 +278,13 @@ void Fonts_NumberCell(int id, const void* cell, int tpage, int uoffset, int clut
             shadow = k;
     if (!body)
         return;
+    {
+        int kinds = 0;
+        for (int k = 1; k <= mask; k++)
+            kinds += used[k] != 0;
+        if (kinds > 2)
+            return; /* more layers than body and shadow (damage numbers): the original sprite */
+    }
     int top = -1, bot = -1;
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {

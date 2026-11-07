@@ -88,6 +88,20 @@ int Fonts_Mask(int role, const char* text, uint8_t* dst, int stride, int width, 
     }
     stbtt_GetFontVMetrics(f, &ascent, &descent, &gap);
     float scale = (float)height / (ascent - descent);
+    {
+        /* the letters' own height fills the picture (the original words fill theirs; the font's
+           line height left capitals at about 70 %) */
+        int top = 0, bottom = 0;
+        for (int i = 0; i < n; i++) {
+            int x0, y0, x1, y1;
+            if (stbtt_GetCodepointBox(f, cps[i], &x0, &y0, &x1, &y1) && y1 > y0) {
+                top    = -y1 * scale < top ? (int)floorf(-y1 * scale) : top;
+                bottom = -y0 * scale > bottom ? (int)ceilf(-y0 * scale) : bottom;
+            }
+        }
+        if (bottom - top > 0 && bottom - top < height)
+            scale *= (float)(height - 1) / (float)(bottom - top);
+    }
     for (int attempt = 0; attempt < 160; attempt++, scale *= 0.97f) {
         float pen  = 0;
         int   left = 0, right = 0, top = 0, bottom = 0;

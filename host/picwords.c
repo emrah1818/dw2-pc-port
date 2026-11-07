@@ -169,7 +169,7 @@ typedef struct {
     int         narrow; /* letters of the small game font (narrow, like the title's pictures) */
     int         grow;   /* width (texture pixels) the picture may grow to, 0 = keep */
     int         move;   /* 1: when it cannot grow in place, move it to an empty part of the texture */
-    int         role;   /* 0 display, 1 interface, 2 telemetry */
+    int         role;   /* 0 display, 1 interface, 2 telemetry, 3 interface bold (the title words) */
     int         border; /* preserve the enclosing one-pixel frame */
     int         squeeze; /* dw2-pc-port: up to this many tenths narrower instead of smaller (25: the
                             title's code, set in a very narrow face) */
@@ -232,8 +232,8 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
     if (cw <= 8 || ch <= 6 || cw > CW || ch > CH || cw * k > stride)
         return 0;
     memset(mask, 0, (size_t)stride * ch * k);
-    int role  = w->role == 1 ? FONT_INTERFACE : w->role == 2 ? FONT_TELEMETRY
-                                                             : FONT_DISPLAY;
+    int role  = w->role == 1 ? FONT_INTERFACE : w->role == 2 ? FONT_TELEMETRY : w->role == 3 ? FONT_INTERFACE_BOLD
+                                                                                     : FONT_DISPLAY;
     int lines = 1;
     for (const char* p = w->text; *p; p++)
         if (*p == '\n')
@@ -282,11 +282,17 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
             /* full height, then narrower: each output column is half the mean, half the strongest
                coverage of the columns it covers (the strongest alone merged capitals such as WORK
                into blocks, the mean alone lost the thin I of NIEDERLAGE) */
-            int room = available * w->squeeze / 10;
-            room     = room > stride ? stride : room;
-            memset(wide, 0, (size_t)stride * LH);
-            width = Fonts_Mask(role, label, wide, stride, room, LH);
+            int room = available * w->squeeze / 10, ws = room > stride ? room : stride;
+            uint8_t* wbuf = ws > stride ? malloc((size_t)ws * LH) : wide; /* the squeeze's own width */
+            if (!wbuf) {
+                ok = 0;
+                break;
+            }
+            memset(wbuf, 0, (size_t)ws * LH);
+            width = Fonts_Mask(role, label, wbuf, ws, room, LH);
             if (width < 0) {
+                if (wbuf != wide)
+                    free(wbuf);
                 ok = 0;
                 break;
             }
@@ -295,16 +301,18 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
                     for (int x = 0; x < available; x++) {
                         int a = x * width / available, b = (x + 1) * width / available, m = 0, nk = 0, mx = 0;
                         for (int q = a; q < (b > a ? b : a + 1); q++, nk++) {
-                            m += wide[y * stride + q];
-                            mx = wide[y * stride + q] > mx ? wide[y * stride + q] : mx;
+                            m += wbuf[y * ws + q];
+                            mx = wbuf[y * ws + q] > mx ? wbuf[y * ws + q] : mx;
                         }
                         row[y * stride + x] = (uint8_t)((m / nk + mx) / 2);
                     }
                 width = available;
             } else {
                 for (int y = 0; y < LH; y++)
-                    memcpy(row + y * stride, wide + y * stride, (size_t)width);
+                    memcpy(row + y * stride, wbuf + y * ws, (size_t)width);
             }
+            if (wbuf != wide)
+                free(wbuf);
         } else {
             width = Fonts_Mask(role, label, row, stride, available, LH);
         }
@@ -337,6 +345,10 @@ typedef struct {
        left, bottom / right; 0 none); nring < 0: no layers, the body colour col (small pictures) */
     int            nring;
     uint8_t        ring[4], body, bevel_tl, bevel_br;
+    int            box;          /* the letters sit in a box (title menu): the box stays */
+    uint8_t        rowcol[CH];   /* the letters' colour per row of the original (its vertical gradient) */
+    int            oy0, oy1;     /* the rows of the original's letters */
+    int            gradient;     /* body colour by row (else flat: body) */
     uint8_t*       hmask[2]; /* runtime pictures at k = hk[i] (the zooming words use two sizes at once):
                                 with ndepth the palette index of each pixel, else the coverage */
     int            hk[2];
@@ -351,7 +363,28 @@ static int   nhipics;
 typedef struct {
     int nring;
     uint8_t ring[4], body, bevel_tl, bevel_br;
+    int box;
+    uint8_t rowcol[CH];
+    int oy0, oy1;
+    uint8_t fill; /* a box picture's fill */
+    int gradient; /* the letters' colour changes by row (four or more bands: the title words) */
 } Layers;
+
+/* the original's letter colour at row y of a new letter band [y0, y1] (the same relative row) */
+static int row_colour(const uint8_t* rowcol, int oy0, int oy1, int body, int y, int y0, int y1)
+{
+    if (oy0 < 0 || y1 <= y0)
+        return body;
+    int r = oy0 + (int)((long)(y - y0) * (oy1 - oy0) / (y1 - y0) + 0.5);
+    r     = r < oy0 ? oy0 : r > oy1 ? oy1 : r;
+    for (int d = 0; d <= oy1 - oy0; d++) { /* the nearest row with letters */
+        if (r - d >= oy0 && rowcol[r - d])
+            return rowcol[r - d];
+        if (r + d <= oy1 && rowcol[r + d])
+            return rowcol[r + d];
+    }
+    return body;
+}
 
 static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const uint8_t* col, const Layers* ly)
 {
@@ -382,6 +415,11 @@ static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const 
         h->body     = ly->body;
         h->bevel_tl = ly->bevel_tl;
         h->bevel_br = ly->bevel_br;
+        h->box      = ly->box;
+        memcpy(h->rowcol, ly->rowcol, sizeof(h->rowcol));
+        h->oy0 = ly->oy0;
+        h->oy1 = ly->oy1;
+        h->gradient = ly->gradient;
     }
     memset(h->hmask, 0, sizeof(h->hmask));
     memset(h->hk, 0, sizeof(h->hk));
@@ -413,7 +451,7 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
      * colour only: an outline fills the counters of the small letters. */
     {
         enum { MAXD = 10 };
-        static uint8_t orig[CW * CH], dist[CW * CH], tot[CW * CH], odist[CW * CH];
+        static uint8_t orig[CW * CH], dist[CW * CH], tot[CW * CH], odist[CW * CH], core[CW * CH];
         static int     hist[CH][MAXD + 1][256];
         int            color[CH][MAXD + 1], all[MAXD + 1], maxd = 0, bottom = -1, nmax = 0;
         int            tall = 0; /* an outline ring closes the counters of the new letters (e, a): body colour only */
@@ -521,6 +559,142 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                 }
         for (int k = 0; k < CW * CH; k++)
             nmax = dist[k] - 1 > nmax ? dist[k] - 1 : nmax;
+        Layers ly;
+        memset(&ly, 0, sizeof(ly));
+        {
+            /* the body: the most common colour at depths 4..7 (deeper ones cross into the
+               neighbouring letters' rims); the rings: the depths before it; the bevel: the
+               colours at the first body depth whose outside is up / left, or down / right */
+            /* the body from the strokes' cores (pixels at least two deep whose depth is a local
+               maximum: the middle of each stroke, thin letters included); a colour taking at least a
+               tenth of the cores belongs to the body; the rings: the depths before the first body
+               colour */
+            int sum[256] = { 0 }, tl[256] = { 0 }, br[256] = { 0 }, b = 0, cores = 0;
+            memset(core, 0, sizeof(core));
+            for (int y = 1; y + 1 < ch; y++)
+                for (int x = 1; x + 1 < cw; x++) {
+                    int kk = y * CW + x, d0 = odist[kk];
+                    if (d0 < 3 || odist[kk - 1] > d0 || odist[kk + 1] > d0 || odist[kk - CW] > d0 || odist[kk + CW] > d0)
+                        continue;
+                    core[kk] = 1;
+                    sum[orig[kk]]++;
+                    cores++;
+                }
+            for (int v = 1; v < 256; v++)
+                b = sum[v] > sum[b] ? v : b;
+            if (!b)
+                b = all[maxd];
+            ly.body = (uint8_t)b;
+            {
+                /* a box picture's fill: the most common colour at depths 4..7 (its inside) */
+                int fs[256] = { 0 }, f = 0;
+                for (int d = 4; d <= 7 && d <= maxd; d++)
+                    for (int y = 0; y < ch; y++)
+                        for (int v = 1; v < 256; v++)
+                            fs[v] += hist[y][d][v];
+                for (int v = 1; v < 256; v++)
+                    f = fs[v] > fs[f] ? v : f;
+                ly.fill = (uint8_t)(f ? f : b);
+            }
+            /* at most three rings: the fourth depth is the bevel (a mix of its colours) */
+            while (ly.nring < 3 && ly.nring <= maxd && all[ly.nring] != b && !(cores && sum[all[ly.nring]] * 10 >= cores))
+                ly.nring++;
+            for (int d = 0; d < ly.nring; d++)
+                ly.ring[d] = (uint8_t)all[d];
+            for (int y = 1; y < ch; y++)
+                for (int x = 1; x < cw; x++) {
+                    int kk = y * CW + x;
+                    if (odist[kk] - 1 != ly.nring)
+                        continue;
+                    if (odist[kk - 1] - 1 < ly.nring || odist[kk - CW] - 1 < ly.nring)
+                        tl[orig[kk]]++;
+                    else
+                        br[orig[kk]]++;
+                }
+            int t1 = 0, b1 = 0;
+            for (int v = 1; v < 256; v++) {
+                t1 = tl[v] > tl[t1] ? v : t1;
+                b1 = br[v] > br[b1] ? v : b1;
+            }
+            ly.bevel_tl = (uint8_t)(t1 && t1 != b ? t1 : 0);
+            ly.bevel_br = (uint8_t)(b1 && b1 != b ? b1 : 0);
+        }
+            {
+            /* a box picture (the title menu): most of its rectangle is opaque; its letters are the
+               colours that are neither the box's fill nor its frame. Otherwise the letters' body
+               is the depth past the rings. Their colour per row: the vertical gradient. */
+            int opaque = 0, rows[CH][16], rn[CH], bx0 = cw, bx1 = -1;
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                    if (orig[y * CW + x]) {
+                        opaque++;
+                        bx0 = x < bx0 ? x : bx0;
+                        bx1 = x > bx1 ? x : bx1;
+                    }
+            /* over the original's columns (a picture widened for its German text has new empty
+               columns beside its box) */
+            ly.box = bx1 - bx0 > 8 && opaque * 100 >= (bx1 - bx0 + 1) * ch * 95;
+            if (ly.box) {
+                ly.body  = ly.fill; /* the box: rings, fill; its letters by row */
+                ly.nring = 0;
+            }
+            if (ly.box && (bx0 > 0 || bx1 < cw - 1)) {
+                /* the box stretched over the whole width: its frame columns at both ends, a column of
+                   its fill between */
+                static uint8_t wide[CW * CH];
+                int            bw = bx1 - bx0 + 1;
+                for (int y = 0; y < ch; y++)
+                    for (int x = 0; x < cw; x++) {
+                        int sx = x < 3 ? x : x >= cw - 3 ? bw - (cw - x) : x - bx0 >= 3 && x - bx0 < bw - 3 ? x - bx0 : 3;
+                        wide[y * CW + x] = orig[y * CW + bx0 + (sx < 0 ? 0 : sx >= bw ? bw - 1 : sx)];
+                    }
+                for (int y = 0; y < ch; y++)
+                    memcpy(orig + y * CW, wide + y * CW, (size_t)cw);
+            }
+            ly.oy0 = ly.oy1 = -1;
+            memset(rn, 0, sizeof(rn));
+            for (int y = 0; y < ch; y++) {
+                int hst[256] = { 0 }, best = 0;
+                for (int x = 0; x < cw; x++) {
+                    int kk = y * CW + x, v = orig[kk];
+                    if (!v)
+                        continue;
+                    if (ly.box ? (v == ly.fill || v == all[0] || v == all[1]) : !core[kk])
+                        continue;
+                    hst[v]++;
+                }
+                for (int v = 1; v < 256; v++)
+                    best = hst[v] > hst[best] ? v : best;
+                ly.rowcol[y] = (uint8_t)best;
+                if (best) {
+                    if (ly.oy0 < 0)
+                        ly.oy0 = y;
+                    ly.oy1 = y;
+                }
+            }
+            (void)rows;
+            {
+                /* distinct colours of bands at least two rows high, each new one below the last: a
+                   gradient (the title words: 5-6 bands); noise between core rows is no band */
+                int seen[256] = { 0 }, bands = 0;
+                for (int y = 0; y + 1 < ch; y++) {
+                    int v = ly.rowcol[y];
+                    if (v && ly.rowcol[y + 1] == v && !seen[v]) {
+                        seen[v] = 1;
+                        bands++;
+                    }
+                }
+                ly.gradient = ly.box || bands >= 4;
+            }
+        }
+        int ny0 = -1, ny1 = -1;
+        for (int y = 0; y < ch; y++)
+            for (int x = 0; x < cw; x++)
+                if (tot[y * CW + x]) {
+                    if (ny0 < 0)
+                        ny0 = y;
+                    ny1 = y;
+                }
         for (int i = 0; i < n; i++)
             for (int y = 0; y < c[i].h; y++)
                 for (int x = 0; x < c[i].w; x++) {
@@ -531,8 +705,15 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                            rows of the original (top and bottom of its letters) as dark bands across
                            the thin new letters ("Verfehlt" read "Verfehit"). */
                         v = all[maxd < 3 ? maxd : 3];
+                        if (ly.box)
+                            v = row_colour(ly.rowcol, ly.oy0, ly.oy1, v, Y, ny0, ny1);
                         (void)nmax;
                         (void)color;
+                    } else if (ly.box) {
+                        /* the box (fill and frame) stays; the old letters in it become fill */
+                        v = orig[k];
+                        if (v && v != ly.fill && v != all[0] && v != all[1])
+                            v = ly.fill;
                     }
                     tset(t, c[i].u + x, c[i].v + y, v);
                 }
@@ -543,45 +724,6 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
             /* the original's colour per depth from its rim (outline rings, bevels, the gradient
                to the bright core): drawn at the output resolution by relative depth in the new
                strokes (hifile_index); the 1x picture above keeps the body colour */
-            Layers ly;
-            memset(&ly, 0, sizeof(ly));
-            {
-                /* the body: the most common colour at depths 4..7 (deeper ones cross into the
-                   neighbouring letters' rims); the rings: the depths before it; the bevel: the
-                   colours at the first body depth whose outside is up / left, or down / right */
-                int sum[256] = { 0 }, tl[256] = { 0 }, br[256] = { 0 }, b = 0;
-                for (int d = 4; d <= 7 && d <= maxd; d++)
-                    for (int y = 0; y < ch; y++)
-                        for (int v = 1; v < 256; v++)
-                            sum[v] += hist[y][d][v];
-                for (int v = 1; v < 256; v++)
-                    b = sum[v] > sum[b] ? v : b;
-                if (!b)
-                    b = all[maxd];
-                ly.body = (uint8_t)b;
-                /* at most three rings: the fourth depth is the bevel (a mix of its colours) */
-                while (ly.nring < 3 && ly.nring <= maxd && all[ly.nring] != b)
-                    ly.nring++;
-                for (int d = 0; d < ly.nring; d++)
-                    ly.ring[d] = (uint8_t)all[d];
-                for (int y = 1; y < ch; y++)
-                    for (int x = 1; x < cw; x++) {
-                        int kk = y * CW + x;
-                        if (odist[kk] - 1 != ly.nring)
-                            continue;
-                        if (odist[kk - 1] - 1 < ly.nring || odist[kk - CW] - 1 < ly.nring)
-                            tl[orig[kk]]++;
-                        else
-                            br[orig[kk]]++;
-                    }
-                int t1 = 0, b1 = 0;
-                for (int v = 1; v < 256; v++) {
-                    t1 = tl[v] > tl[t1] ? v : t1;
-                    b1 = br[v] > br[b1] ? v : b1;
-                }
-                ly.bevel_tl = (uint8_t)(t1 && t1 != b ? t1 : 0);
-                ly.bevel_br = (uint8_t)(b1 && b1 != b ? b1 : 0);
-            }
             {
                 /* layers only for the big pictures (battle words, attack names, title menu): the small
                    ones (title code, copyright, small labels) keep their body colour, their rings
@@ -589,7 +731,7 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                 int lines = 1;
                 for (const char* q = w->text; *q; q++)
                     lines += *q == '\n';
-                hipic_add(t, c, n, w, col, (ch - 2) / lines >= 14 && w->squeeze <= 10 ? &ly : NULL);
+                hipic_add(t, c, n, w, col, (ch - 2) / lines >= 14 && w->squeeze <= 25 ? &ly : NULL);
             }
         }
     }
@@ -649,10 +791,12 @@ static const Pic pics[] = {
     { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 1, 1, 78, 1 } }, /* LEVEL UP: the value of "Next Level" in the result box; right of the label, so
                                                               right-aligned at its old right edge, as wide as the room after "Nächstes Level" */
     /* title (file 0xB64) */
-    { 0xB64, 1, 0, 0, { "STARTTASTE DRÜCKEN", 0, 0, 1 } },  /* PRESS START BUTTON (three pictures) */
-    { 0xB64, 2, 0, 1, { "NEUES SPIEL", 0, 0, 1, 100, 1 } }, /* NEW GAME */
-    { 0xB64, 3, 0, 1, { "FORTSETZEN", 0, 0, 1, 100 } },     /* CONTINUE GAME */
-    { 0xB64, 4, 0, 1, { "KAMPFMODUS", 0, 0, 1, 100, 1 } },  /* BATTLE MODE */
+    /* the title words: tall and narrow like the originals (squeezed instead of set smaller: the
+       German words are as long as the English ones, Orbitron is a wide face) */
+    { 0xB64, 1, 0, 0, { "STARTTASTE DRÜCKEN", 0, 0, 1, 0, 0, 3, 0, 25 } },  /* PRESS START BUTTON (three pictures) */
+    { 0xB64, 2, 0, 1, { "NEUES SPIEL", 0, 0, 1, 100, 1, 3, 0, 14 } }, /* NEW GAME */
+    { 0xB64, 3, 0, 1, { "FORTSETZEN", 0, 0, 1, 100, 0, 3, 0, 14 } },  /* CONTINUE GAME */
+    { 0xB64, 4, 0, 1, { "KAMPFMODUS", 0, 0, 1, 100, 1, 3, 0, 14 } },  /* BATTLE MODE */
 };
 
 /* the attack names of the battle effects, set by host/lang.c (skill table) */
@@ -726,7 +870,7 @@ static int hifile_texel(const HiFile* f, int x, int y)
  * the PS1 rings are one texel each; at the output resolution half of it reads as a clean outline
  * without filling the letters. */
 static int ring_w(int k) { return k >= 2 ? (k + 1) / 2 : 1; }
-static int layer_pad(const HiPic* p, int k) { return p->nring > 0 ? p->nring * ring_w(k) + 1 : 0; }
+static int layer_pad(const HiPic* p, int k) { return p->nring > 0 && !p->box ? p->nring * ring_w(k) + 1 : 0; }
 
 /* chamfer (3-4) distance to the nearest pixel where in != inside, in 1/3 pixels (0 there) */
 static void chamfer(const uint8_t* m, int w, int h, int inside, uint16_t* d)
@@ -775,11 +919,25 @@ static void layer_colour(const HiPic* p, int k, uint8_t* m, int stride, int h)
     }
     chamfer(m, w, h, 1, din);
     chamfer(m, w, h, 0, dout);
+    int ny0 = -1, ny1 = -1; /* the new letters' rows (their band, for the original's gradient) */
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+            if (din[y * w + x]) {
+                if (ny0 < 0)
+                    ny0 = y;
+                ny1 = y;
+            }
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
             int i = y * w + x, v = 0;
             if (din[i] != 0) {
-                v = p->body;
+                /* the body: the original letters' colour of the same relative row (the title words'
+                   vertical gradient; flat for most battle words) */
+                v = p->gradient ? row_colour(p->rowcol, p->oy0, p->oy1, p->body, y, ny0, ny1) : p->body;
+                if (p->box) {
+                    m[i] = (uint8_t)v;
+                    continue;
+                }
                 if ((p->bevel_tl || p->bevel_br) && din[i] <= rw * 3) {
                     /* the bevel: is the outside nearer above / left or below / right? */
                     int up = 0;
@@ -787,7 +945,7 @@ static void layer_colour(const HiPic* p, int k, uint8_t* m, int stride, int h)
                         up = (x - s >= 0 && din[i - s] == 0) || (y - s >= 0 && din[i - s * w] == 0);
                     v = up ? (p->bevel_tl ? p->bevel_tl : p->body) : (p->bevel_br ? p->bevel_br : p->body);
                 }
-            } else if (p->nring > 0 && dout[i] <= p->nring * rw * 3) {
+            } else if (p->nring > 0 && !p->box && dout[i] <= p->nring * rw * 3) {
                 int r = (dout[i] - 1) / (rw * 3); /* 0: next to the letter = the innermost ring */
                 r     = r >= p->nring ? p->nring - 1 : r;
                 v     = p->ring[p->nring - 1 - r];
@@ -858,8 +1016,11 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
                     int X1 = X / k, Y1 = Y / k, mx = X - k, my = Y - k; /* shift 1 texel right, 1 down */
                     if (!(p->w.border && (X1 == 0 || X1 == p->cw - 1 || Y1 == 0 || Y1 == p->ch - 1)) && mx >= 0 &&
                         mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k) {
-                        if (p->nring >= 0)
+                        if (p->nring >= 0) {
                             v = hm[my * stride + mx]; /* the palette index of its layer (layer_colour) */
+                            if (p->box && v == 0)
+                                continue; /* the box of the 1x picture stays */
+                        }
                         else if (hm[my * stride + mx] >= 80)
                             v = p->col[i];
                     }
@@ -1078,10 +1239,24 @@ static void move_rect(Open* f, const Tex* t, Cell* c, int need, int align)
             }
             if (getenv("DW2_PICDEBUG"))
                 printf("[picwords] moved to %d,%d\n", u, v);
-            /* the original pixels come along (centred): the painter learns its colours from them */
-            for (int y = 0; y < H; y++) {
-                for (int x = 0; x < c->w; x++) {
-                    tset((Tex*)t, u + (align > 0 ? W - c->w : (W - c->w) / 2) + x, v + y, tget(t, c->u + x, c->v + y));
+            /* the original pixels come along (centred): the painter learns its colours from them. A
+               box picture (the title menu: at least 95 % opaque) is stretched to the new width (its
+               frame columns at both ends, a column of its fill between): the box stays a box */
+            {
+                int off = align > 0 ? W - c->w : (W - c->w) / 2, opaque = 0;
+                for (int y = 0; y < H; y++)
+                    for (int x = 0; x < c->w; x++)
+                        opaque += tget(t, c->u + x, c->v + y) != 0;
+                int box = opaque * 100 >= c->w * H * 95 && c->w > 8;
+                for (int y = 0; y < H; y++) {
+                    for (int x = 0; x < W; x++) {
+                        int sx = x - off;
+                        if (box)
+                            sx = x < 3 ? x : x >= W - 3 ? c->w - (W - x) : sx >= 3 && sx < c->w - 3 ? sx : 3;
+                        if (sx < 0 || sx >= c->w)
+                            continue;
+                        tset((Tex*)t, u + x, v + y, tget(t, c->u + sx, c->v + y));
+                    }
                 }
             }
             c->x -= align > 0 ? W - c->w : (W - c->w) / 2;

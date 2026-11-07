@@ -71,8 +71,9 @@ Not a cause: shader or pipeline creation (all pipelines are created at start), t
    palette: the primitive's CLUT colours them when drawn, exactly like the game's own textures
    (`TexRep_Sample` in software, `rep_sample` in `backend/shaders/hd.frag` reads the CLUT from the
    VRAM buffer). Palette cycling, fades and colour changes reuse the same tile; nothing is made or
-   uploaded again. Tiles with the optional Modern UI panel style (`DW2_MODERN_PANELS=1`) are still
-   coloured when made, since the style's colours are not the palette's (those sheets do not cycle).
+   uploaded again. Tiles with the Modern UI panel style (on by default in Modern since preview2,
+   `DW2_MODERN_PANELS=0` turns it off) are still coloured when made, since the style's colours are
+   not the palette's; see "Panel style spikes" below.
 2. The sampling block follows the primitive's magnification: one read per output pixel for runtime
    tiles; texture packs on magnified primitives are averaged over the pixels they actually cover.
 3. One transfer buffer for all pool uploads of a flush, kept and cycled.
@@ -116,6 +117,35 @@ the software renderer, larger German text areas). Not yet isolated. The slowdown
 Nvidia is the GPU path, where the measured upload and regeneration traffic above is what the game
 thread waited on.
 
+## Panel style spikes (perf-test1 measurement, 7 November 2026)
+
+The player's perf-test1 log (GTX 1070, i7-6700K, 1080p, internal 4x, 582 s) showed the Modern UI
+panel style at 1254 ms in total with a **peak of 90.3 ms in one frame** (about five frames late at
+60 Hz). The main wait in that log is elsewhere (195 s inside `SDL_SubmitGPUCommandBufferAndAcquireFence`,
+addressed by perf-test2); the style peaks are separate hitches.
+
+Measured cause (`DW2_PERF_TILES=1`, menu tour at 4x): 212 styled tiles were made for only 99 different
+panel pieces. The same piece is made again for every palette state (41 states: cursor colours,
+highlights), and each time the style computed the distance field interpolation, edge and gradient
+for every output pixel (k² pixels per texel), although those depend only on the panel shape.
+
+Fix (`backend/texrep.c` style_plan): the style of one piece is computed once as a per-pixel plan
+(as drawn / clear / style colour / style colour where the drawn texel is old blue shading) and kept
+(keyed by the source and a hash of its panel classes, at most 48 MiB, freed with the tiles); another
+palette only applies the plan. Texels whose whole 3x3 neighbourhood lies deeper inside the panel than
+the edge width get the fill colour without the per-pixel interpolation. Output is unchanged.
+
+| run (German, Modern, software renderer here) | style total before / after | peak frame before / after |
+|---|---|---|
+| menu tour, 4x | 108 ms / 25 ms | 26.8 ms / 5.8 ms |
+| menu tour, 6x (1440p) | 236 ms / 48 ms | 59.8 ms / 11.7 ms |
+| menu tour, 9x (4K) | 528 ms / 110 ms | 132.5 ms / 34.0 ms |
+| one battle with attacks, 4x (6502 frames) | 634 ms / 116 ms | 80.0 ms / 13.1 ms |
+
+All screenshots of these runs (5 per menu tour, 24 in the battle) are bit-identical before and after;
+reference images (Classic, English) 6/6. The remaining largest raster peak in these runs is the
+one-time boot of the title screen (frame 14). Not measured on the player's hardware yet.
+
 ## Not verified
 
 - **No test on real Nvidia (or any real GPU) hardware.** The GPU path ran on Mesa lavapipe, a
@@ -123,5 +153,5 @@ thread waited on.
   representative of a real GPU. The Windows build is checked in CI (build and hd_test on lavapipe).
   `DW2-Leistung.bat` produces the same measurement on the player's PC.
 - Windows-specific driver behaviour (transfer buffer cycling on the Nvidia Vulkan driver).
-- The Modern UI panel style (off by default) still makes palette-specific tiles.
+- The Modern UI panel style still makes palette-specific colour tiles (their style is now computed once per piece).
 - The remaining software-renderer cost in the attack phase (above).

@@ -112,6 +112,7 @@ void TexRep_IndexStats(int *sources, int *tiles, int *kib);
 typedef struct {
     uint64_t finds;      /* TexRep_Find calls */
     uint64_t idx_hits;   /* runtime tiles found in the cache */
+    uint64_t plan_hits;  /* Modern UI panel style: plans reused for another palette of the same piece */
     uint64_t idx_new;    /* runtime tiles made */
     uint64_t idx_new_px; /* their output pixels */
     uint64_t idx_full;   /* tile requests refused (memory full) */

@@ -295,6 +295,7 @@ typedef struct {
     const uint16_t *comp; /* per panel: top, bottom texel row */
     int ncomp;
     float *dist; /* per texel: distance (texels) from its centre to the panel outline, inside > 0 */
+    uint64_t style_hash; /* source and its panel classes (cls, cid, comp): the style plans' key */
     const uint16_t *words; /* the pixels as registered (the upload's original content) */
     TexRepIndexFn ofn; /* TexRep_AddIndexOverlay */
     void *octx;
@@ -464,6 +465,14 @@ void TexRep_SetSourceStyle(const uint16_t *words, int w, int h, const uint8_t *c
             srcs[i].ncomp = ncomp;
             free(srcs[i].dist);
             srcs[i].dist = NULL;
+            srcs[i].style_hash = hv;
+            if (cls != NULL) {
+                size_t nt = (size_t)w * (srcs[i].mode == 0 ? 4 : 2) * h;
+                uint64_t sh = fnv(hv, cls, nt);
+                if (cid != NULL) sh = fnv(sh, cid, nt * 2);
+                if (comp != NULL && ncomp > 0) sh = fnv(sh, comp, (size_t)ncomp * 4);
+                srcs[i].style_hash = sh;
+            }
             if (cls != NULL) {
                 /* the distance field: to the nearest texel outside every panel, at most 4 texels */
                 int tpw = srcs[i].mode == 0 ? 4 : 2, W = w * tpw, H = h;
@@ -519,53 +528,163 @@ static uint32_t mix_rgb(uint32_t a, uint32_t b, float t) {
     return 0xFF000000u | r << 16 | g << 8 | bl;
 }
 
-static void style_panels(const IdxSrc *s, int k, int ox, int oy, int rw, int rh, uint32_t *px) {
+/* The style of one tile geometry as a per-pixel plan: it depends on the panel shape only, not on
+   the palette. A palette change of the same panel piece (cursor colours, fades: measured 212 styled
+   tiles for 99 geometries in one menu tour) only applies the plan instead of computing the distance
+   field, edge and gradient for every output pixel again. Tags: as drawn, clear, the style colour, or
+   the style colour where the drawn texel is old blue shading (the rest of that rule needs the
+   palette's colour). */
+enum { PLAN_KEEP, PLAN_CLEAR, PLAN_FIXED, PLAN_FILL };
+typedef struct {
+    uint64_t src;
+    int ox, oy, rw, rh, k;
+    uint8_t *tag;
+    uint32_t *col;
+} StylePlan;
+#define STYLE_PLANS 512
+#define STYLE_PLAN_LIMIT ((size_t)48 << 20)
+static StylePlan plans[STYLE_PLANS];
+static int nplans;
+static size_t plan_bytes;
+
+static void style_plans_free(void) {
+    for (int i = 0; i < nplans; i++) {
+        free(plans[i].tag);
+        free(plans[i].col);
+    }
+    nplans = 0;
+    plan_bytes = 0;
+}
+
+static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int rw, int rh) {
     int tpw = s->mode == 0 ? 4 : 2, W = s->w * tpw;
-    /* edge cyan, a darker blue inside it, the fill a dark blue gradient; old frame lines and
-       labels (grey / white on the panel) become light cyan lines */
-    const uint32_t edge = 0xFF46D2FFu, inner = 0xFF1A6FA8u, fill_top = 0xFF10305Eu, fill_bot = 0xFF081A38u,
-                   line = 0xFF5CC8F0u;
+    /* edge cyan, a darker blue inside it, the fill a dark blue gradient */
+    const uint32_t edge = 0xFF46D2FFu, inner = 0xFF1A6FA8u, fill_top = 0xFF10305Eu, fill_bot = 0xFF081A38u;
     float px1 = 1.0f / k; /* one output pixel in texels */
-    if (s->dist == NULL) return;
-    for (int Y = 0; Y < rh * k; Y++) {
-        for (int X = 0; X < rw * k; X++) {
-            int tx = ox + X / k, ty = oy + Y / k;
+    size_t n = (size_t)rw * k * (size_t)rh * k;
+    StylePlan *pl;
+
+    for (int i = 0; i < nplans; i++) {
+        pl = &plans[i];
+        if (pl->src == s->style_hash && pl->ox == ox && pl->oy == oy && pl->rw == rw && pl->rh == rh && pl->k == k) {
+            texrep_perf.plan_hits++;
+            return pl;
+        }
+    }
+    if (nplans >= STYLE_PLANS || plan_bytes + n * 5 > STYLE_PLAN_LIMIT) style_plans_free();
+    pl = &plans[nplans];
+    pl->tag = malloc(n);
+    pl->col = malloc(n * 4);
+    if (pl->tag == NULL || pl->col == NULL) {
+        free(pl->tag);
+        free(pl->col);
+        return NULL;
+    }
+    pl->src = s->style_hash;
+    pl->ox = ox;
+    pl->oy = oy;
+    pl->rw = rw;
+    pl->rh = rh;
+    pl->k = k;
+    float e = 0.35f > 1.5f * px1 ? 0.35f : 1.5f * px1; /* the edge: 0.35 texel, at least 1.5 output pixels */
+    float deep = e + 0.35f + 1e-3f; /* margin: the bilinear sum of values above it stays above e + 0.35 */
+    int H = s->h, RW = rw * k;
+    for (int ty = oy; ty < oy + rh; ty++) {
+        for (int tx = ox; tx < ox + rw; tx++) {
             uint8_t c = s->cls[ty * W + tx];
-            if (c == 0) continue; /* not a panel: as drawn */
-            float x = ox + (X + 0.5f) / k, y = oy + (Y + 0.5f) / k;
-            float d = panel_dist(s, x, y);
-            uint32_t *p = &px[(size_t)Y * rw * k + X];
-            if (d < 0.0f) { /* outside the smoothed outline */
-                *p = 0;
+            int bx = (tx - ox) * k, by = (ty - oy) * k;
+            if (c == 0) { /* not a panel: as drawn */
+                for (int j = 0; j < k; j++) {
+                    memset(&pl->tag[(size_t)(by + j) * RW + bx], PLAN_KEEP, (size_t)k);
+                    memset(&pl->col[(size_t)(by + j) * RW + bx], 0, (size_t)k * 4);
+                }
                 continue;
             }
-            int n = s->cid[ty * W + tx];
-            float t = 0.5f;
-            if (n < s->ncomp && s->comp[2 * n + 1] > s->comp[2 * n])
-                t = (y - s->comp[2 * n]) / (float)(s->comp[2 * n + 1] + 1 - s->comp[2 * n]);
-            uint32_t base = mix_rgb(fill_top, fill_bot, t);
-            if (c == 2) {
-                uint32_t o = *p;
-                if ((o >> 24) == 0) continue;
-                int r = (o >> 16) & 255, g = (o >> 8) & 255, b = o & 255;
-                int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
-                int lum = (r * 3 + g * 6 + b) / 10;
-                if (mx - mn < 48 && lum > 110) {
-                    *p = line; /* old frame lines, labels */
-                    continue;
+            /* every distance a pixel of this texel interpolates (its 3x3 neighbourhood, clamped at
+               the sheet's edge as panel_dist does) far inside: the fill colour, no edge */
+            float mn = 4.0f;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
+                    int X = tx + dx, Y = ty + dy;
+                    X = X < 0 ? 0 : X >= W ? W - 1 : X;
+                    Y = Y < 0 ? 0 : Y >= H ? H - 1 : Y;
+                    float v = s->dist[Y * W + X];
+                    mn = v < mn ? v : mn;
                 }
-                if (!(b > r + 30 && b >= g && lum < 150)) continue; /* bars, slots, icons: as drawn */
-                /* the old blue shading: fill */
+            int m = s->cid[ty * W + tx];
+            uint8_t tg = c == 2 ? PLAN_FILL : PLAN_FIXED;
+            for (int j = 0; j < k; j++) {
+                int Yo = by + j;
+                float y = oy + (Yo + 0.5f) / k;
+                float t = 0.5f;
+                if (m < s->ncomp && s->comp[2 * m + 1] > s->comp[2 * m])
+                    t = (y - s->comp[2 * m]) / (float)(s->comp[2 * m + 1] + 1 - s->comp[2 * m]);
+                uint32_t base = mix_rgb(fill_top, fill_bot, t);
+                size_t row = (size_t)Yo * RW;
+                for (int q = 0; q < k; q++) {
+                    int Xo = bx + q;
+                    size_t i = row + Xo;
+                    if (mn > deep) {
+                        pl->col[i] = base;
+                        pl->tag[i] = tg;
+                        continue;
+                    }
+                    float x = ox + (Xo + 0.5f) / k;
+                    float d = panel_dist(s, x, y);
+                    uint32_t v;
+                    if (d < 0.0f) { /* outside the smoothed outline */
+                        pl->col[i] = 0;
+                        pl->tag[i] = PLAN_CLEAR;
+                        continue;
+                    }
+                    if (d < e) {
+                        v = mix_rgb(edge, inner, d / e);
+                    } else if (d < e + 0.35f) {
+                        v = mix_rgb(inner, base, (d - e) / 0.35f);
+                    } else {
+                        v = base;
+                    }
+                    pl->col[i] = v;
+                    pl->tag[i] = tg;
+                }
             }
-            /* the edge: 0.35 texel and at least 1.5 output pixels, then 0.35 texel of inner blue */
-            float e = 0.35f > 1.5f * px1 ? 0.35f : 1.5f * px1;
-            if (d < e) {
-                *p = mix_rgb(edge, inner, d / e);
-            } else if (d < e + 0.35f) {
-                *p = mix_rgb(inner, base, (d - e) / 0.35f);
-            } else {
-                *p = base;
+        }
+    }
+    nplans++;
+    plan_bytes += n * 5;
+    return pl;
+}
+
+static void style_panels(const IdxSrc *s, int k, int ox, int oy, int rw, int rh, uint32_t *px) {
+    /* old frame lines and labels (grey / white on the panel) become light cyan lines */
+    const uint32_t line = 0xFF5CC8F0u;
+    size_t n = (size_t)rw * k * (size_t)rh * k;
+    if (s->dist == NULL) return;
+    const StylePlan *pl = style_plan(s, k, ox, oy, rw, rh);
+    if (pl == NULL) return;
+    for (size_t i = 0; i < n; i++) {
+        switch (pl->tag[i]) {
+        case PLAN_KEEP:
+            break;
+        case PLAN_CLEAR:
+            px[i] = 0;
+            break;
+        case PLAN_FIXED:
+            px[i] = pl->col[i];
+            break;
+        default: {
+            uint32_t o = px[i];
+            if ((o >> 24) == 0) break;
+            int r = (o >> 16) & 255, g = (o >> 8) & 255, b = o & 255;
+            int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            int lum = (r * 3 + g * 6 + b) / 10;
+            if (mx - mn < 48 && lum > 110) {
+                px[i] = line; /* old frame lines, labels */
+                break;
             }
+            if (!(b > r + 30 && b >= g && lum < 150)) break; /* bars, slots, icons: as drawn */
+            px[i] = pl->col[i]; /* the old blue shading: fill */
+        }
         }
     }
 }
@@ -609,6 +728,7 @@ void TexRep_DropTiles(void) {
     idx_tiles = 0;
     idx_bytes = 0;
     idx_reset_wanted = 0;
+    style_plans_free();
 }
 
 void TexRep_IndexStats(int *sources, int *tiles, int *kib) {
@@ -747,8 +867,9 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     texrep_perf.used_kib += bytes >> 10;
     texrep_perf.mag_hist[prim_mag]++;
     if (getenv("DW2_PERF_TILES") != NULL)
-        printf("[perf] tile src %d (%dx%d tiles %dx%d) at %d,%d %dx%d k %d mag %d: %zu kpx\n", si, srcs[si].w, srcs[si].h,
-               srcs[si].tw, srcs[si].th, ox, oy, rw, rh, k, prim_mag, n / 1000);
+        printf("[perf] tile src %d (%dx%d tiles %dx%d) at %d,%d %dx%d k %d mag %d: %zu kpx%s clut %08x raster %.2f style %.2f ms\n", si,
+               srcs[si].w, srcs[si].h, srcs[si].tw, srcs[si].th, ox, oy, rw, rh, k, prim_mag, n / 1000,
+               styled ? " styled" : "", clut, (t1 - t0) / 1e6, (t3 - t2) / 1e6);
     idx_tiles++;
     idx_bytes += bytes;
     return img;

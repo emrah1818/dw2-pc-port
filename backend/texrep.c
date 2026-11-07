@@ -732,10 +732,17 @@ static void style_panels(const IdxSrc *s, int k, int ox, int oy, int rw, int rh,
                 px[i] = line; /* old frame lines, labels */
                 break;
             }
-            if (g > 200 && r < 70 && b < 100) {
+            if ((g > 200 && r < 70 && b < 100) || (g > 200 && r > 150 && b < 40 && g > r + 40)) {
+                /* also the Digi-Lab's lime selection frame (181, 255, 0) */
                 /* the battle menus' pure green frame lines (0, 255, 33): the cyan line too (HP / MP
                    bars: their bright segments are pale (206, 255, 231), the empty ones dark: kept) */
                 px[i] = line;
+                break;
+            }
+            if (g >= 85 && g < 200 && r < 30 && b < 30) {
+                /* dark green divider lines (0, 99, 0) of the Digi-Lab: the inner blue (HP / MP bars'
+                   empty segments stay: at most (8, 74, 33)) */
+                px[i] = 0xFF1A6FA8u;
                 break;
             }
             if (!(b > r + 30 && b >= g && lum < 150)) break; /* bars, slots, icons: as drawn */

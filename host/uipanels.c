@@ -33,9 +33,10 @@ typedef struct {
 } Sheet;
 
 /* the UI sheets with window and panel pieces: battle status and commands (0x13B), battle result
-   (0x25C), talk box (0x315), menu windows (0x457, 0x6B5, 0xE0A), area windows (0x3D9). Not the
+   (0x25C), talk box (0x315), menu windows (0x457, 0x6B5, 0xE0A), area windows (0x3D9), the Digi-Lab
+   (0xD10, the texture of the 0xD12 layouts: digivolve / DNA, list, values, techniques). Not the
    backgrounds of the same screens (0x515 grid, 0xCD8 circuit lines): they are no panels. */
-static const int sheet_ids[] = { 0x13B, 0x25C, 0x315, 0x457, 0x6B5, 0xE0A, 0x3D9 };
+static const int sheet_ids[] = { 0x13B, 0x25C, 0x315, 0x457, 0x6B5, 0xE0A, 0x3D9, 0xD10 };
 #define NSHEETS (int)(sizeof(sheet_ids) / sizeof(sheet_ids[0]))
 static Sheet sheets[NSHEETS];
 static int   panels_total;
@@ -95,6 +96,9 @@ static void classify(Sheet* s, const uint8_t* d, int size)
     }
     for (int r = 0; r < nrect && s->ncomp < 1024; r++) {
         int u = rects[r][0], v = rects[r][1], w = rects[r][2], h = rects[r][3], pairs = 0, best = 0, ba = 0, bb = 0;
+        /* the Digi-Lab's background: columns of binary digits (0xD10, u 0..103, v 0..119), no panel */
+        if (s->id == 0xD10 && u + w <= 104 && v + h <= 120)
+            continue;
         static int pc[256][256];
         if (w * h < 64)
             continue;
@@ -199,6 +203,10 @@ static void classify(Sheet* s, const uint8_t* d, int size)
         for (int i = 0; i < n; i++)
             s->cls[i] = s->cls[i] == 3 ? 1 : s->cls[i] == 4 ? 2 : s->cls[i];
     }
+    if (s->id == 0xD10) /* the Digi-Lab's background digit columns (see above): also not by the fill search */
+        for (int y = 0; y < 120 && y < H; y++)
+            for (int x = 0; x < 104 && x < W; x++)
+                s->cls[y * W + x] = 0;
     /* the talk portrait's frame (0x315 entry 1: a diamond drawn diagonally in the sheet, under the
        face): its border band was detail and stayed the PS1's stair of texels, enlarged (player
        report: "verpixelt"). The whole frame gives the outline (one smooth edge of the Modern style at

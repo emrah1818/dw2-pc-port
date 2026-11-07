@@ -263,7 +263,10 @@ static int sprite_like(const Vtx *v0, const Vtx *v1, const Vtx *v2) {
  * printed when the program ends, so short runs report as well */
 static unsigned long long n_all, n_some, n_none, n_poly;
 
+static unsigned long long text_glyphs, text_pgxp_hits;
+
 static void pgxp_stats_summary(void) {
+    printf("[pgxp] text glyphs: %llu, with a PGXP / smooth position: %llu\n", text_glyphs, text_pgxp_hits);
     if (n_poly) {
         printf("[pgxp] polygons: %llu, all corners precise %.1f%%, some %.1f%%, none %.1f%%\n", n_poly,
                100.0 * n_all / n_poly, 100.0 * n_some / n_poly, 100.0 * n_none / n_poly);
@@ -291,6 +294,14 @@ void PsxGpu_NoteSubpixel(const void *pkt, int dx256) {
     subpx[h].xy = q[2];
     subpx[h].uvc = q[3];
     subpx[h].dx = dx256;
+}
+
+/* 1: the primitive is a glyph text.c noted (any sub-pixel offset, also 0) */
+static int subpixel_known(const uint32_t *w) {
+    uintptr_t a = PsxHd_Packet;
+    unsigned h = (unsigned)((a >> 2) * 2654435761u) % SUBPX_TABLE;
+
+    return a != 0 && subpx[h].addr == a && subpx[h].xy == w[1] && subpx[h].uvc == w[2];
 }
 
 static int subpixel_of(const uint32_t *w) {
@@ -359,8 +370,22 @@ static void polygon(const uint32_t *w, int op) {
             px[k] = v[k].x - st.ofs_x;
             py[k] = v[k].y - st.ofs_y;
         }
-        if (PsxHd_Pgxp() || PsxHd_SmoothActive()) { /* PR.34: smooth frames draw no wobble too */
+        /* a glyph of the game's text (noted by text.c) is 2D: no PGXP / smooth-frame position. A
+         * corner that happened to share its integer screen point with a 3D vertex of the frame took
+         * that vertex's position and lost the glyph's sub-pixel place: the text shook while models
+         * moved underneath (results screen, PGXP on). DW2_PGXP_TEXT=1: the old behaviour. */
+        int glyph = quad && textured && subpixel_known(w);
+        static int old_text = -1;
+        if (old_text < 0) {
+            const char *e = getenv("DW2_PGXP_TEXT");
+            old_text = e != NULL && e[0] == '1';
+        }
+        if ((PsxHd_Pgxp() || PsxHd_SmoothActive()) && (!glyph || old_text)) { /* PR.34: smooth frames draw no wobble too */
             hit = Pgxp_LookupPoly(nv, px, py, fx, fy, fz, src);
+        }
+        if (glyph) {
+            text_glyphs++;
+            if (hit) text_pgxp_hits++;
         }
         for (k = 0; k < nv; k++) {
             v[k].src = -1;
@@ -376,7 +401,7 @@ static void polygon(const uint32_t *w, int op) {
             }
         }
         precise = hit != 0;
-        int text_dx = !hit && quad && textured ? subpixel_of(w) : 0;
+        int text_dx = !hit && glyph ? subpixel_of(w) : 0;
         if (text_dx != 0) {
             for (k = 0; k < nv; k++) {
                 v[k].px += text_dx / 256.0f;

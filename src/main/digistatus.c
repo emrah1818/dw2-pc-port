@@ -197,7 +197,7 @@ extern s32 GsSetRefView2(GsRVIEW2 *);
 /* dw2-pc-port, Modern UI: the model preview's scale (4096 = as on the PS1) that fits the model
  * into the picture's window at every turn. Measured once per Digimon: the model's projected
  * rectangle at eight view angles (projection only, nothing drawn) around its origin; the largest
- * scale (at most 2.5x, at least 1x) that keeps it inside the window's inner area. The window is
+ * scale (at most 2.5x, at least 0.5x: large Digimon reach past the window on the PS1) that keeps it inside the window's inner area. The window is
  * the PS1 layout's (DIGI_BOX_*: screen pixels of the 320x240 picture, the preview half of the
  * status window). */
 #define DIGI_BOX_L 14
@@ -262,7 +262,7 @@ static void digistatus_fit(Actor *actor, Wk19214 *work, GsRVIEW2 *ls, Nd19214 *n
                 s32 g = room[i] <= 0 ? 0x1000 : (s32)((s64)room[i] * 0x1000 / ext[i]);
                 f = g < f ? g : f;
             }
-            fit_scale = f < 0x1000 ? 0x1000 : f;
+            fit_scale = f < 0x800 ? 0x800 : f; /* large Digimon smaller than on the PS1, at most half */
             if (getenv("DW2_DIGISTATUS_LOG") != NULL)
                 printf("[digistatus] digimon %d: origin %d,%d extent l %d u %d r %d d %d -> scale %.2f\n", actor->digiId,
                        o[0], o[1], ext[0], ext[1], ext[2], ext[3], fit_scale / 4096.0);

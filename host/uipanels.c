@@ -199,6 +199,29 @@ static void classify(Sheet* s, const uint8_t* d, int size)
         for (int i = 0; i < n; i++)
             s->cls[i] = s->cls[i] == 3 ? 1 : s->cls[i] == 4 ? 2 : s->cls[i];
     }
+    /* the talk portrait's frame (0x315 entry 1: a diamond drawn diagonally in the sheet, under the
+       face): its border band was detail and stayed the PS1's stair of texels, enlarged (player
+       report: "verpixelt"). The whole frame gives the outline (one smooth edge of the Modern style at
+       the output resolution), its band the panel fill; the inside (class 5) and the face drawn
+       over it semi-transparently keep their colours */
+    if (s->id == 0x315 && count > 1) {
+        uint32_t o = PictureTable_Entry(d, size, 1);
+        if (o != 0 && o + 16 <= (uint32_t)size && d[o] != 0xFF) {
+            int u = d[o], v = d[o + 1], w = d[o + 8], h = d[o + 9] ? d[o + 9] : 256;
+            int id = s->ncomp < 1024 ? s->ncomp++ : s->ncomp - 1;
+            s->comp[2 * id]     = (uint16_t)v;
+            s->comp[2 * id + 1] = (uint16_t)(v + h - 1);
+            for (int y = v; y < v + h && y < H; y++)
+                for (int x = u; x < u + w && x < W; x++)
+                    if (texel(s, x, y)) {
+                        /* the border band (detail) becomes panel; the inside (the face is drawn over
+                           it, semi-transparent) stays as drawn */
+                        int band = s->cls[y * W + x] == 2;
+                        s->cls[y * W + x] = band ? 1 : 5; /* 5: inside the outline, as drawn */
+                        s->cid[y * W + x] = (uint16_t)id;
+                    }
+        }
+    }
     /* the word pictures on the sheet (ZIEL, Schaden, HP / MP labels) keep their own colours */
     {
         extern int PicWords_Rects(int file, int* r, int max);

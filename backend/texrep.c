@@ -675,7 +675,7 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
                     size_t i = row + Xo;
                     if (mn > deep) {
                         pl->col[i] = base;
-                        pl->tag[i] = tg;
+                        pl->tag[i] = c == 5 ? PLAN_KEEP : tg;
                         continue;
                     }
                     float x = ox + (Xo + 0.5f) / k;
@@ -694,7 +694,7 @@ static const StylePlan *style_plan(const IdxSrc *s, int k, int ox, int oy, int r
                         v = base;
                     }
                     pl->col[i] = v;
-                    pl->tag[i] = tg;
+                    pl->tag[i] = c == 5 && d >= e + 0.35f ? PLAN_KEEP : tg; /* 5: inside an outline, as drawn */
                 }
             }
         }

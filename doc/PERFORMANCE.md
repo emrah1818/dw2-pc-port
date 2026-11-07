@@ -93,6 +93,14 @@ rendering; no resolution or feature is reduced.
 | Software 4K, one battle: tiles made | 925 (276 M px) | 225 (36 M px) |
 | Software 4K, one battle: rasterization + conversion | 1.87 s | 0.20 s |
 | Software 4K, one battle: tile memory peak / memory full / drops | 254 MiB / 284 / 4 | 34 MiB / 0 / 0 |
+| GPU 720p (scale 2), one battle: tiles made / pool uploads | 831 / 68 MiB | 225 / 2 MiB |
+| GPU 720p, attack phase (frames 3600-4400): tiles made / uploads | 198 / 11.9 MiB | 72 / 0.7 MiB |
+
+The GPU battle ran at scale 2 because lavapipe is too slow for a whole battle at 4K; the "before"
+column there is the new build with the old per-palette tiles forced (a temporary switch, not
+committed). Tile sizes grow with the square of the scale (4K = 9x: about 20 times the 720p
+pixels), so at 4K the same battle uploads in the order of 1.4 GB before (with pool overflows, as
+measured on the title screen) and about 40 MiB after.
 
 First vs repeated display: before, a repeated attack name with a different palette state was a new
 tile (first and repeated displays alike were slow); after, only the first display of a glyph or
@@ -100,7 +108,11 @@ picture at a size makes a tile (on average 0.9 ms for one at 4K here), repeats a
 
 Frame times of the software renderer at 4K are dominated by software rasterizing on this 2-core
 machine (English Classic, without any runtime tiles, takes the same 13-48 s per 400 frames as
-German Modern); there the tile work was a small share (1.9 s of 410 s). The slowdown reported on
+German Modern); there the tile work was a small share (1.9 s of 410 s). After the fix the
+total is the same (410.5 s): in the attack phase German Modern stays about 20 ms per frame slower
+than English Classic in software (frames 3600-4400: 96.8 s against 80.2 s) although no tiles
+are made there; this share is not the tiles (candidates: the per-pixel replacement lookup of
+the software renderer, larger German text areas). Not yet isolated. The slowdown reported on
 Nvidia is the GPU path, where the measured upload and regeneration traffic above is what the game
 thread waited on.
 
@@ -112,3 +124,4 @@ thread waited on.
   `DW2-Leistung.bat` produces the same measurement on the player's PC.
 - Windows-specific driver behaviour (transfer buffer cycling on the Nvidia Vulkan driver).
 - The Modern UI panel style (off by default) still makes palette-specific tiles.
+- The remaining software-renderer cost in the attack phase (above).

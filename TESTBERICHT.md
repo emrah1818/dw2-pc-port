@@ -20,6 +20,11 @@ Meldung: Beim Anzeigen deutscher Attackennamen und Kampfwörter bricht die Bildr
 | Software 4K, ein Kampf: Kacheln | 925 (276 Mio. Pixel) | 225 (36 Mio.) |
 | Software 4K, ein Kampf: Rastern + Umrechnen | 1,87 s | 0,20 s |
 | Software 4K, ein Kampf: Kachelspeicher max. / voll / geleert | 254 MiB / 284 / 4 | 34 MiB / 0 / 0 |
+| GPU 720p, ein Kampf: Kacheln / Uploads | 831 / 68 MiB | 225 / 2 MiB |
+
+**Release:** [v1.5.0-preview2](https://github.com/emrah1818/dw2-pc-port/releases/tag/v1.5.0-preview2) (Commit c8a7019). CI grün: [Lauf 42369893274](https://github.com/emrah1818/dw2-pc-port/actions/runs/42369893274), Release-Lauf [42370685771](https://github.com/emrah1818/dw2-pc-port/actions/runs/42370685771).
+
+**Offen:** Im Software-Renderer bleibt die Angriffsphase auf Deutsch/Modern etwa 20 ms pro Bild langsamer als Englisch/Classic. Das liegt nicht an den Kacheln und ist noch nicht eingegrenzt.
 
 **Tests:**
 - `hd_test` mit neuem Test „Palettenwechsel färbt dieselbe Kachel“: Software und GPU (lavapipe), 0 Fehler.

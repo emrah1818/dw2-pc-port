@@ -150,7 +150,19 @@ Siehe TESTBERICHT.md. Kurzfassung:
   - Porträtrahmen im Dialog verpixelt. Er ist eine gestrichelte Linie und läuft nicht über das Fensterdesign; braucht eigenen Weg.
   - LV-Beschriftung schöner. Die Original-Zelle ist nur 8×7 Pixel.
   - Kampf mit 3 Gegnern hier nicht getestet.
-- Offen, in dieser Reihenfolge:
+- **Master-Prompt 7.11. abends, erledigt und getestet:**
+  - Cheat-Menü mit lesbaren Werten (Commit 4115c7a).
+  - Porträtrahmen glatt (ea1be9b).
+  - LV fest eingebaut, auch ohne `texts.tsv` (11391a2).
+  - Digi-Labor im neuen Fensterdesign, normale Digitation und DNA (ba385f1).
+  - F1-Lexikon aus den Disc-Tabellen (1090f86).
+  - Digi-Labor und Status in 4:3, 16:9 und 21:9 geprüft.
+  - 5× Kampf: Kachelspeicher nie voll (83 MiB max).
+- Offen:
+  - Kampf mit drei Gegnern nicht ausgelöst.
+  - 3D-Modell im Digi-Labor nicht eingepasst. Es ist kleiner, liegt aber im Fenster.
+  - Englische Menüreste ohne private `texts.tsv`. Die Übersetzung darf nicht öffentlich werden.
+- Frühere offene Liste (Stand vorher):
   1. Digitation (DNA-Digitation; Texte 01FD:045C–0468).
   2. Lexikon.
   3. Restliche Panel-Kanten.

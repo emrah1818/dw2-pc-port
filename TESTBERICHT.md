@@ -1,5 +1,26 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## 1.6.0-preview7 (7.11.2026, Master-Prompt)
+
+| Test | Ergebnis |
+|---|---|
+| Referenzen Classic/Englisch | 6/6 bitgleich |
+| save_test / cheat_test | 9/9 / 31/31 |
+| fonts_test, hd_test, textscript_test | bestanden / 0 Fehler / 90/90 |
+| LV ohne und mit privater `texts.tsv`, Modern und Classic | Status und Tamer-Status zeigen LV |
+| Lademenü | zeigt kein Digimon-Level |
+| Digi-Labor (Dev-Warp 0x32F): Moduswahl, Liste, Werte mit DP, Techniken, DNA-Weg; 4:3, 16:9, 21:9 | neues Fensterdesign, Hintergrund unverändert, deutsche Meldungen |
+| Kampf 3×, 16:9 gegen den vorigen Stand | 8 von 9 Bildern bitgleich (Cursor-Endlinie jetzt blau) |
+| Kampf 5×, ganzer Kampf | Kachelspeicher 0-mal voll, max. 83 MiB; Stil 140 ms, Rastern 294 ms gesamt |
+| F1 Cheats | Felder lesbar, Werte unter „Digimon-Details“ |
+| F1 Lexikon (Screenshot) | Agumon: Serum, Rookie, Kleine Flamme MP 8, → Greymon |
+| Porträtrahmen | glatt, Gesichtsfarben unverändert |
+
+**Nicht getestet:**
+- Echte Windows-/Nvidia-Hardware für diesen Stand.
+- Kampf mit drei Gegnern.
+- Eine tatsächlich ausgeführte Digitation oder DNA-Digitation. Bis zur Bestätigungsfrage ist es geprüft; die Spielregeln sind unverändert.
+
 ## 1.6.0-preview2 (7.11.2026, nach dem Test des Nutzers)
 
 **Messung des Nutzers mit 1.6.0-preview** (GTX 1070, 1080p, 5× intern, GPU, Smooth + VSync, Mailbox):

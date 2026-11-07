@@ -67,7 +67,19 @@ Grafik: Sheets 0x513 (Layouts 0x513001C–0x5130026) und das Menü-Fenstersheet.
 
 Ein „Lexikon“ wäre also eine **neue PC-Funktion**. Sie dürfte nur aus vorhandenen Spieldaten zur Laufzeit gefüllt werden (Namen, Typ, Stufe, Techniken). Sie wird nicht ohne Freigabe gebaut, weil „fehlende Anforderungen nicht erfinden“ gilt.
 
-## 4. Erforderliche Änderungen für Modern UI (geplant, noch nicht umgesetzt)
+## 4. Umgesetzt (7.11.2026)
+
+- **Fensterdesign:** Die Labor-Fenster kommen nicht aus 0xD12 selbst. 0xD12 enthält nur die Layouts, die Textur ist **0xD10**. 0xD10 ist jetzt im Fensterdesign. Ausgenommen sind die Hintergrund-Ziffernspalten (u 0–103, v 0–119). Der lindgrüne Auswahlrahmen wird cyan, die dunkelgrünen Trennlinien innenblau.
+- **Geprüft** über den Dev-Warp `0x32F` (Moduswahl, Liste, Werte mit DP, Techniken, DNA-Weg mit der Meldung „Rookie-Digimon können keine DNA-Digitation machen.“), in 4:3, 16:9 und 21:9.
+- **Spielregeln unverändert.**
+- **Lexikon:** neuer F1-Reiter „Lexikon“, nur aus den Disc-Tabellen:
+  - Nr., Name, Typ, Stufe, Spezialität.
+  - Technik beim Digitieren mit MP und Beschreibung.
+  - Digitation nach DP genau wie `Digi_GetEvolutionTarget`.
+  - Herkunft.
+  - Nicht gezeigt: Wachstumsklassen, Level-Grenzen, DNA-Tabellen.
+
+## 4b. Ursprünglich geplante Änderungen
 
 1. **0xD12 ins Fensterdesign** (`host/uipanels.c`):
    - Zuerst die Klassifikation prüfen: Füllung, Rahmen, Kanten zwischen Teilen.

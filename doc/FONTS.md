@@ -11,9 +11,9 @@ of every piece of lettering in the game; the open items are listed at the end.
 | Large title-menu and battle word pictures | Orbitron Bold | Rasterizes the 25 existing picture mappings using their current DE/EN spelling, palettes, layout and animation |
 | Attack-name pictures | Orbitron Bold | Reads names from the current layered WAZADATA, including names that remain English; does not invent translations |
 | Battle-status letter cells | Orbitron Bold | Replaces known alphabet cells, retaining the existing German wording, including ae/oe/ue |
-| Numbers, II, L1–L5 | Roboto Mono Medium | Main font atlases; numeric sprites identified by `Gfx_SetPartsNumber` are also replaced when drawn |
+| Numbers, II, L1–L5 | Exo 2 Bold (numeric sprites), Roboto Mono Medium (atlas II / L1–L5) | Numeric sprites identified by `Gfx_SetPartsNumber` are redrawn in Exo 2 Bold: Roboto Mono's dotted zero read as 8 at this size (decision 7.11.2026). The battle level digit (0x13B, a gradient sprite) takes its palette's brightest colour with the darkest as shadow |
 | Menu word cells | Exo 2 Medium | Restyles the 18 known word ranges; retains existing translations and `words.tsv` overrides |
-| Stats image labels | Roboto Mono Medium | Five shared texture regions in 0x13B (HP, two MP sizes, EL, slash), preserving their spelling and adjacent graphics |
+| Stats image labels | Exo 2 Bold | Five shared texture regions in 0x13B (HP, two MP sizes, EL, slash); in German EL reads LV (also the status screens' system texts 0x81 / 0x106, host/lang.c) |
 | Development scene font | Roboto Mono Medium | Rebuilds all 64 8×8 ASCII cells in a private buffer before upload; original disc table remains unchanged |
 | Copyright and controller notice | Exo 2 Medium | Repaints 0xB64:5/6, retaining wording and the controller notice's enclosing frame |
 

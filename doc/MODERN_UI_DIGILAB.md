@@ -86,7 +86,7 @@ Ein „Lexikon“ wäre also eine **neue PC-Funktion**. Sie dürfte nur aus vorh
    - Wortbilder ausnehmen.
    - Vorher-/Nachher-Bilder machen.
 2. **Texte einpassen:** Die vorhandene Zeilen-Einpassung (`host/uilayout.c`) gilt automatisch. Die deutschen Meldungen 0x115–0x12A sind im Labor zu prüfen.
-3. **3D-Modell im Labor:** dieselbe Einpassung wie im Status-Menü (`Gfx_ModelScreenBounds`, `src/main/model.c`), falls es dort zu klein oder zu groß ist.
+3. **3D-Modell im Labor:** geprüft, bleibt in Originalgröße. Es steht zwischen den Wertespalten bzw. gleitet hinter der Liste, größer würde es Werte und Techniken verdecken.
 4. **Breitbild:** Das Labor ist eine Stadt-Szene (keine Kampf-Tabelle 5). Die Anordnung in 16:9/21:9 ist zu prüfen.
 5. **DP-Anzeige:** Die Zahl ist schon modern. Lesbarkeit und Farbe auf dem neuen Fenster prüfen, so wie bei der Level-Zahl im Kampf.
 6. **Spielregeln unverändert:** Keine Änderung an `dna.c`, `Stg20_LabDigivolve` oder `Stg20_LabDnaDigivolve` außer reiner Darstellung.

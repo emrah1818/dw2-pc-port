@@ -1,5 +1,17 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## 1.6.0-preview8 – Bugfix Screen Issue 69219 (7.11.2026)
+
+| Test | Ergebnis |
+|---|---|
+| **Nutzer, Windows/Nvidia, 16:9:** Technik erlernen, ersetzen und übertragen | „passt, kein Problem“ (Rückmeldung 7.11., 22:54) |
+| **Nutzer:** Namenseingabe | „funktioniert jetzt“ |
+| Namenseingabe nach DNA-Digitation (Dev-Warp, PGXP, 16:9) | 501 → 0 verschobene Buchstaben |
+| Kampf mit 1, 2 und 3 Gegnern (Domänen 6, 10, 14, 16:9) | Gegnerfenster links, Mitte und rechts auf einer Höhe, passend zu den Digimon-Fenstern |
+| Referenzen, Speichern, Cheats, Schrift-, HD- und Textskript-Tests | 6/6, 9/9, 31/31, bestanden |
+
+**Nicht vom Nutzer getestet:** 21:9 im Technik-Menü (er hat 16:9 bestätigt).
+
 ## 1.6.0-preview7 (7.11.2026, Master-Prompt)
 
 | Test | Ergebnis |

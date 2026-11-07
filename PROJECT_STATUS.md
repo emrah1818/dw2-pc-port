@@ -158,9 +158,9 @@ Siehe TESTBERICHT.md. Kurzfassung:
   - F1-Lexikon aus den Disc-Tabellen (1090f86).
   - Digi-Labor und Status in 4:3, 16:9 und 21:9 geprüft.
   - 5× Kampf: Kachelspeicher nie voll (83 MiB max).
+- preview8 (Bugfix 69219): Technik-Erlernen-Menü und Namenseingabe vom Nutzer in 16:9 bestätigt. Kampf mit 3 Gegnern getestet.
+- Entschieden: Das 3D-Modell im Digi-Labor bleibt in Originalgröße. Es steht zwischen den Wertespalten bzw. gleitet hinter der Liste, größer würde es HP/MP und Techniken verdecken.
 - Offen:
-  - Kampf mit drei Gegnern nicht ausgelöst.
-  - 3D-Modell im Digi-Labor nicht eingepasst. Es ist kleiner, liegt aber im Fenster.
   - Englische Menüreste ohne private `texts.tsv`. Die Übersetzung darf nicht öffentlich werden.
 - Frühere offene Liste (Stand vorher):
   1. Digitation (DNA-Digitation; Texte 01FD:045C–0468).

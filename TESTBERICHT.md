@@ -16,7 +16,7 @@ Commits: 4eb3429 (Laufzeitschrift), 1e68287 (Wortbilder in Ausgabeauflösung, Ab
 | Classic UI Englisch | keine Laufzeitschrift, keine Panels | Referenzbilder 6/6 |
 | Font-Lizenzen | OFL ohne reservierte Namen; Einbettung mit Lizenz zulässig | [doc/FONTS.md](doc/FONTS.md) |
 
-Regressionen: Commit 1e68287 Speichertest 9/9, Cheattest 31/31, CI grün ([Lauf 42318687718](https://github.com/emrah1818/dw2-pc-port/actions/runs/42318687718)); Commit 54346ff Referenzbilder 6/6, `fonts_test`, textscript 90/90, `hd_test` 0 Fehler; Speichertest, Cheattest und CI siehe unten.
+Regressionen: Commit 1e68287 Speichertest 9/9, Cheattest 31/31, CI grün ([Lauf 42318687718](https://github.com/emrah1818/dw2-pc-port/actions/runs/42318687718)); Commit 54346ff Referenzbilder 6/6, `fonts_test`, textscript 90/90, `hd_test` 0 Fehler, Speichertest 9/9, Cheattest 31/31, CI grün (Windows, Linux, Release-Job nur Test-Build: [Lauf 42321201198](https://github.com/emrah1818/dw2-pc-port/actions/runs/42321201198)).
 
 ### Umgesetzt, aber noch nicht freigegeben (abgeschaltet)
 

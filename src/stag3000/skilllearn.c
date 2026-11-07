@@ -46,6 +46,28 @@ void Stg30_SkillLearnInit(Actor *a0, Stg30SkillLearnArgs *args) {
     Snd_PlayById(0x2B, 0);
 }
 
+/* dw2-pc-port (from ChatGPT's PR #5, a7601b4, without its list compaction at start: that would
+   reorder the Digimon's own technique slots): keep the cursor and scroll inside the occupied rows
+   after transfers and scrolling; the bar is hidden on an empty list. */
+static void Stg30_SkillLearnClamp(Stg30SkillLearnWork *w) {
+    s32 row;
+    for (row = 0; row < 2; row++) {
+        s32 count = w->count[row];
+        s32 maxScroll, maxRow;
+        if (count < 0) count = 0;
+        if (count > 12) count = 12;
+        maxScroll = count > 10 ? count - 10 : 0;
+        if (w->scroll[row] < 0) w->scroll[row] = 0;
+        if (w->scroll[row] > maxScroll) w->scroll[row] = maxScroll;
+        maxRow = count - w->scroll[row] - 1;
+        if (maxRow > 9) maxRow = 9;
+        if (maxRow < 0) maxRow = 0;
+        if (w->cursorRow[row] < 0) w->cursorRow[row] = 0;
+        if (w->cursorRow[row] > maxRow) w->cursorRow[row] = maxRow;
+    }
+    if (w->column != 0 && w->column != 1) w->column = 0;
+}
+
 void Stg30_SkillLearnRefreshList(Actor *a0) {
     Stg30SkillLearnWork *w = (Stg30SkillLearnWork *)a0->work;
     s32 row;
@@ -56,6 +78,7 @@ void Stg30_SkillLearnRefreshList(Actor *a0) {
     s32 id;
     s32 scroll;
 
+    Stg30_SkillLearnClamp(w);
     for (row = 0; row < 2; row++) {
         scroll = w->scroll[row];
         for (col = 0; col < 10; col++) {
@@ -133,6 +156,10 @@ void Stg30_SkillLearnUpdate(Actor *a0) {
         }
         w->count[0] = 0;
         w->count[1] = 0;
+        w->column = 0;
+        w->buttonIndex = 0;
+        w->cursorRow[0] = w->cursorRow[1] = 0;
+        w->scroll[0] = w->scroll[1] = 0;
         for (i = 0; i < 12; i++) {
             if (w->skillLists[0][i] != 0) {
                 w->count[0]++;
@@ -203,6 +230,7 @@ void Stg30_SkillLearnUpdate(Actor *a0) {
         case 1:
             w->buttonRowActive = 0;
             do {
+                Stg30_SkillLearnClamp(w);
                 row = w->column;
                 cur = &w->cursorRow[row];
                 scr = &w->scroll[row];
@@ -226,10 +254,10 @@ void Stg30_SkillLearnUpdate(Actor *a0) {
                         Snd_PlayById(0xD, 0);
                     }
                 } else if (Pad_State[0].repeat & 0x4000) {
-                    if (*cur != 9) {
+                    if (*cur + *scr + 1 < *cnt && *cur != 9) {
                         *cur += 1;
                         Snd_PlayById(0xD, 0);
-                    } else if (*scr + 10 < *cnt) {
+                    } else if (*cur == 9 && *scr + 10 < *cnt) {
                         *scr += 1;
                         Snd_PlayById(0xD, 0);
                     }
@@ -239,7 +267,7 @@ void Stg30_SkillLearnUpdate(Actor *a0) {
                 } else if (Pad_State[0].cross > 0) {
                     v = w->skillLists[row][*cur + *scr];
                     other = row ^ 1;
-                    if (v == 0 || w->count[other] == 12) {
+                    if (w->count[row] == 0 || v == 0 || w->count[other] == 12) {
                         Snd_PlayById(0x10, 0);
                     } else if (row != 0 && w->count[row] == 1) {
                         Snd_PlayById(0x10, 0);
@@ -254,6 +282,7 @@ void Stg30_SkillLearnUpdate(Actor *a0) {
             } while (0);
             break;
         }
+        Stg30_SkillLearnClamp(w);
         Stg30_SkillLearnRefreshList(a0);
         Stg30_SkillLearnRefreshButtons(a0);
         break;
@@ -273,6 +302,12 @@ void Stg30_SkillLearnDraw(Actor *a0) {
     GfxPart *q;
     s32 m;
 
+#ifdef DW2_NATIVE
+    {
+        extern void UiLayout_NoteSkillLearn(void);
+        UiLayout_NoteSkillLearn(); /* dw2-pc-port: no wide HUD shift under this 4:3 screen */
+    }
+#endif
     p = (GfxPart *)Cd_GetFileEntry(0x1A1001B);
     Gfx_DrawParts((EntA0 *)p);
     p = (GfxPart *)Cd_GetFileEntry(0x1A1001C);
@@ -280,7 +315,8 @@ void Stg30_SkillLearnDraw(Actor *a0) {
     p = (GfxPart *)Cd_GetFileEntry(0x1A1001D);
     for (q = p; q->fileId != 0; q++) {
         if (q->groupMask & 0x4000) {
-            if (w->buttonRowActive != 0) {
+            if (w->buttonRowActive != 0 || w->count[w->column] == 0 ||
+                w->cursorRow[w->column] + w->scroll[w->column] >= w->count[w->column]) {
                 q->visible = 0;
             } else {
                 q->visible = 1;

@@ -168,6 +168,15 @@ static int log_parts = -1;
 static int fit_lines, grown_lines, squeezed_lines; /* stats for the log */
 
 static int nwwin[2], nwpart[2]; /* wide HUD: windows moved / parts moved this frame (below) */
+/* the technique-learning screen after a battle (layouts 0x1A1 entries 0x1B-0x1E): a 4:3 screen of
+   its own over the battle; while it is up the battle HUD does not move into the wide margin (its
+   cursor and the highlighted text did, away from the lists; player report "Screen Issue 69219") */
+static int skilllearn_frame[2];
+
+/* src/stag3000/skilllearn.c Stg30_SkillLearnDraw: the screen is drawn this frame */
+void UiLayout_NoteSkillLearn(void) {
+    skilllearn_frame[cur] = 1;
+}
 /* the enemy boxes (0x13B entry 0x48): the PS1 places them in a stair; in the wide HUD they
    share the top-most one's height (the player's own boxes are in one row too) */
 static int enemy_top[2] = { 99999, 99999 };
@@ -180,6 +189,7 @@ void UiLayout_Flip(void) {
     nwwin[cur] = 0;
     nwpart[cur] = 0;
     enemy_top[cur] = 99999;
+    skilllearn_frame[cur] = 0;
 }
 
 /* GfxPartSprite (include/main/156C.h): fileId 0, x 4, y 6, partGroup 0xD; cells 0x10 each:
@@ -315,7 +325,7 @@ void UiLayout_SetWideScene(int table) {
 }
 
 static int wide_on(void) {
-    return wide_table >= 0 && PsxHd_Wide() > 0 && UiText_Modern();
+    return wide_table >= 0 && PsxHd_Wide() > 0 && UiText_Modern() && !skilllearn_frame[0] && !skilllearn_frame[1];
 }
 
 /* outside battles: the talk portrait (file 0x315, entries 1-4: frame and picture above the

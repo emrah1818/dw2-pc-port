@@ -393,7 +393,16 @@ static TextBox *Text_NativeNeighbour(TextBoxWork *wk, TextBox *r, s32 x, s32 y, 
    again; returns the spacing scale for what is still missing */
 static s32 Text_NativeLine(TextBoxWork *wk, TextBox *r, const u8 *s, s32 x, s32 y) {
     s32 scale, w, nx, saveTable = Text_NativeTable;
-    TextBox *nb = Text_NativeNeighbour(wk, r, x, y, &nx);
+    TextBox *nb;
+
+    if (r->charAdvance != (r->bigFont ? 9 : 7)) {
+        /* a fixed cell advance (the name entry's letter grid: 19 pixels) is a grid: never fitted.
+           Its line was fitted to the window found at its start, which in the name entry is at times
+           the small cursor frame that moves with the cursor: letters jumped (player report) */
+        Text_NativeTight = 0;
+        return 0x10000;
+    }
+    nb = Text_NativeNeighbour(wk, r, x, y, &nx);
 
     Text_NativeTight = 0;
     w = Text_NativeMeasure(r, s);
@@ -1081,7 +1090,9 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pkt->tag.word = (pkt->tag.word & 0xFF000000) | (*ot & 0xFFFFFF);
                     *ot = (*ot & 0xFF000000) | ((u32)pkt & 0xFFFFFF);
 #ifdef DW2_NATIVE
-                    if ((uiLeft & 255) != 0) {
+                    { /* every glyph, also on whole pixels (the name entry's fixed grid): the renderer
+                         keeps glyphs off the PGXP / smooth-frame 3D positions (letters jumped over the
+                         Digimon model behind the name entry, player video) */
                         extern void PsxGpu_NoteSubpixel(const void *pkt, int dx256);
                         PsxGpu_NoteSubpixel(pkt, (uiLeft & 255) * (Sys_State.centerX.s == 0x140 ? 2 : 1));
                     }

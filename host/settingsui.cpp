@@ -15,6 +15,7 @@
 #include "host/settings.h"
 #include "host/update.h"
 #include "host/ui.h"
+#include "host/buttons.h"
 
 /* Community server (PC port and DW2 Online); also at the top of README.md. */
 #define DISCORD_URL "https://discord.gg/nHXAq2fdCJ"
@@ -652,6 +653,31 @@ void bind_button(int bit, int slot, const char *label) {
     }
 }
 
+/* Shared procedural badges, cached once. Draw runs rather than uploading textures every
+ * frame; no effect on bindings, keyboard labels, or the game's replacement-texture pool. */
+static void controller_badge(int bit) {
+    static unsigned char pixels[16][48*24];
+    static bool ready = false;
+    if (!ready) {
+        for (int i=0;i<16;i++) Buttons_Draw(i,48,24,pixels[i]);
+        ready=true;
+    }
+    ImVec2 p=ImGui::GetCursorScreenPos();
+    float scale=ImGui::GetFrameHeight()/24.0f;
+    ImDrawList *draw=ImGui::GetWindowDrawList();
+    for (int y=0;y<24;y++) for (int x=0;x<48;) {
+        int c=pixels[bit][y*48+x],start=x++;
+        while (x<48 && pixels[bit][y*48+x]==c) x++;
+        if (c) {
+            unsigned color=Buttons_Color(c);
+            draw->AddRectFilled(ImVec2(p.x+start*scale,p.y+y*scale),ImVec2(p.x+x*scale,p.y+(y+1)*scale),
+                IM_COL32((color>>16)&255,(color>>8)&255,color&255,255));
+        }
+    }
+    ImGui::Dummy(ImVec2(48*scale,24*scale));
+    ImGui::SameLine();
+}
+
 void controls_tab(void) {
     bool stick = Settings_Get(SET_STICK_DPAD) != 0;
     bool hold = Settings_Get(SET_SELECT_HOLD) != 0;
@@ -698,7 +724,7 @@ void controls_tab(void) {
         ui_hint(T("Esc, Tab, F1 to F9, F11 and F12 are reserved."));
     }
     if (ImGui::BeginTable("binds", 4, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn(T("PS1 button"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(T("PS1 button"), ImGuiTableColumnFlags_WidthStretch, 1.6f);
         ImGui::TableSetupColumn(T("Key"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn(T("Key 2"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn(T("Gamepad"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
@@ -709,6 +735,7 @@ void controls_tab(void) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
+            if (Settings_Get(SET_UI_STYLE)==SET_UI_MODERN) controller_badge(bit);
             ImGui::TextUnformatted(Settings_ButtonName(bit));
             for (int slot = 0; slot < 2; slot++) {
                 ImGui::TableNextColumn();

@@ -22,6 +22,7 @@
 
 #include "host/devdata.h"
 #include "host/fonts.h"
+#include "host/buttons.h"
 #include "host/host.h"
 #include "host/settings.h"
 #include "host/textscript.h"
@@ -1298,6 +1299,10 @@ void Lang_Apply(void) {
     int size = 0, umlauts = 0;
     uint8_t *d;
 
+    /* Hidden badge cells are prepared in both modes; text.c selects them only in Modern.
+       This also allows an immediate switch back to the untouched Classic icon cells. */
+    Buttons_SetEnabled(1);
+
     {
         /* Classic UI in English is the PS1 picture, bit for bit: no modern fonts there */
         Fonts_SetEnabled(!(Settings_Get(SET_LANGUAGE) != SET_LANG_DE && Settings_Get(SET_UI_STYLE) == SET_UI_CLASSIC));
@@ -1305,6 +1310,8 @@ void Lang_Apply(void) {
     if (Settings_Get(SET_LANGUAGE) != SET_LANG_DE) {
         if (Fonts_Enabled()) {
             Fonts_ApplyGame();
+        } else {
+            Buttons_ApplyGame();
         }
         PicWords_SetGerman(0);
         if (Fonts_Enabled()) {

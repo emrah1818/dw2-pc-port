@@ -1,5 +1,10 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## Leistung beim Nutzer mit 1.6.0-preview10 (8.11.2026)
+- GTX 1070, 51 Minuten, Deutsch und Modern, 4× und 5×, 21:9: Median 16,7 ms. 99,9 % der Bilder kommen pünktlich; 168 Ruckler über 40 ms, meist bei der ersten Anzeige neuer Texte.
+- GPU-Submit-Wartezeit 34 % → 3 % der Spielzeit.
+- Details in doc/PERFORMANCE.md.
+
 ## 1.6.0-preview8 – Bugfix Screen Issue 69219 (7.11.2026)
 
 | Test | Ergebnis |

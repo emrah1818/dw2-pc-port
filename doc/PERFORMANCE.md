@@ -146,6 +146,43 @@ All screenshots of these runs (5 per menu tour, 24 in the battle) are bit-identi
 reference images (Classic, English) 6/6. The remaining largest raster peak in these runs is the
 one-time boot of the title screen (frame 14). Not measured on the player's hardware yet.
 
+## Player measurement with 1.6.0-preview10 (8 November 2026)
+
+GTX 1070 (driver 32.0.15.6603), i7-6700K, 1080p window, GPU renderer, German, Modern UI, Smooth + VSync (mailbox pacing), PGXP, 21:9; 51 minutes of play (184,537 intervals).
+
+| Internal scale | Intervals | Median | 95 % | 99 % | Late (more than one VBlank) | New tiles | Tile memory full / dropped |
+|---|---|---|---|---|---|---|---|
+| 4x | 51,935 | 16.69 ms | 32.17 ms | 33.10 ms | 191 | 1,407 | 2 / 1 |
+| 5x | 132,572 | 16.74 ms | 32.22 ms | 32.86 ms | 124 | 4,638 | 8 / 3 |
+
+The 32 ms values are the game's own 30 fps scenes (two VBlanks per game frame), not slow motion.
+
+**Game thread waiting inside `SDL_SubmitGPUCommandBufferAndAcquireFence`:**
+
+| Measurement | Wait | Share of play time |
+|---|---|---|
+| perf-test1 | 195 s in 582 s | 34 % |
+| 1.6.0-preview10 | 97 s in 3,084 s | 3 % |
+
+The perf-test2 pacing works on this machine. The player reports smooth battles.
+
+**Remaining hitches:** 168 intervals over 40 ms (0.09 %, 45 ms on average, at most 75 ms). Of their 7.6 s:
+
+| Share | Time | Note |
+|---|---|---|
+| VBlank wait | 2.1 s | |
+| Tile rasterization | 0.8 s | |
+| Palette conversion and panel style | 0.5 s | |
+| Flush | 0.7 s | |
+| GPU submit | 0.6 s | |
+| Elsewhere in the game thread | about 2.7 s | |
+
+1,195 of the session's 6,045 new tiles were made in these frames: mostly the first display of a screen's text at 5x. 13 of them follow one of the 4 tile-memory resets (255 MiB at 5x).
+
+**Possible next step (not done):** make tiles on a worker thread, or ahead of time for a screen's known texts, instead of on the game thread at first use.
+
+**Not measured by the player:** English/Classic, without the HD texture pack, internal 6x (1440p) and 9x (4K).
+
 ## Not verified
 
 - **No test on real Nvidia (or any real GPU) hardware.** The GPU path ran on Mesa lavapipe, a

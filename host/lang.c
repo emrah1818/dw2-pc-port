@@ -568,7 +568,9 @@ static void patch_level_label(uint8_t *d, int size) {
             done++;
         }
     }
-    note("level label: %d of 2 texts LV%s", done, "");
+    char count_text[16];
+    snprintf(count_text, sizeof(count_text), "%d", done);
+    note("level label: %s of 2 texts LV%s", count_text, "");
 }
 
 /* Main thread, after Host_PakOpen and DevData_InitConst, before the game thread. */

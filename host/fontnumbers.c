@@ -202,13 +202,18 @@ static int simple_digit(const NumSheet* s, int u, int v, int w, int h)
     return n >= 1 && n <= 2;
 }
 
-static int note_hd(int id, const uint8_t* e, int vx, int vy)
+static int note_hd(int id, const uint8_t* e, int vx, int vy, int clut)
 {
     NumSheet* s = sheet_of(id >> 16);
     if (!s)
         return 0;
     int u = e[0], v = e[1], w = e[8], h = e[9], d = e[12], i;
-    if (!simple_digit(s, u, v, w, h))
+    /* the battle status's level digit (0x13B, 8x12): a gradient sprite in several blues that
+       vanished on the Modern panels' dark blue (player report). It is drawn like the other numbers,
+       in its own palette's brightest colour with its darkest as the shadow. Other multi-colour
+       digits (the damage numbers' outline rings) keep their sprite. */
+    int level = (id >> 16) == 0x13B && w <= 12 && h <= 16 && !simple_digit(s, u, v, w, h);
+    if (!level && !simple_digit(s, u, v, w, h))
         return 1; /* the original sprite (no VRAM write either) */
     for (i = 0; i < s->ncell; i++)
         if (s->cell[i].u == u && s->cell[i].v == v && s->cell[i].w == w && s->cell[i].h == h)
@@ -223,6 +228,24 @@ static int note_hd(int id, const uint8_t* e, int vx, int vy)
         c->h = (uint8_t)h;
         c->digit = (uint8_t)d;
         cell_style(s, c);
+        if (level) {
+            /* by brightness in the cell's palette (16 colours at clut) */
+            int cx = (clut & 0x3F) * 16, cy = (clut >> 6) & 0x1FF, hi = -1, lo = -1, bh = -1, bl = 1 << 30;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    int t = sheet_texel(s, u + x, v + y);
+                    if (!t)
+                        continue;
+                    uint16_t col = PsxGpu_Vram[cy][(cx + t) & 1023];
+                    int      l   = (col & 31) * 3 + ((col >> 5) & 31) * 6 + ((col >> 10) & 31);
+                    if (l > bh) { bh = l; hi = t; }
+                    if (l < bl) { bl = l; lo = t; }
+                }
+            if (hi > 0) {
+                c->body   = (uint8_t)hi;
+                c->shadow = (uint8_t)(lo > 0 && lo != hi ? lo : 0);
+            }
+        }
         s->gen = 0; /* the overlay draws one more cell: its tiles again */
     }
     if (s->gen != TexRep_SourceGeneration()) {
@@ -249,7 +272,7 @@ void Fonts_NumberCell(int id, const void* cell, int tpage, int uoffset, int clut
         return;
     int      per = bits ? 2 : 4, mask = bits ? 255 : 15;
     int      bx = (tpage & 15) * 64, by = ((tpage & 16) << 4) | ((tpage & 0x800) >> 2);
-    if (TexRep_RuntimeScale() >= 2 && note_hd(id, c, bx + uoffset / per, by))
+    if (TexRep_RuntimeScale() >= 2 && note_hd(id, c, bx + uoffset / per, by, clut))
         return;
     int      first = u / per, words = ((u + w + per - 1) / per) - first;
     uint16_t pixels[64 * 17];

@@ -1419,6 +1419,7 @@ static void restyle_title_code(void)
 
 /* Stats labels share their texture rectangles across several windows. Repaint
  * those exact rectangles, so every alias changes without touching bars/icons. */
+static int german; /* defined below (PicWords_SetGerman) */
 static void restyle_stats(void)
 {
     static const struct {
@@ -1466,13 +1467,15 @@ static void restyle_stats(void)
         uint8_t mask[16 * 11];
         /* Exo 2 Bold, the whole cell; drawn again at the output resolution (a 1x label of 7 pixels
            enlarged was unreadable at 4K) */
-        if (Fonts_Mask(FONT_INTERFACE_BOLD, labels[k].text, mask, c.w, c.w, c.h) < 0)
+        /* German: the level label LV (the game's EL reads oddly; player's choice) */
+        const char* text = german == 1 && strcmp(labels[k].text, "EL") == 0 ? "LV" : labels[k].text;
+        if (Fonts_Mask(FONT_INTERFACE_BOLD, text, mask, c.w, c.w, c.h) < 0)
             continue;
         for (int y = 0; y < c.h; y++)
             for (int x = 0; x < c.w; x++)
                 tset(&t, c.u + x, c.v + y, mask[y * c.w + x] >= 80 ? ink : 0);
         {
-            Words   w   = { labels[k].text, 0, 0, 0, 0, 0, 3, 0, 0, 1 };
+            Words   w   = { text, 0, 0, 0, 0, 0, 3, 0, 0, 1 };
             uint8_t col = (uint8_t)ink;
             c.x = c.y = 0;
             hipic_add(&t, &c, 1, &w, &col, NULL);
@@ -1537,7 +1540,7 @@ static void dump_files(void)
     }
 }
 
-static int  german = -1;
+static int  german = -1; /* declared above restyle_stats */
 static void restyle_status(Tex* t);
 static void collect_skill_names(void)
 {

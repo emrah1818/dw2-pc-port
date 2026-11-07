@@ -164,6 +164,8 @@ static struct {
 static int ngrow[2];
 static int nshift[2]; /* column shifts noted this / last frame (below) */
 static int cur;
+/* The skill-learning overlay uses fixed PS1-space list coordinates. */
+static int skilllearn_frame[2];
 static int log_parts = -1;
 static int fit_lines, grown_lines, squeezed_lines; /* stats for the log */
 
@@ -174,6 +176,7 @@ static int enemy_top[2] = { 99999, 99999 };
 
 void UiLayout_Flip(void) {
     cur ^= 1;
+    skilllearn_frame[cur] = 0;
     nrect[cur] = 0;
     ngrow[cur] = 0;
     nshift[cur] = 0;
@@ -449,10 +452,19 @@ int UiLayout_PartShiftY(const void *part) {
 }
 
 /* text.c: how far a text box starting at x, y is drawn moved (the window it is in) */
+static int skilllearn_text(int x, int y) {
+    if (!(skilllearn_frame[cur] || skilllearn_frame[cur ^ 1])) return 0;
+    if ((x == 0x23 || x == 0xAB) && y >= 0x4E && y <= 0xBD) return 1;
+    if ((x == 0x23 && y == 0x13) || (x == 0x22 && y == 0x20) ||
+        (x == 0x29 && y == 0x3A) || (x == 0x5B && y == 0x3A) ||
+        (x == 0x9E && y == 0x3A) || (x == 0x20 && y == 0xD1)) return 1;
+    return 0;
+}
+
 int UiLayout_TextShift(int x, int y) {
     Rect r = { x, y, 1, 1, 0 };
 
-    if (!wide_on()) {
+    if (!wide_on() || skilllearn_text(x, y)) {
         return 0;
     }
     return wide_dx_at(&r, NULL);
@@ -462,7 +474,7 @@ int UiLayout_TextShiftY(int x, int y) {
     Rect r = { x, y, 1, 1, 0 };
     int dy = 0;
 
-    if (!wide_on()) {
+    if (!wide_on() || skilllearn_text(x, y)) {
         return 0;
     }
     wide_dx_at(&r, &dy);
@@ -509,6 +521,13 @@ void UiLayout_NotePart(const void *part, const void *cells) {
         rects[cur][nrect[cur]++] = r;
     }
     note_segments(p, cells);
+    {
+        uint32_t id;
+        memcpy(&id, p, sizeof(id));
+        if (id == 0x1A1001B || id == 0x1A1001C ||
+            id == 0x1A1001D || id == 0x1A1001E)
+            skilllearn_frame[cur] = 1;
+    }
     wide_note(p, &r);
 }
 

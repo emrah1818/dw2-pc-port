@@ -125,6 +125,22 @@ Siehe TESTBERICHT.md. Kurzfassung:
 
 ## 7. Offene Aufgaben – Stand nach 1.5.0
 
+**Stand 1.6.0-Entwicklung (7. November 2026, Commit nach 3dcdc46):**
+- Erledigt und getestet:
+  - Panel-Stil-Spitzen behoben: Stil einmal pro Panelstück, Kampf 4x Spitze 80 auf 13 ms, bitgleich; siehe doc/PERFORMANCE.md.
+  - Digimon-Status (Modern): 3D-Vorschau größer und an ihr Fenster angepasst. Die Skalierung wird pro Digimon an acht Blickwinkeln gemessen, 1x bis 2,5x. Agumon 1,78x, Betamon 1,57x, Greymon 1,0x. Geprüft in 4:3, 16:9, Skalierung 2 und 9; Classic unverändert.
+  - Tests: Referenzen Classic/EN 6/6, Speichern 9/9, Cheats 31/31, fonts/hd/textscript bestanden, CI Windows und Linux grün.
+- Integriert (ChatGPT): perf-test1 und perf-test2 (Mailbox-Pacing, GPU-Wartezeit-Messung) sowie die PlayStation-Tastensymbole (9d2d651).
+- Wichtig für Tests: Modern ist jetzt Standard. Die Referenzbilder gelten für Classic/EN, deshalb ref-Lauf mit `--settings-set ui_style=classic`.
+- Nicht bestätigt: Wirkung von perf-test2 auf die GPU-Submit-Wartezeit (195 s von 582 s im GTX-1070-Log) auf dem Nvidia-PC des Nutzers. Das ist nicht als behoben anzusehen.
+- Offen, in dieser Reihenfolge:
+  1. Status/Techniken als Reiter (Tab-Leiste) im Kopf. Beschriftung aus den vorhandenen Ressourcen 01FD:0340/0344/0348; keine neuen Texte erfinden.
+  2. Attackenliste: MP-Kosten in der Liste. Beschreibung und MP stehen heute schon im Infofenster.
+  3. Digitation.
+  4. Lexikon.
+  5. Restliche Panel-Kanten.
+  6. P3–P5.
+
 **1.5.0 erledigt:**
 - Sprachwahl ohne F1: erster Start und Select am Titel.
 - Deutsche Kampf- und Titelwortbilder sowie Attackennamen-Banner, siehe GRAFIKTEXTE.md.

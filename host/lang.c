@@ -1203,14 +1203,20 @@ void Lang_RestyleWords(uint8_t *d, int size) {
             if(custom)text=*custom?custom:words[i].en;
         }
         int width=words[i].cells*7;
-        if(Fonts_Mask(0,text,mask,width,width,9)<0) {
+        /* the text's own glyph rule and shadow (host/fonts.c Fonts_GameWord), drawn again at the
+           output resolution from the same text (Fonts_SetAtlasWord) */
+        static uint8_t cov[70*10], ix[70*10];
+        (void)mask;
+        if(!Fonts_GameWord(text,words[i].cells,1,cov)) {
             printf("[fonts] word %02X not restyled: %s\n",words[i].code,text);
             continue;
         }
+        Fonts_GameShadow(0,cov,width,10,96,1,ix,width);
+        Fonts_SetAtlasWord(words[i].code,words[i].cells,text);
         for(int c=0;c<words[i].cells;c++) {
             int code=words[i].code+c, x0=(code%17)*7,y0=(code/17)*10;
             for(int y=0;y<10;y++)for(int x=0;x<7;x++)
-                setpx(d,x0+x,y0+y,y<9 && mask[y*width+c*7+x]>=80?1:0);
+                setpx(d,x0+x,y0+y,y<9 ? ix[y*width+c*7+x] : 0);
         }
     }
 }

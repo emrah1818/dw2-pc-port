@@ -32,6 +32,8 @@ int  Fonts_GameKern(int big, int a, int b);
 int  Fonts_GameOrigin(int big, int code);
 int  Fonts_GameGlyph(int big, int code, int k, uint8_t* out);
 int  Fonts_Digit(int digit, uint8_t* out, int w, int h);
+int  Fonts_GameWord(const char* text, int cells, int k, uint8_t* out);
+void Fonts_SetAtlasWord(int code, int cells, const char* text);
 void Fonts_GameShadow(int big, const uint8_t* cov, int w, int h, int thresh, int s, uint8_t* idx, int stride);
 void Fonts_ApplyGame(void);
 /* Numeric sprite frames are identified by the game's numeric setter, never by

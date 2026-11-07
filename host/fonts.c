@@ -421,6 +421,80 @@ int Fonts_Digit(int d, uint8_t* out, int w, int h)
     return 1;
 }
 
+/* A word of the small atlas (the menu word graphics: several cells in a row) at k: the same
+ * glyph rule as the text (cap height, baseline, advances, kerning), narrower when it does not fit
+ * its cells; coverage into (cells * 7 * k) x (10 * k). 0: a character without glyph. */
+int Fonts_GameWord(const char* text, int cells, int k, uint8_t* out)
+{
+    int cps[64], n = 0, W = cells * 7 * k, H = 10 * k;
+    if (!Fonts_Init() || !text || cells < 1 || k < 1 || k > 16)
+        return 0;
+    for (const char* p = text; *p && n < 64;) {
+        int cp = next_cp(&p);
+        if (cp < 0 || !stbtt_FindGlyphIndex(&faces[FONT_INTERFACE], cp))
+            return 0;
+        cps[n++] = cp;
+    }
+    float sc = game_scale(0), total = 0;
+    for (int i = 0; i < n; i++) {
+        int adv, lsb;
+        stbtt_GetCodepointHMetrics(&faces[FONT_INTERFACE], cps[i], &adv, &lsb);
+        total += adv * sc + g_track[0];
+        if (i + 1 < n)
+            total += stbtt_GetCodepointKernAdvance(&faces[FONT_INTERFACE], cps[i], cps[i + 1]) * sc;
+    }
+    float room = cells * 7 - 1.0f, cx = total > room ? room / total : 1, pen = G_ORIGIN * k;
+    /* left-aligned (menus show a word's first cells only where it is shorter, as Digi-Line in the
+       field menu) */
+    memset(out, 0, (size_t)W * H);
+    for (int i = 0; i < n; i++) {
+        int   adv, lsb, x0, y0, x1, y1;
+        float sx = sc * k * cx, sy = sc * k, frac = pen - floorf(pen);
+        stbtt_GetCodepointHMetrics(&faces[FONT_INTERFACE], cps[i], &adv, &lsb);
+        stbtt_GetCodepointBitmapBoxSubpixel(&faces[FONT_INTERFACE], cps[i], sx, sy, frac, 0, &x0, &y0, &x1, &y1);
+        if (x1 > x0 && y1 > y0) {
+            uint8_t* bm = malloc((size_t)(x1 - x0) * (y1 - y0));
+            if (!bm)
+                return 0;
+            stbtt_MakeCodepointBitmapSubpixel(&faces[FONT_INTERFACE], bm, x1 - x0, y1 - y0, x1 - x0, sx, sy, frac, 0, cps[i]);
+            int px = (int)floorf(pen) + x0, py = (int)floorf(g_base[0] * k + 0.5f) + y0;
+            for (int y = 0; y < y1 - y0; y++)
+                for (int x = 0; x < x1 - x0; x++) {
+                    int X = px + x, Y = py + y;
+                    if (X >= 0 && Y >= 0 && X < W && Y < 9 * k && bm[y * (x1 - x0) + x] > out[Y * W + X])
+                        out[Y * W + X] = bm[y * (x1 - x0) + x];
+                }
+            free(bm);
+        }
+        pen += (adv * sc * cx + g_track[0] * cx) * k;
+        if (i + 1 < n)
+            pen += stbtt_GetCodepointKernAdvance(&faces[FONT_INTERFACE], cps[i], cps[i + 1]) * sc * cx * k;
+    }
+    return 1;
+}
+
+/* the menu word graphics of the small atlas, for its runtime cells (Lang_RestyleWords) */
+static struct {
+    int  code, cells;
+    char text[48];
+} atlas_words[32];
+static int natlas_words;
+void Fonts_SetAtlasWord(int code, int cells, const char* text)
+{
+    for (int i = 0; i < natlas_words; i++)
+        if (atlas_words[i].code == code) {
+            snprintf(atlas_words[i].text, sizeof(atlas_words[i].text), "%s", text);
+            atlas_words[i].cells = cells;
+            return;
+        }
+    if (natlas_words < 32) {
+        atlas_words[natlas_words].code  = code;
+        atlas_words[natlas_words].cells = cells;
+        snprintf(atlas_words[natlas_words].text, sizeof(atlas_words[natlas_words].text), "%s", text);
+        natlas_words++;
+    }
+}
+
 /* Body (index 1) and the original shadow: small font index 2 one pixel right and down; big font
  * index 2 right, 3 below (as the PS1 letters). s = the shadow's offset in output pixels. */
 void Fonts_GameShadow(int big, const uint8_t* cov, int W, int H, int thresh, int s, uint8_t* idx, int stride)
@@ -503,6 +577,30 @@ static void atlas_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
     for (int cy = y0 / ch; cy * ch < y0 + h; cy++)
         for (int cx = x0 / cw; cx * cw < x0 + w && cx < cols; cx++) {
             int cc = cy * cols + cx, c = cc < 256 ? a->cell_c[cc] : -1, ok;
+            if (c < 0 && !a->big && k <= 16) {
+                /* a cell of a menu word graphic: its slice of the whole word */
+                for (int q = 0; q < natlas_words; q++) {
+                    int w0 = atlas_words[q].code;
+                    if (cc < w0 || cc >= w0 + atlas_words[q].cells)
+                        continue;
+                    int      WW = atlas_words[q].cells * 7 * k, sl = (cc - w0) * 7 * k;
+                    uint8_t* wm = malloc((size_t)WW * 10 * k);
+                    uint8_t* wi = malloc((size_t)WW * 10 * k);
+                    if (wm && wi && Fonts_GameWord(atlas_words[q].text, atlas_words[q].cells, k, wm)) {
+                        Fonts_GameShadow(0, wm, WW, 10 * k, 72, (3 * k + 2) / 4, wi, WW);
+                        for (int yy = 0; yy < CH; yy++)
+                            for (int xx = 0; xx < CW; xx++) {
+                                int X = (cx * cw - x0) * k + xx, Y = (cy * ch - y0) * k + yy;
+                                if (X >= 0 && Y >= 0 && X < W && Y < h * k)
+                                    idx[Y * W + X] = yy < 9 * k ? wi[yy * WW + sl + xx] : 0;
+                            }
+                    }
+                    free(wm);
+                    free(wi);
+                    break;
+                }
+                continue;
+            }
             if (c < 0 || k > 16)
                 continue;
             if (c == 0x43 || (c >= 0x4A && c <= 0x4E)) {

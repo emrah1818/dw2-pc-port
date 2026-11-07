@@ -180,7 +180,13 @@ const Tr k_tr[] = {
       "Cheats ändern deine Spieldaten. Sie sind bei jedem Start aus." },
     { "Turning them on copies your memory cards to a backup folder first and keeps the current state for undo.",
       "Beim Einschalten werden deine Memory Cards zuerst gesichert und der jetzige Stand für Rückgängig gemerkt." },
-    { "Enable cheats", "Cheats einschalten" }, { "Apply values", "Werte übernehmen" }, { "Max values", "Werte auf Maximum" }, { "Backup: %s", "Sicherung: %s" },
+    { "Enable cheats", "Cheats einschalten" }, { "Lexicon", "Lexikon" }, { "Search", "Suchen" },
+    { "All stages", "Alle Stufen" }, { "Type", "Typ" }, { "Stage", "Stufe" }, { "Specialty", "Spezialität" },
+    { "Learns on digivolving", "Lernt beim Digitieren" }, { "Digivolves to (by DP)", "Digitiert zu (nach DP)" },
+    { "Digivolves from", "Entsteht aus" }, { "none", "keine" }, { "DP %d and more", "DP ab %d" },
+    { "Game data not loaded yet (start or load a game).", "Spieldaten noch nicht geladen (Spiel starten oder laden)." },
+    { "From your own disc's tables (names, types, stages, techniques, digivolution by DP); nothing is added.",
+      "Aus den Tabellen deiner eigenen Disc (Namen, Typen, Stufen, Techniken, Digitation nach DP); nichts ist ergänzt." }, { "Apply values", "Werte übernehmen" }, { "Max values", "Werte auf Maximum" }, { "Backup: %s", "Sicherung: %s" },
     { "Undo all cheat changes", "Alle Cheat-Änderungen rückgängig" },
     { "Undo waits until the battle or card screen is over.", "Rückgängig wartet, bis Kampf oder Kartenbildschirm vorbei ist." },
     { "Restored.", "Wiederhergestellt." }, { "Tamer", "Tamer" }, { "Bits", "Bits" }, { "Set", "Setzen" },
@@ -225,6 +231,7 @@ void ui_hint(const char *text) {
 }
 void modding_tab(void);
 void cheats_tab(void);
+void lexicon_tab(void);
 
 const char *T(const char *en) {
     if (Settings_Get(SET_LANGUAGE) != SET_LANG_DE) {
@@ -1568,6 +1575,10 @@ void SettingsUi_Draw(void) {
                 modding_tab();
                 ImGui::EndTabItem();
             }
+            if (ImGui::BeginTabItem(TL("Lexicon", "t_lexicon"), NULL, tab_flags("Lexicon"))) {
+                lexicon_tab();
+                ImGui::EndTabItem();
+            }
             if (ImGui::BeginTabItem(TL("Cheats", "t_cheats"), NULL, tab_flags("Cheats"))) {
                 cheats_tab();
                 ImGui::EndTabItem();
@@ -1611,3 +1622,106 @@ void SettingsUi_Draw(void) {
 }
 
 } // extern "C"
+
+/* dw2-pc-port: Digimon lexicon (F1 / Lexikon). Read only, from the game's own tables of the
+ * player's disc (host/devdata.c: DIGIMNDT records, skill table, type / stage / specialty names).
+ * The digivolution targets follow Digi_GetEvolutionTarget (src/main/gamedata.c) exactly: DP ranges
+ * [bound i, bound i+1), the last range open. Nothing that is not in those tables is shown. */
+namespace {
+void lexicon_tab(void) {
+    static char filter[48];
+    static int stage = -1, sel = -1;
+
+    if (!DevData_Ready() && !DevData_Load()) {
+        ImGui::TextUnformatted(T("Game data not loaded yet (start or load a game)."));
+        return;
+    }
+    ui_hint(T("From your own disc's tables (names, types, stages, techniques, digivolution by DP); nothing is added."));
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    ImGui::InputTextWithHint("##lexf", T("Search"), filter, sizeof(filter));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+    if (ImGui::BeginCombo("##lexs", stage < 0 ? T("All stages") : DevData_RankName(stage))) {
+        if (ImGui::Selectable(T("All stages"), stage < 0)) stage = -1;
+        for (int r = 0; r < 4; r++)
+            if (ImGui::Selectable(DevData_RankName(r), stage == r)) stage = r;
+        ImGui::EndCombo();
+    }
+    const float em = ImGui::GetFontSize();
+    ImGui::BeginChild("lexlist", ImVec2(em * 13.0f, 0), ImGuiChildFlags_Borders);
+    for (int i = 0; i < DevData_DigiCount(); i++) {
+        const DevDigi *d = DevData_DigiAt(i);
+        char row[64];
+        if (!d->hasBase || !d->name[0]) continue;
+        if (stage >= 0 && d->rank != stage) continue;
+        if (filter[0] && !SDL_strcasestr(d->name, filter)) continue;
+        snprintf(row, sizeof(row), "%3d  %s", d->id, d->name);
+        if (sel < 0) sel = d->id;
+        if (ImGui::Selectable(row, sel == d->id)) sel = d->id;
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("lexinfo", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    const DevDigi *d = sel >= 0 ? DevData_Digi(sel) : NULL;
+    if (d != NULL && d->hasBase) {
+        ImGui::SeparatorText(d->name);
+        if (ImGui::BeginTable("lexv", 2, ImGuiTableFlags_SizingFixedFit)) {
+            const char *lab[4] = { "Nr.", T("Type"), T("Stage"), T("Specialty") };
+            char nr[16];
+            snprintf(nr, sizeof(nr), "%d", d->id);
+            const char *val[4] = { nr, DevData_TypeName(d->type), DevData_RankName(d->rank), DevData_SpecialtyName(d->specialty) };
+            for (int k = 0; k < 4; k++) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("%s", lab[k]);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(val[k]);
+            }
+            ImGui::EndTable();
+        }
+        ImGui::SeparatorText(T("Learns on digivolving"));
+        const DevSkill *sk = d->learnedSkill ? DevData_Skill(d->learnedSkill) : NULL;
+        if (sk != NULL) {
+            ImGui::Text("%s  (MP %d)", sk->name, sk->mp);
+            if (sk->desc[0]) ImGui::TextWrapped("%s", sk->desc);
+        } else {
+            ImGui::TextDisabled("%s", T("none"));
+        }
+        ImGui::SeparatorText(T("Digivolves to (by DP)"));
+        if (d->dpTargets[0] == 0) {
+            ImGui::TextDisabled("%s", T("none"));
+        } else {
+            for (int i = 0; i < 4; i++) {
+                int lo = d->dpBounds[i], hi = d->dpBounds[i + 1], to = d->dpTargets[i];
+                char rng[48];
+                if (hi == 0) snprintf(rng, sizeof(rng), T("DP %d and more"), lo);
+                else snprintf(rng, sizeof(rng), "DP %d-%d", lo, hi - 1);
+                if (to) {
+                    ImGui::TextDisabled("%s", rng);
+                    ImGui::SameLine(em * 7.0f);
+                    if (ImGui::SmallButton(DevData_DigiName(to))) sel = to;
+                }
+                if (hi == 0) break;
+            }
+        }
+        ImGui::SeparatorText(T("Digivolves from"));
+        int any = 0;
+        for (int i = 0; i < DevData_DigiCount(); i++) {
+            const DevDigi *f = DevData_DigiAt(i);
+            if (!f->hasBase || f->dpTargets[0] == 0) continue;
+            int hit = 0;
+            for (int k = 0; k < 4 && !hit; k++) {
+                hit = f->dpTargets[k] == d->id;
+                if (f->dpBounds[k + 1] == 0) break;
+            }
+            if (!hit) continue;
+            if (any++) ImGui::SameLine();
+            ImGui::PushID(f->id);
+            if (ImGui::SmallButton(f->name)) sel = f->id;
+            ImGui::PopID();
+        }
+        if (!any) ImGui::TextDisabled("%s", T("none"));
+    }
+    ImGui::EndChild();
+}
+} // namespace

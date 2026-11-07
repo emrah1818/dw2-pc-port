@@ -1,5 +1,25 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+## 1.6.0-preview: Modern-UI-Entwicklungsstand (7.11.2026)
+
+Interne Version `1.6.0-preview`. Alles hier wurde auf dieser Maschine getestet (Linux, 2 Kerne, keine GPU; GPU-Pfad auf Mesa lavapipe), außerdem der Windows-Build in CI.
+
+| Test | Ergebnis |
+|---|---|
+| Referenzbilder Classic/Englisch (`--settings-set ui_style=classic`; Modern ist Standard) | 6/6 bitgleich |
+| save_test / cheat_test | 9/9 / 31/31 |
+| fonts_test, hd_test, textscript_test | bestanden, 0 Fehler, 90/90 |
+| Panel-Stil vor/nach (Kampf 4×, Menüs 4×/6×/9×) | 24 + 15 Bilder bitgleich; Stilzeit Kampf 634 → 116 ms, Spitze 80 → 13 ms |
+| Digimon-Status Modern: Agumon, Betamon, Greymon; 4:3, 16:9; Faktor 2 und 9 | Modell im Fenster (1,78× / 1,57× / 1,0×); Drehen und Kippen funktionieren |
+| Reiter Status/Techniken: hin, zurück, verlassen | wechseln, keine Textreste, Positionen bleiben stehen |
+| Attackenliste: MP-Kosten pro Zeile (DE und EN) | „12 MP“ / „8 MP“ rechts in der Zeile |
+| Classic Englisch Status-Menü | unverändert (kleines Modell, Original-Kopfzeile) |
+
+**Nicht getestet:**
+- Echte Windows-/Nvidia-Hardware, einschließlich der Wirkung von perf-test2 auf die GPU-Submit-Wartezeit.
+- 21:9 im Status-Menü.
+- Digimon mit langen Technik-Namen und vielen Techniken (hier nur Agumon und Greymon).
+
 ## Leistungsfehler „Zeitlupe bei Attacken“ (v1.5.0-preview, 7.11.2026)
 
 Meldung: Beim Anzeigen deutscher Attackennamen und Kampfwörter bricht die Bildrate ein (Zeitlupe), CPU 5–7 %, Nvidia-GPU 18–30 %. Einzelheiten, Messspalten und Rohwerte: [doc/PERFORMANCE.md](doc/PERFORMANCE.md).

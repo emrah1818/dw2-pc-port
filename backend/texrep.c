@@ -765,6 +765,11 @@ void TexRep_ClearIndexSources(void) {
     for (int i = 0; i < nuploads; i++) uploads[i].src = -1;
 }
 
+/* every runtime tile made again after this picture (a word picture changed its colours) */
+void TexRep_RequestTileReset(void) {
+    if (idx_tiles > 0) idx_reset_wanted = 1;
+}
+
 int TexRep_TileResetWanted(void) {
     return idx_reset_wanted;
 }

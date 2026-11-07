@@ -92,6 +92,10 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
         }
 #ifdef DW2_NATIVE
         Fonts_NumberCell(s->fileId, e, tpage, t->u, p->s.clut);
+        {
+            extern void PicWords_NoteClut(int id, int clut);
+            PicWords_NoteClut(s->fileId, p->s.clut); /* the target word's palette (host/picwords.c) */
+        }
 #endif
         p->s.tag.addr = ot->addr;
         ot->addr = (u32)p;
@@ -196,6 +200,10 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
         }
 #ifdef DW2_NATIVE
         Fonts_NumberCell(((GfxPartSprite *)arg0)->fileId, e, p->v[1].extra, t->u, p->v[0].extra);
+        {
+            extern void PicWords_NoteClut(int id, int clut);
+            PicWords_NoteClut(((GfxPartSprite *)arg0)->fileId, p->v[0].extra); /* the target word's palette */
+        }
 #endif
         if (arg3 & 1) {
             p->v[0].x *= 2;

@@ -350,6 +350,7 @@ typedef struct {
     int            box;          /* the letters sit in a box (title menu): the box stays */
     int            ib[4];        /* a box's inside (picture texels x0, x1, y0, y1): fill at HD */
     int            fill;
+    uint32_t       used;         /* the original's palette indices (PicWords_NoteClut) */
     uint8_t        rowcol[CH];   /* the letters' colour per row of the original (its vertical gradient) */
     int            oy0, oy1;     /* the rows of the original's letters */
     int            gradient;     /* body colour by row (else flat: body) */
@@ -372,6 +373,7 @@ typedef struct {
     int oy0, oy1;
     uint8_t fill; /* a box picture's fill */
     int ib[4];    /* its inside */
+    uint32_t used; /* the palette indices the original picture uses (bit per index < 32) */
     int gradient; /* the letters' colour changes by row (four or more bands: the title words) */
 } Layers;
 
@@ -423,6 +425,7 @@ static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const 
         h->bevel_br = ly->bevel_br;
         h->box      = ly->box;
         memcpy(h->ib, ly->ib, sizeof(h->ib));
+        h->used = ly->used;
         h->fill = ly->fill;
         memcpy(h->rowcol, ly->rowcol, sizeof(h->rowcol));
         h->oy0 = ly->oy0;
@@ -593,6 +596,11 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
             if (!b)
                 b = all[maxd];
             ly.body = (uint8_t)b;
+            ly.used = 0;
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                    if (orig[y * CW + x] && orig[y * CW + x] < 32)
+                        ly.used |= 1u << orig[y * CW + x];
             {
                 /* a box picture's fill: the most common colour at depths 4..7 (its inside) */
                 int fs[256] = { 0 }, f = 0;
@@ -1868,3 +1876,50 @@ const void* Lang_PartCells(int32_t file_id, const void* cells)
     }
     return status_cells[e];
 }
+
+/* dw2-pc-port: the battle's target word (ZIEL / TARGET, 0x13B entry 3) was hard to see on the
+ * dark battle floor (player report). parts.c reports the palette the game draws it with; the new
+ * letters' body takes that palette's brightest colour among the original picture's own colours
+ * (the original's letters glow in an animated entry; the most common colour is its dark rim), and
+ * the runtime tiles are made again. Decided once per palette row the game uses. Only at the output resolution (scale 2 and up). */
+void PicWords_NoteClut(int id, int clut)
+{
+    static int last = -1;
+    extern uint16_t PsxGpu_Vram[512][1024];
+    extern void TexRep_RequestTileReset(void);
+    if (id != 0x013B0003 || clut == last)
+        return;
+    last = clut;
+    int cx = (clut & 0x3F) * 16, cy = (clut >> 6) & 0x1FF;
+    for (int i = 0; i < nhipics; i++) {
+        HiPic* h = &hipics[i];
+        if (h->file_id != 0x13B || h->nring < 0 || (strcmp(h->text, "ZIEL") != 0 && strcmp(h->text, "TARGET") != 0))
+            continue;
+        int cand[16], nc = 0, best = h->body, bl = -1;
+        for (int v = 1; v < 16; v++)
+            if (h->used & (1u << v))
+                cand[nc++] = v; /* the colours of the original picture (its letters glow in an
+                                   animated palette entry; the most common one is the dark rim) */
+        for (int k = 0; k < nc; k++) {
+            int v = cand[k] & 15;
+            if (!v)
+                continue;
+            uint16_t col = PsxGpu_Vram[cy][(cx + v) & 1023];
+            if ((col & 0x7FFF) == 0)
+                continue; /* transparent */
+            int l = (col & 31) * 3 + ((col >> 5) & 31) * 6 + ((col >> 10) & 31);
+            if (l > bl) {
+                bl   = l;
+                best = v;
+            }
+        }
+        if (best != h->body) {
+            h->body = (uint8_t)best;
+            h->gradient = 0;
+            memset(h->hk, 0, sizeof(h->hk)); /* the cached masks are drawn again */
+            TexRep_RequestTileReset();
+            printf("[lang] target word: body colour %d (brightest of its palette)\n", best);
+        }
+    }
+}
+

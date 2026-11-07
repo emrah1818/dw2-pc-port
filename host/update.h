@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 /* The version of this program, the release tag without "v". Bump it with each release. */
-#define DW2_VERSION "1.5.0-perf-test1"
+#define DW2_VERSION "1.5.0-perf-test2"
 #define DW2_RELEASES_URL "https://github.com/emrah1818/dw2-pc-port/releases"
 /* dw2-pc-port: no update check (host/update.c), see README_PORT.md. */
 #define DW2_PORT_NO_UPDATER 1

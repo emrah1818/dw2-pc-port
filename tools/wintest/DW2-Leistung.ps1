@@ -2,22 +2,26 @@
 # Startet dw2.exe mit DW2_PERF_LOG: eine Zeile pro Bild des Spiel-Threads (Bildzeit, Zeichnen,
 # Laufzeit-Schrift-Kacheln, GPU-Uploads). Nach dem Beenden: Zusammenfassung in test_out\leistung.txt.
 # Die Dateien enthalten nur Zahlen, keine Spieldaten.
-$ErrorActionPreference = "Continue"
+param([switch]$ReportOnly, [string]$OutputDirectory = "")
+$ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
 $out = Join-Path $here "test_out"
+if ($OutputDirectory) { $out = $OutputDirectory }
 New-Item -ItemType Directory -Force $out | Out-Null
 $csv = Join-Path $out "leistung.csv"
 $rep = Join-Path $out "leistung.txt"
-if (Test-Path $csv) { Remove-Item -Force $csv }
 if (Test-Path $rep) { Remove-Item -Force $rep }
 function Log([string]$s) { Write-Host $s; Add-Content -Path $rep -Value $s -Encoding UTF8 }
 
-Write-Host "Das Spiel startet. Bitte normal spielen (z. B. einen Kampf mit mehreren Attacken) und dann beenden."
-$env:DW2_PERF_LOG = $csv
-$p = Start-Process -FilePath (Join-Path $here "dw2.exe") -PassThru -Wait `
-    -RedirectStandardOutput (Join-Path $out "spiel.log") -RedirectStandardError (Join-Path $out "spiel-fehler.log")
-Remove-Item Env:\DW2_PERF_LOG
+if (-not $ReportOnly) {
+    if (Test-Path $csv) { Remove-Item -Force $csv }
+    Write-Host "Das Spiel startet. Bitte normal spielen (z. B. einen Kampf mit mehreren Attacken) und dann beenden."
+    $env:DW2_PERF_LOG = $csv
+    $p = Start-Process -FilePath (Join-Path $here "dw2.exe") -PassThru -Wait `
+        -RedirectStandardOutput (Join-Path $out "spiel.log") -RedirectStandardError (Join-Path $out "spiel-fehler.log")
+    Remove-Item Env:\DW2_PERF_LOG
+}
 
 Log "DW2-PC-Port Leistungsmessung, $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 try {
@@ -37,7 +41,8 @@ function N($v) { [double]::Parse($v, $inv) }
 $ft = $rows | ForEach-Object { N $_.frame_ms } | Sort-Object
 function Q($q) { $ft[[int][Math]::Floor(($ft.Count - 1) * $q)] }
 $late = ($rows | Where-Object { [int]$_.vblanks -ge 2 }).Count
-Log ("Bilder (VBlank-Wartepunkte): {0}, Dauer {1:N1} s" -f $rows.Count, ((N $rows[-1].t_ms) - (N $rows[0].t_ms)) / 1000)
+$durationSeconds = ((N $rows[-1].t_ms) - (N $rows[0].t_ms)) / 1000
+Log ("Bilder (VBlank-Wartepunkte): {0}, Dauer {1:N1} s" -f $rows.Count, $durationSeconds)
 Log ("Bildzeit ms: Median {0:N2}, 95 % {1:N2}, 99 % {2:N2}, Maximum {3:N2}" -f (Q 0.5), (Q 0.95), (Q 0.99), $ft[-1])
 Log ("Wartepunkte mit mehr als einem faelligen VBlank (Spiel-Thread zu spaet): {0}" -f $late)
 $sum = @{}
@@ -56,6 +61,11 @@ if ($rows[0].PSObject.Properties.Name -contains "submit_ms") {
     Log ("GPU Zeichenvorbereitung {0:N1} ms, Upload/Zeichenbefehle aufzeichnen {1:N1} ms; Zwischenbildpakete {2} ({3:N1} ms)" -f $sum.build_ms, $sum.record_ms, $sum.packages, $sum.package_ms)
     Log "Das sind CPU-Wandzeiten im Spiel-Thread, keine GPU-Timestamps. Unterzeiten stecken bereits in Flush/Publish/Paketzeiten; nicht addieren."
     Log "Intervalle sind VBlank-Wartepunkte, kein direkter Zaehler der angezeigten Spiel-FPS."
+}
+if ($rows[0].PSObject.Properties.Name -contains "mailbox_pacing") {
+    $mailboxRows = @($rows | Where-Object { [int]$_.mailbox_pacing -eq 1 }).Count
+    $presentMs = ($rows | ForEach-Object { N $_.window_present_ms } | Measure-Object -Sum).Sum
+    Log ("Mailbox mit Fensterthread-Taktung: {0} Intervalle; SDL_RenderPresent gesamt {1:N1} ms (Fensterthread, Messfenster naeherungsweise)" -f $mailboxRows, $presentMs)
 }
 Log ""
 Log "Die 15 langsamsten Bilder (Bild, ms gesamt, Flush, neue Kacheln, Rastern ms, GPU-Uploads KiB, faellige VBlanks):"

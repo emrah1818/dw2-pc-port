@@ -61,6 +61,12 @@ jobs:
           & build/native64_rel_nodisc/fonts_test.exe
           if ($LASTEXITCODE -ne 0) { throw "fonts_test failed ($LASTEXITCODE)" }
 
+      - name: Performance report regression (Windows PowerShell 5.1, de-DE and en-US)
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/wintest/Test-Leistung.ps1
+          if ($LASTEXITCODE -ne 0) { throw "performance report test failed ($LASTEXITCODE)" }
+
       # Real Windows checks without game data: the Vulkan GPU renderer on Mesa lavapipe for
       # Windows (software Vulkan), the software renderer, and the import's refusal paths.
       - name: Vulkan for the test (Mesa lavapipe + loader)

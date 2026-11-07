@@ -55,6 +55,7 @@ static size_t sharp_cap;
 static void *sharp_tex; /* PR.2b: the sharpened picture of a read (GPU) */
 static int sharp_tex_w, sharp_tex_h;
 static int logging;     /* PR.34: this frame's commands go into the smooth log */
+static SDL_AtomicInt smooth_paused; /* game thread writes; window thread reads */
 static void smooth_log(void);
 static void smooth_begin(void);
 static int layer_of(uintptr_t a);
@@ -262,7 +263,7 @@ static void flush(void) {
         return;
     }
     Uint64 t0 = SDL_GetTicksNS();
-    if (logging) {
+    if (logging && !SDL_GetAtomicInt(&smooth_paused)) {
         smooth_log();
     }
     if (gpu) {
@@ -1762,6 +1763,20 @@ void PsxHd_SmoothHold(int on) {
     hold = on != 0;
 }
 
+void PsxHd_SmoothPause(int on) {
+    on = on != 0;
+    if (SDL_SetAtomicInt(&smooth_paused, on) != on && on) {
+        /* An in-use package stays alive; only its publication is withdrawn. Resuming waits
+         * for a fresh package rather than replaying geometry from before the pause. */
+        if (pkg_lock != NULL) {
+            SDL_LockMutex(pkg_lock);
+            pkg_latest = -1;
+            SDL_UnlockMutex(pkg_lock);
+        }
+        made_seq = 0;
+    }
+}
+
 void PsxHd_SetFrameTime(uint64_t ns) {
     frame_time = ns;
 }
@@ -1896,6 +1911,7 @@ static void package(uint64_t t, uint64_t period) {
     pkg_latest = slot;
     SDL_UnlockMutex(pkg_lock);
     n_pkgs++;
+    texrep_perf.packages++;
 }
 
 void PsxHd_EndFrame(void) {
@@ -1911,11 +1927,14 @@ void PsxHd_EndFrame(void) {
     period = last_end_t != 0 && t > last_end_t ? t - last_end_t : 0;
     last_end_t = t;
     n_frames++;
-    ok = log_ok && nflog > 0 && log_sp != NULL && log_sp->tex != NULL && (nlay_cur > 0 || scene_cur) && !hold;
+    ok = log_ok && nflog > 0 && log_sp != NULL && log_sp->tex != NULL && (nlay_cur > 0 || scene_cur) && !hold &&
+         !SDL_GetAtomicInt(&smooth_paused);
     made_seq = 0;
     if (ok) {
+        uint64_t start = SDL_GetTicksNS();
         blend_data();
         package(t, period);
+        texrep_perf.package_ns += SDL_GetTicksNS() - start;
     } else {
         SDL_LockMutex(pkg_lock);
         pkg_latest = -1;
@@ -1988,11 +2007,15 @@ static Pkg *take_pkg(void) {
 }
 
 int PsxHd_SmoothPicture(uint64_t t, void **tex, int *w, int *h, int *margin) {
-    Pkg *p = take_pkg();
+    Pkg *p;
     float alpha = 1.0f;
 
     win_alpha = 1.0f;
     shown_seq = 0;
+    if (SDL_GetAtomicInt(&smooth_paused)) {
+        return 0;
+    }
+    p = take_pkg();
     if (p == NULL) {
         return 0;
     }
@@ -2013,7 +2036,7 @@ int PsxHd_SmoothPicture(uint64_t t, void **tex, int *w, int *h, int *margin) {
 }
 
 float PsxHd_SmoothAlpha(void) {
-    return win_alpha;
+    return SDL_GetAtomicInt(&smooth_paused) ? 1.0f : win_alpha;
 }
 
 unsigned PsxHd_PackageSeq(void) {
@@ -2021,7 +2044,7 @@ unsigned PsxHd_PackageSeq(void) {
 }
 
 unsigned PsxHd_SmoothSeq(void) {
-    return shown_seq;
+    return SDL_GetAtomicInt(&smooth_paused) ? 0 : shown_seq;
 }
 
 int PsxHd_SmoothRead(float alpha, uint32_t *out, int *w, int *h) {

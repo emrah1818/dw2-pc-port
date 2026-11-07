@@ -160,6 +160,9 @@ void PsxHd_SetFrameTime(uint64_t ns);
 /* PR.36 (game thread): on = no packages (the speed-up runs: game frames come about as fast as the
  * monitor refreshes, so blending gains nothing and costs the GPU time the game needs). */
 void PsxHd_SmoothHold(int on);
+/* Game thread: temporary overload pause, independent of the speed-up hold. Clears the
+ * published replay package on entry; the window thread falls back to the real game picture. */
+void PsxHd_SmoothPause(int on);
 void PsxHd_EndFrame(void);
 int PsxHd_SmoothPicture(uint64_t t, void **tex, int *w, int *h, int *margin);
 float PsxHd_SmoothAlpha(void);

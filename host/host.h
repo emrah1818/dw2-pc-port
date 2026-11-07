@@ -24,6 +24,8 @@ void Host_Quit(const char *why);
  * VBlank (Psyq_VBlank: VSync(-1) counter + Sys_VSyncHandler), publishes the display area for the
  * window, takes the window's requests and input, and feeds audio. libetc's VSync waits and Host_WaitVBlank use it. */
 void Host_VBlank(void);
+/* Temporary overload guard (thread-safe read). */
+int Host_GameLate(void);
 /* --fast: no pacing, each Host_VBlank runs exactly one VBlank at once. */
 void Host_ClockFast(void);
 /* PR.28 speed-up (game thread): F3 toggles it, --speed-up starts with it on. While on, VBlanks run

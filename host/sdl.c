@@ -14,6 +14,7 @@
 #endif
 #include "host/settings.h"
 #include "host/ui.h"
+#include "host/update.h"
 #include "psyq/gte_core.h"
 #if DW2_DEV
 #include "host/devsnap.h"
@@ -629,11 +630,13 @@ static void perf_line(Uint64 pub_ns) {
         if (perf_f != NULL) atexit(perf_close);
         if (perf_f != NULL)
             fprintf(perf_f, "frame,t_ms,frame_ms,flush_ms,publish_ms,finds,hits,new_tiles,new_kpx,full,drops,raster_ms,"
-                            "conv_ms,style_ms,gpu_ups,gpu_kib,gpu_up_ms,gpu_deferred,tiles,tile_kib,sleep_ms,vblanks,used_kib,mag1,mag2,mag3,mag4\n");
+                            "conv_ms,style_ms,gpu_ups,gpu_kib,gpu_up_ms,gpu_deferred,tiles,tile_kib,sleep_ms,vblanks,used_kib,mag1,mag2,mag3,mag4,"
+                            "submit_ms,fence_wait_ms,acquire_ms,build_ms,record_ms,submits,fence_waits,package_ms,packages,"
+                            "gpu,scale,smooth,late,vsync_setting,fps_limit,language,ui_style,sharpen,smooth2d,version\n");
     }
     if (perf_f != NULL && perf_last != 0) {
         TexRep_IndexStats(&srcs, &tiles, &kib);
-        fprintf(perf_f, "%llu,%.1f,%.3f,%.3f,%.3f,%llu,%llu,%llu,%llu,%llu,%llu,%.3f,%.3f,%.3f,%llu,%llu,%.3f,%llu,%d,%d,%.3f,%llu,%llu,%llu,%llu,%llu,%llu\n",
+        fprintf(perf_f, "%llu,%.1f,%.3f,%.3f,%.3f,%llu,%llu,%llu,%llu,%llu,%llu,%.3f,%.3f,%.3f,%llu,%llu,%.3f,%llu,%d,%d,%.3f,%llu,%llu,%llu,%llu,%llu,%llu",
                 (unsigned long long)perf_frame, now / 1e6, (now - perf_last) / 1e6, p->flush_ns / 1e6, pub_ns / 1e6,
                 (unsigned long long)p->finds, (unsigned long long)p->idx_hits, (unsigned long long)p->idx_new,
                 (unsigned long long)(p->idx_new_px / 1000), (unsigned long long)p->idx_full,
@@ -642,6 +645,14 @@ static void perf_line(Uint64 pub_ns) {
                 (unsigned long long)p->gpu_refused, tiles, kib, p->sleep_ns / 1e6, (unsigned long long)p->vblanks,
                 (unsigned long long)p->used_kib, (unsigned long long)p->mag_hist[1], (unsigned long long)p->mag_hist[2],
                 (unsigned long long)p->mag_hist[3], (unsigned long long)p->mag_hist[4]);
+        fprintf(perf_f, ",%.3f,%.3f,%.3f,%.3f,%.3f,%llu,%llu,%.3f,%llu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n",
+                p->gpu_submit_ns / 1e6, p->gpu_wait_ns / 1e6, p->gpu_acquire_ns / 1e6,
+                p->gpu_build_ns / 1e6, p->gpu_record_ns / 1e6,
+                (unsigned long long)p->gpu_submits, (unsigned long long)p->gpu_waits,
+                p->package_ns / 1e6, (unsigned long long)p->packages,
+                PsxHd_Gpu(), PsxHd_Scale(), PsxHd_Smooth(), Host_GameLate(),
+                Settings_Get(SET_VSYNC), Settings_Get(SET_FPS_LIMIT), Settings_Get(SET_LANGUAGE),
+                Settings_Get(SET_UI_STYLE), Settings_Get(SET_SHARPEN), Settings_Get(SET_SMOOTH2D), DW2_VERSION);
         if ((perf_frame & 63) == 0) fflush(perf_f);
     }
     memset(p, 0, sizeof(*p));
@@ -946,7 +957,7 @@ void Host_Present(void) {
             SDL_SetAtomicInt(&out_pic_h, ph);
         }
     }
-    if (f != NULL && SDL_GetAtomicInt(&smooth_on) &&
+    if (f != NULL && SDL_GetAtomicInt(&smooth_on) && !Host_GameLate() &&
         PsxHd_SmoothPicture(SDL_GetTicksNS(), &stex, &sf.w, &sf.h, &sf.margin)) {
         /* PR.34: the newest package drawn for now */
         sf.logical_w = f->logical_w;
@@ -1322,8 +1333,6 @@ void Host_WindowLoop(void) {
         if (smooth_vsync()) {
             /* PR.34: a picture per refresh (the present waits for the vsync) */
             Uint64 t = SDL_GetTicksNS();
-
-            extern int Host_GameLate(void);
 
             if (Host_GameLate()) {
                 /* dw2-pc-port: the game thread misses its VBlanks: only its own frames for now,

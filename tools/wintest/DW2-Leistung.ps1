@@ -15,7 +15,8 @@ function Log([string]$s) { Write-Host $s; Add-Content -Path $rep -Value $s -Enco
 
 Write-Host "Das Spiel startet. Bitte normal spielen (z. B. einen Kampf mit mehreren Attacken) und dann beenden."
 $env:DW2_PERF_LOG = $csv
-$p = Start-Process -FilePath (Join-Path $here "dw2.exe") -PassThru -Wait
+$p = Start-Process -FilePath (Join-Path $here "dw2.exe") -PassThru -Wait `
+    -RedirectStandardOutput (Join-Path $out "spiel.log") -RedirectStandardError (Join-Path $out "spiel-fehler.log")
 Remove-Item Env:\DW2_PERF_LOG
 
 Log "DW2-PC-Port Leistungsmessung, $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -26,6 +27,11 @@ try {
 if (-not (Test-Path $csv)) { Log "Keine Messdatei (das Spiel hat nicht gestartet?)"; exit 1 }
 $rows = Import-Csv $csv
 if ($rows.Count -lt 2) { Log "Zu wenige Bilder gemessen"; exit 1 }
+if ($rows[0].PSObject.Properties.Name -contains "version") {
+    Log "Build: $($rows[0].version)"
+    Log "Einstellungen pro Intervall stehen in der CSV: gpu, scale, smooth, late, vsync_setting, fps_limit, language, ui_style, sharpen, smooth2d."
+    Log "GPU=1 bedeutet Hardwarepfad; late=1 bedeutet Zwischenbildpause. vsync_setting ist der gespeicherte Schalter; Smooth kann VSync zusaetzlich einschalten."
+}
 $inv = [Globalization.CultureInfo]::InvariantCulture
 function N($v) { [double]::Parse($v, $inv) }
 $ft = $rows | ForEach-Object { N $_.frame_ms } | Sort-Object
@@ -42,10 +48,26 @@ Log ("Zeichnen (Flush) gesamt {0:N0} ms, Bild ausgeben {1:N0} ms, Warten auf VBl
 Log ("Schrift-Kacheln: {0} neu ({1:N1} Mio. Pixel), {2} aus dem Speicher; Rastern {3:N0} ms, Umrechnen {4:N0} ms, Panel-Stil {5:N0} ms" -f $sum.new_tiles, ($sum.new_kpx / 1000), $sum.hits, $sum.raster_ms, $sum.conv_ms, $sum.style_ms)
 Log ("Kachelspeicher maximal {0:N1} MiB; voll: {1}, komplett geleert: {2}" -f ($maxtile / 1024), $sum.full, $sum.drops)
 Log ("GPU-Uploads: {0} ({1:N1} MiB, {2:N0} ms); zurueckgestellt/abgelehnt: {3}" -f $sum.gpu_ups, ($sum.gpu_kib / 1024), $sum.gpu_up_ms, $sum.gpu_deferred)
+if ($rows[0].PSObject.Properties.Name -contains "submit_ms") {
+    foreach ($k in "submit_ms","fence_wait_ms","acquire_ms","build_ms","record_ms","package_ms","submits","fence_waits","packages") {
+        $sum[$k] = ($rows | ForEach-Object { N $_.$k } | Measure-Object -Sum).Sum
+    }
+    Log ("GPU Spiel-Thread: Submit {0:N1} ms ({1} Aufrufe), Fence-Warten {2:N1} ms ({3} Aufrufe), Commandbuffer holen {4:N1} ms" -f $sum.submit_ms, $sum.submits, $sum.fence_wait_ms, $sum.fence_waits, $sum.acquire_ms)
+    Log ("GPU Zeichenvorbereitung {0:N1} ms, Upload/Zeichenbefehle aufzeichnen {1:N1} ms; Zwischenbildpakete {2} ({3:N1} ms)" -f $sum.build_ms, $sum.record_ms, $sum.packages, $sum.package_ms)
+    Log "Das sind CPU-Wandzeiten im Spiel-Thread, keine GPU-Timestamps. Unterzeiten stecken bereits in Flush/Publish/Paketzeiten; nicht addieren."
+    Log "Intervalle sind VBlank-Wartepunkte, kein direkter Zaehler der angezeigten Spiel-FPS."
+}
 Log ""
 Log "Die 15 langsamsten Bilder (Bild, ms gesamt, Flush, neue Kacheln, Rastern ms, GPU-Uploads KiB, faellige VBlanks):"
 $rows | Sort-Object { - (N $_.frame_ms) } | Select-Object -First 15 | ForEach-Object {
     Log ("  {0,6}  {1,8:N2}  {2,8:N2}  {3,4}  {4,7:N2}  {5,7}  {6}" -f $_.frame, (N $_.frame_ms), (N $_.flush_ms), $_.new_tiles, (N $_.raster_ms), $_.gpu_kib, $_.vblanks)
 }
 Log ""
-Log "Bitte test_out\leistung.txt und test_out\leistung.csv an den Entwickler schicken."
+Log "Bitte test_out\leistung.txt, test_out\leistung.csv und test_out\spiel.log an den Entwickler schicken."
+# Keep each run for A/B comparisons instead of losing the preceding measurement.
+$archive = Join-Path $out ("leistung-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+New-Item -ItemType Directory -Force $archive | Out-Null
+foreach ($name in "leistung.txt","leistung.csv","spiel.log","spiel-fehler.log") {
+    $src = Join-Path $out $name
+    if (Test-Path $src) { Copy-Item $src $archive }
+}

@@ -126,6 +126,9 @@ typedef struct {
     uint64_t used_kib;   /* the distinct runtime tiles drawn in this picture (the GPU pool's working set) */
     uint64_t mag_hist[5]; /* runtime tile uses by the primitive's magnification 1..4 */
     uint64_t vblanks;    /* VBlanks run at this wait (more than 1: the game thread was late) */
+    /* CPU wall times, game thread only; nested in flush/publish/package, NOT GPU timestamps. */
+    uint64_t gpu_submit_ns, gpu_wait_ns, gpu_acquire_ns, gpu_build_ns, gpu_record_ns;
+    uint64_t gpu_submits, gpu_waits, package_ns, packages;
 } TexRepPerf;
 extern TexRepPerf texrep_perf;
 void TexRep_PerfPicture(void); /* a new picture (Host_Publish) */

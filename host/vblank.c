@@ -126,6 +126,8 @@ void Host_VBlank(void) {
 
     int mult = want_mult();
 
+    PsxHd_SmoothPause(Host_GameLate());
+
     if (mult != cur_mult) {
         /* new rate: the deadlines restart from now, so a change neither bursts nor stalls */
         if (mult == 0) {
@@ -180,6 +182,7 @@ void Host_VBlank(void) {
         next = 1;
     }
     /* The PS1 scans the display area out of VRAM all the time: publish it once per call. */
+    PsxHd_SmoothPause(Host_GameLate());
     host_side();
 }
 

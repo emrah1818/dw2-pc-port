@@ -975,10 +975,16 @@ static void patch_texts(const char *dir, int umlauts) {
     snprintf(path, sizeof(path), "%stexts.tsv", dir);
     data = SDL_LoadFile(path, &sz);
     if (data == NULL) {
+        /* the public part (menus, items, technique descriptions), shipped with the program */
+        note("no %s: menu, item and technique texts from menu.tsv%s", path, "");
+        snprintf(path, sizeof(path), "%smenu.tsv", dir);
+        data = SDL_LoadFile(path, &sz);
+    }
+    if (data == NULL) {
         note("no %s: game texts stay English%s", path, "");
         return;
     }
-    if (rep) fprintf(rep, "\n# texts.tsv\n");
+    if (rep) fprintf(rep, "\n# %s\n", path);
     /* the files the keys name, in order of first use */
     copy = SDL_strdup(data);
     for (line = copy; line != NULL && *line; line = next) {

@@ -207,6 +207,155 @@ static int picture_ink(const Tex* t, const Cell* c)
 /* Rasterize each label without the legacy outline dilation. At small sizes
  * that dilation fills the counters of Orbitron. The current cell palette
  * supplies a visible ink colour, including palettes stored inside the TIM. */
+/* The letters of a picture as coverage (0..255), k times the picture's size: the same layout at
+ * every k (k = 1: the painted texture; k = the HD renderer's scale: the runtime picture). The
+ * picture spans the cells' screen box; each line is fitted into the cells it crosses. */
+static int words_mask(const Cell* c, int n, const Words* w, int k, uint8_t* mask, int stride)
+{
+    int x0 = 99999, x1 = -99999, y0 = 99999, y1 = -99999;
+    if (n <= 0 || k < 1)
+        return 0;
+    for (int i = 0; i < n; i++) {
+        x0 = c[i].x < x0 ? c[i].x : x0;
+        x1 = c[i].x + c[i].w > x1 ? c[i].x + c[i].w : x1;
+        y0 = c[i].y < y0 ? c[i].y : y0;
+        y1 = c[i].y + c[i].h > y1 ? c[i].y + c[i].h : y1;
+    }
+    int cw = x1 - x0, ch = y1 - y0;
+    if (cw <= 8 || ch <= 6 || cw > CW || ch > CH || cw * k > stride)
+        return 0;
+    memset(mask, 0, (size_t)stride * ch * k);
+    int role  = w->role == 1 ? FONT_INTERFACE : w->role == 2 ? FONT_TELEMETRY
+                                                             : FONT_DISPLAY;
+    int lines = 1;
+    for (const char* p = w->text; *p; p++)
+        if (*p == '\n')
+            lines++;
+    int line_h = (ch - 2) / lines, LH = line_h * k;
+    if (line_h < 1)
+        return 0;
+    uint8_t* row  = malloc((size_t)stride * LH);
+    uint8_t* wide = malloc((size_t)stride * LH);
+    int      ok   = row != NULL && wide != NULL;
+    const char* p = w->text;
+    for (int line = 0; line < lines && ok; line++) {
+        const char* end = strchr(p, '\n');
+        size_t      len = end ? (size_t)(end - p) : strlen(p);
+        char        label[512];
+        if (len >= sizeof(label)) {
+            ok = 0;
+            break;
+        }
+        memcpy(label, p, len);
+        label[len] = 0;
+        /* The second copyright line has only one cell, while the first spans
+         * three. Fit each line to its actual mapped texture coverage. */
+        int ymid = y0 + 1 + line * line_h + line_h / 2, lo = cw, hi = 0;
+        for (int i = 0; i < n; i++)
+            if (ymid >= c[i].y && ymid < c[i].y + c[i].h) {
+                int a = c[i].x - x0, b = a + c[i].w;
+                if (a < lo)
+                    lo = a;
+                if (b > hi)
+                    hi = b;
+            }
+        int available = (hi - lo - 2) * k;
+        if (available < 1) {
+            ok = 0;
+            break;
+        }
+        int width;
+        memset(row, 0, (size_t)stride * LH);
+        if (w->squeeze > 10) {
+            /* full height, then narrower: each output column is half the mean, half the strongest
+               coverage of the columns it covers (the strongest alone merged capitals such as WORK
+               into blocks, the mean alone lost the thin I of NIEDERLAGE) */
+            int room = available * w->squeeze / 10;
+            room     = room > stride ? stride : room;
+            memset(wide, 0, (size_t)stride * LH);
+            width = Fonts_Mask(role, label, wide, stride, room, LH);
+            if (width < 0) {
+                ok = 0;
+                break;
+            }
+            if (width > available) {
+                for (int y = 0; y < LH; y++)
+                    for (int x = 0; x < available; x++) {
+                        int a = x * width / available, b = (x + 1) * width / available, m = 0, nk = 0, mx = 0;
+                        for (int q = a; q < (b > a ? b : a + 1); q++, nk++) {
+                            m += wide[y * stride + q];
+                            mx = wide[y * stride + q] > mx ? wide[y * stride + q] : mx;
+                        }
+                        row[y * stride + x] = (uint8_t)((m / nk + mx) / 2);
+                    }
+                width = available;
+            } else {
+                for (int y = 0; y < LH; y++)
+                    memcpy(row + y * stride, wide + y * stride, (size_t)width);
+            }
+        } else {
+            width = Fonts_Mask(role, label, row, stride, available, LH);
+        }
+        if (width < 0) {
+            ok = 0;
+            break;
+        }
+        int left = lo * k + (w->align < 0 ? 0 : w->align > 0 ? available - width
+                                                             : (available - width) / 2);
+        for (int y = 0; y < LH; y++)
+            memcpy(mask + (line * LH + y) * stride + left, row + y * stride, (size_t)width);
+        if (end)
+            p = end + 1;
+    }
+    free(row);
+    free(wide);
+    return ok;
+}
+
+/* dw2-pc-port: what a painted picture needs to be painted again at the output resolution
+ * (registered as a runtime index source per file by flush_files) */
+typedef struct {
+    const uint8_t* file; /* Tex.d of the painting (matched to its file at the flush) */
+    Cell           c[MAX_CELLS];
+    int            n, x0, y0, cw, ch;
+    uint8_t        col[MAX_CELLS]; /* the palette index of each cell's letters */
+    Words          w;
+    char           text[512];
+    uint8_t*       hmask; /* the last runtime mask (k = hk) */
+    int            hk;
+} HiPic;
+#define MAX_HIPICS 1024
+static HiPic hipics[MAX_HIPICS];
+static int   nhipics;
+
+static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const uint8_t* col)
+{
+    if (nhipics == MAX_HIPICS || n > MAX_CELLS)
+        return;
+    HiPic* h = &hipics[nhipics];
+    int    x0 = 99999, x1 = -99999, y0 = 99999, y1 = -99999;
+    for (int i = 0; i < n; i++) {
+        x0 = c[i].x < x0 ? c[i].x : x0;
+        x1 = c[i].x + c[i].w > x1 ? c[i].x + c[i].w : x1;
+        y0 = c[i].y < y0 ? c[i].y : y0;
+        y1 = c[i].y + c[i].h > y1 ? c[i].y + c[i].h : y1;
+        h->c[i]   = c[i];
+        h->col[i] = col[i];
+    }
+    h->file = t->d;
+    h->n    = n;
+    h->x0   = x0;
+    h->y0   = y0;
+    h->cw   = x1 - x0;
+    h->ch   = y1 - y0;
+    h->w    = *w;
+    snprintf(h->text, sizeof(h->text), "%s", w->text);
+    h->w.text = h->text;
+    h->hmask  = NULL;
+    h->hk     = 0;
+    nhipics++;
+}
+
 static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
 {
     (void)min_sq;
@@ -221,82 +370,8 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
         y1 = c[i].y + c[i].h > y1 ? c[i].y + c[i].h : y1;
     }
     int cw = x1 - x0, ch = y1 - y0;
-    if (cw <= 8 || ch <= 6 || cw > CW || ch > CH)
+    if (!words_mask(c, n, w, 1, mask, CW))
         return 0;
-    memset(mask, 0, sizeof(mask));
-    int role  = w->role == 1 ? FONT_INTERFACE : w->role == 2 ? FONT_TELEMETRY
-                                                             : FONT_DISPLAY;
-    int lines = 1;
-    for (const char* p = w->text; *p; p++)
-        if (*p == '\n')
-            lines++;
-    int line_h = (ch - 2) / lines;
-    if (line_h < 1)
-        return 0;
-    const char* p = w->text;
-    for (int line = 0; line < lines; line++) {
-        const char* end = strchr(p, '\n');
-        size_t      len = end ? (size_t)(end - p) : strlen(p);
-        char        label[512];
-        uint8_t     row[CW * CH];
-        if (len >= sizeof(label))
-            return 0;
-        memcpy(label, p, len);
-        label[len] = 0;
-        /* The second copyright line has only one cell, while the first spans
-         * three. Fit each line to its actual mapped texture coverage. */
-        int ymid = y0 + 1 + line * line_h + line_h / 2, lo = cw, hi = 0;
-        for (int i = 0; i < n; i++)
-            if (ymid >= c[i].y && ymid < c[i].y + c[i].h) {
-                int a = c[i].x - x0, b = a + c[i].w;
-                if (a < lo)
-                    lo = a;
-                if (b > hi)
-                    hi = b;
-            }
-        int available = hi - lo - 2;
-        if (available < 1)
-            return 0;
-        int width;
-        if (w->squeeze > 10) {
-            /* full height, then narrower: each output column is half the mean, half the strongest
-               coverage of the columns it covers (the strongest alone merged capitals such as WORK
-               into blocks, the mean alone lost the thin I of NIEDERLAGE) */
-            static uint8_t wide[CW * CH];
-            int            room = available * w->squeeze / 10;
-            room                = room > CW ? CW : room;
-            memset(wide, 0, sizeof(wide));
-            width = Fonts_Mask(role, label, wide, CW, room, line_h);
-            if (width < 0)
-                return 0;
-            memset(row, 0, sizeof(row));
-            if (width > available) {
-                for (int y = 0; y < line_h; y++)
-                    for (int x = 0; x < available; x++) {
-                        int a = x * width / available, b = (x + 1) * width / available, m = 0, nk = 0, mx = 0;
-                        for (int k = a; k < (b > a ? b : a + 1); k++, nk++) {
-                            m += wide[y * CW + k];
-                            mx = wide[y * CW + k] > mx ? wide[y * CW + k] : mx;
-                        }
-                        row[y * CW + x] = (uint8_t)((m / nk + mx) / 2);
-                    }
-                width = available;
-            } else {
-                for (int y = 0; y < line_h; y++)
-                    memcpy(row + y * CW, wide + y * CW, (size_t)width);
-            }
-        } else {
-            width = Fonts_Mask(role, label, row, CW, available, line_h);
-        }
-        if (width < 0)
-            return 0;
-        int left = lo + (w->align < 0 ? 0 : w->align > 0 ? available - width
-                                                         : (available - width) / 2);
-        for (int y = 0; y < line_h; y++)
-            memcpy(mask + (line * line_h + y) * CW + left, row + y * CW, (size_t)width);
-        if (end)
-            p = end + 1;
-    }
     int shift = 1;
     /* dw2-pc-port: the colours of the original picture. The original is a gradient with an outline
      * (bright letter body, darker rim): learn its colour per row and per depth from the original
@@ -353,6 +428,12 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                             v = inks[i];
                         tset(t, c[i].u + x, c[i].v + y, v);
                     }
+            {
+                uint8_t col[MAX_CELLS];
+                for (int i = 0; i < n && i < MAX_CELLS; i++)
+                    col[i] = (uint8_t)inks[i];
+                hipic_add(t, c, n, w, col);
+            }
             return 1;
         }
         for (int d = 0; d <= MAXD; d++) {
@@ -421,6 +502,12 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                     }
                     tset(t, c[i].u + x, c[i].v + y, v);
                 }
+        {
+            uint8_t col[MAX_CELLS];
+            for (int i = 0; i < n && i < MAX_CELLS; i++)
+                col[i] = (uint8_t)all[maxd < 3 ? maxd : 3];
+            hipic_add(t, c, n, w, col);
+        }
     }
     return 1;
 }
@@ -527,15 +614,103 @@ static Open* get_file(int id)
     return &open_files[nopen++];
 }
 
+/* dw2-pc-port: the painted pictures at the output resolution. Each changed file's texture is a
+ * runtime index source (backend/texrep.h): its texels k times larger, and over them every picture
+ * painted into it, its letters rasterized again at k times the size (words_mask: the same layout,
+ * the same palette index per cell). Pictures the painter did not record stay the 1x texels. */
+#include "backend/texrep.h"
+typedef struct {
+    uint8_t* pix; /* the texture as uploaded */
+    int      stride, w, h, bits;
+    int      ids[MAX_HIPICS > 256 ? 256 : MAX_HIPICS], nids;
+} HiFile;
+static HiFile hifiles[MAX_OPEN];
+static int    nhifiles;
+
+static int hifile_texel(const HiFile* f, int x, int y)
+{
+    if (x < 0 || y < 0 || x >= f->w || y >= f->h)
+        return 0;
+    if (f->bits == 8)
+        return f->pix[y * f->stride + x];
+    return (f->pix[y * f->stride + x / 2] >> ((x & 1) * 4)) & 15;
+}
+
+static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t* idx)
+{
+    HiFile* f = ctx;
+    int     W = w * k;
+    for (int y = 0; y < h * k; y++)
+        for (int x = 0; x < W; x++)
+            idx[y * W + x] = (uint8_t)hifile_texel(f, x0 + x / k, y0 + y / k);
+    for (int q = 0; q < f->nids; q++) {
+        HiPic* p = &hipics[f->ids[q]];
+        int    stride = p->cw * k;
+        if (p->hk != k) {
+            free(p->hmask);
+            p->hmask = malloc((size_t)stride * p->ch * k);
+            p->hk    = k;
+            if (p->hmask && !words_mask(p->c, p->n, &p->w, k, p->hmask, stride)) {
+                free(p->hmask);
+                p->hmask = NULL;
+            }
+        }
+        if (!p->hmask)
+            continue;
+        for (int i = 0; i < p->n; i++) {
+            const Cell* c  = &p->c[i];
+            int         u0 = c->u > x0 ? c->u : x0, u1 = c->u + c->w < x0 + w ? c->u + c->w : x0 + w;
+            int         v0 = c->v > y0 ? c->v : y0, v1 = c->v + c->h < y0 + h ? c->v + c->h : y0 + h;
+            for (int tv = v0 * k; tv < v1 * k; tv++)
+                for (int tu = u0 * k; tu < u1 * k; tu++) {
+                    int X = (c->x - p->x0) * k + tu - c->u * k, Y = (c->y - p->y0) * k + tv - c->v * k, v = 0;
+                    int X1 = X / k, Y1 = Y / k, mx = X - k, my = Y - k; /* shift 1 texel right, 1 down */
+                    if (!(p->w.border && (X1 == 0 || X1 == p->cw - 1 || Y1 == 0 || Y1 == p->ch - 1)) && mx >= 0 &&
+                        mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k && p->hmask[my * stride + mx] >= 80)
+                        v = p->col[i];
+                    idx[(tv - y0 * k) * W + tu - x0 * k] = (uint8_t)v;
+                }
+        }
+    }
+}
+
+static void register_hifile(const Open* o)
+{
+    Tex t;
+    if (nhifiles == MAX_OPEN || !tex_open(&t, o->d, o->size))
+        return;
+    HiFile* f = &hifiles[nhifiles];
+    f->nids   = 0;
+    for (int i = 0; i < nhipics && f->nids < (int)(sizeof(f->ids) / sizeof(f->ids[0])); i++)
+        if (hipics[i].file == o->d)
+            f->ids[f->nids++] = i;
+    if (f->nids == 0)
+        return;
+    f->pix = malloc((size_t)t.stride * t.h);
+    if (!f->pix)
+        return;
+    memcpy(f->pix, o->d + t.img, (size_t)t.stride * t.h);
+    f->stride = t.stride;
+    f->w      = t.w;
+    f->h      = t.h;
+    f->bits   = t.bits;
+    TexRep_AddIndexSource((const uint16_t*)f->pix, t.stride / 2, t.h, t.bits == 4 ? 0 : 1, 16, 16, hifile_index, f);
+    nhifiles++;
+}
+
 static void flush_files(void)
 {
     for (int i = 0; i < nopen; i++) {
         if (open_files[i].d != NULL && open_files[i].changed) {
             Host_PakSetLayer(open_files[i].id, open_files[i].d, open_files[i].size);
+            register_hifile(&open_files[i]);
         }
         free(open_files[i].d);
     }
     nopen = 0;
+    /* the recorded pictures pointed into these buffers: the files keep what they need */
+    for (int i = 0; i < nhipics; i++)
+        hipics[i].file = NULL;
 }
 
 /* A picture that is too narrow for its German text gets wider in its texture when the columns
@@ -971,6 +1146,14 @@ void PicWords_Apply(void)
     int  ok = 0, bad = 0, sk_ok = 0, sk_bad = 0;
     char a[64], b[64];
 
+    /* the runtime pictures of an earlier call (language switch): Fonts_ApplyGame cleared their
+       sources; tiles already made keep their own pixels */
+    for (int i = 0; i < nhipics; i++)
+        free(hipics[i].hmask);
+    nhipics = 0;
+    for (int i = 0; i < nhifiles; i++)
+        free(hifiles[i].pix);
+    nhifiles = 0;
     collect_skill_names();
     font22 = Host_PakReadFileLayered(0x22B, &font22_size);
     if (font22 == NULL || !tex_open(&font22_tex, font22, font22_size)) {

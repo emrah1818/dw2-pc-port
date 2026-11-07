@@ -365,6 +365,19 @@ void PsxHd_Sync(void) {
     flush();
 }
 
+/* dw2-pc-port runtime fonts: the tile memory filled up during the picture: the queue is drawn,
+ * then every tile goes (the GPU's replacement pool starts over at its next flush) */
+void PsxHd_TrimRuntimeTiles(void) {
+    if (!TexRep_TileResetWanted()) {
+        return;
+    }
+    flush();
+    TexRep_DropTiles();
+    if (PsxHw_Active()) {
+        PsxHw_RepReset();
+    }
+}
+
 void PsxHd_SetScale(int s) {
     s = s < 1 ? 1 : s > PSXHD_MAX_SCALE ? PSXHD_MAX_SCALE : s;
     if (s != scale) {
@@ -867,7 +880,15 @@ void PsxHd_Triangle(const PsxGpuState *st, const PsxVtx *v0, const PsxVtx *v1, c
         vmin = v2->v < vmin ? v2->v : vmin;
         vmax = v2->v > vmax ? v2->v : vmax;
         c->tex = *t;
+        {
+            /* screen pixels per texel (magnified 2D such as the zooming battle words) */
+            int du = umax - umin + 1, dv = vmax - vmin + 1, m = 1;
+            int64_t sw = maxx1 - minx1 + 1, sh = maxy1 - miny1 + 1;
+            while (m < 4 && (sw > (int64_t)du * m + du / 4 || sh > (int64_t)dv * m + dv / 4)) m++;
+            TexRep_SetMagnify(m);
+        }
         find_rep(c, st, t, umin, umax, vmin, vmax);
+        TexRep_SetMagnify(1);
     }
     c->gouraud = gouraud;
     c->semi = semi;
@@ -1090,8 +1111,17 @@ static void draw_tri(const Cmd *c, int part, int parts) {
             if (c->rep.img != NULL && t != NULL) {
                 /* dw2-pc-port texture pack: the replacement texel inside the original texel */
                 if (block) {
-                    fu = (u << 8) | (sub * 256 + 128) / scale;
-                    fv = (vv << 8) | ((Y % scale) * 256 + 128) / scale;
+                    /* the texture position at this output pixel's centre: exact also for magnified
+                       sprite-like quads (text in the 480-line screens, zooming battle words), where
+                       one 1x pixel holds only part of a texel. 1:1 gives the texel of the 1x pixel. */
+                    int64_t nu = 0, nvv = 0;
+                    for (i = 0; i < 3; i++) {
+                        int64_t eh = 2 * nr[i] + e[i].dx * ((int64_t)1 << SUB) + step[i] * (2 * (int64_t)X + 1);
+                        nu += att[3][i] * eh;
+                        nvv += att[4][i] * eh;
+                    }
+                    fu = (int)fdiv(nu << 7, area);
+                    fv = (int)fdiv(nvv << 7, area);
                 }
                 hshade_c(st, row + X, t, rep_texel(st, c, u, vv, fu, fv), r, g, b, semi, abr, d);
             } else if (s2d) {

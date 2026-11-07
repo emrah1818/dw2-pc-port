@@ -35,6 +35,12 @@ typedef struct {
     int x, y, w, h;
     uint64_t hash;
     int src; /* index source (TexRep_AddIndexSource) with these pixels, or -1 */
+    /* index sources: parts written over since (the game rewrites a few texels of a page every
+       frame): primitives touching them draw the original, the rest keeps its runtime picture */
+    int ndirty;
+    struct {
+        int x, y, w, h;
+    } dirty[8];
 } Upload;
 
 #define MAX_ENTRIES 65536
@@ -249,6 +255,10 @@ const char *TexRep_PackName(int i) {
 
 static int nsrcs;
 static int out_scale = 1; /* the HD renderer's scale (TexRep_SetScale) */
+static int prim_mag = 1;  /* TexRep_SetMagnify */
+void TexRep_SetMagnify(int m) {
+    prim_mag = m < 1 ? 1 : m > 4 ? 4 : m;
+}
 
 int TexRep_Active(void) {
     return !disabled && (nentries > 0 || dump_dir != NULL || nsrcs > 0);
@@ -280,7 +290,8 @@ typedef struct {
     void *ctx;
 } IdxSrc;
 typedef struct {
-    int src, ox, oy, rw, rh, k;
+    uint64_t src; /* the source's pixel hash: tiles stay valid when the sources are registered again */
+    int ox, oy, rw, rh, k;
     uint32_t clut;
     TexRepImg *img;
 } IdxTile;
@@ -289,6 +300,7 @@ static IdxTile *idx_tab;
 static int idx_tiles;
 static size_t idx_bytes;
 static int idx_full_logged;
+static int idx_reset_wanted;
 
 void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx) {
     int dims[2] = { w, h };
@@ -321,6 +333,26 @@ void TexRep_ClearIndexSources(void) {
     for (int i = 0; i < nuploads; i++) uploads[i].src = -1;
 }
 
+int TexRep_TileResetWanted(void) {
+    return idx_reset_wanted;
+}
+
+/* every runtime tile freed: only when no queued primitive uses one (psxgpu_hd.c, after a flush) */
+void TexRep_DropTiles(void) {
+    if (idx_tab != NULL) {
+        for (int i = 0; i < IDX_TABLE; i++) {
+            if (idx_tab[i].img != NULL) {
+                free(idx_tab[i].img->px);
+                free(idx_tab[i].img);
+            }
+        }
+        memset(idx_tab, 0, IDX_TABLE * sizeof(*idx_tab));
+    }
+    idx_tiles = 0;
+    idx_bytes = 0;
+    idx_reset_wanted = 0;
+}
+
 void TexRep_IndexStats(int *sources, int *tiles, int *kib) {
     *sources = nsrcs;
     *tiles = idx_tiles;
@@ -341,7 +373,8 @@ static uint32_t argb_of(uint16_t c) {
 
 /* the tile of source si covering texels [ox, ox+rw) x [oy, oy+rh) at k for the palette pal */
 static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const uint16_t *pal, uint32_t clut) {
-    uint32_t h = (uint32_t)fnv(fnv(0xCBF29CE484222325ull, &si, sizeof(si)), &clut, sizeof(clut));
+    uint64_t sh = srcs[si].hash;
+    uint32_t h = (uint32_t)fnv(fnv(0xCBF29CE484222325ull, &sh, sizeof(sh)), &clut, sizeof(clut));
     int key[5] = { ox, oy, rw, rh, k };
     size_t n = (size_t)rw * k * (size_t)rh * k;
     uint8_t *idx;
@@ -355,15 +388,18 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     for (int probe = 0; probe < IDX_TABLE; probe++, h = (h + 1) % IDX_TABLE) {
         IdxTile *t = &idx_tab[h];
         if (t->img == NULL) break;
-        if (t->src == si && t->ox == ox && t->oy == oy && t->rw == rw && t->rh == rh && t->k == k && t->clut == clut)
+        if (t->src == sh && t->ox == ox && t->oy == oy && t->rw == rw && t->rh == rh && t->k == k && t->clut == clut)
             return t->img;
     }
     if (idx_tab[h].img != NULL || idx_tiles >= IDX_TABLE / 2 || idx_bytes + n * 5 > IDX_MEM_LIMIT) {
-        if (!idx_full_logged) {
-            idx_full_logged = 1;
-            tlog("runtime fonts: tile memory full (%d tiles, %zu MiB), further text stays at the game's size\n",
-                 idx_tiles, idx_bytes >> 20);
+        /* full: this primitive draws the game's texture; the tiles are dropped after the picture
+           (PsxHd_TrimRuntimeTiles at the frame's end) and made again when drawn */
+        if (!idx_reset_wanted && idx_full_logged < 3) {
+            idx_full_logged++;
+            tlog("runtime fonts: tile memory full (%d tiles, %zu MiB), starting over after this picture\n", idx_tiles,
+                 idx_bytes >> 20);
         }
+        idx_reset_wanted = 1;
         return NULL;
     }
     idx = calloc(n, 1);
@@ -388,7 +424,7 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     img->lev[0].w = img->w;
     img->lev[0].h = img->h;
     img->lev[0].px = px;
-    idx_tab[h].src = si;
+    idx_tab[h].src = sh;
     idx_tab[h].ox = ox;
     idx_tab[h].oy = oy;
     idx_tab[h].rw = rw;
@@ -407,7 +443,27 @@ static int overlaps(const Upload *u, int x, int y, int w, int h) {
 
 void TexRep_OnWrite(int x, int y, int w, int h) {
     for (int i = 0; i < nuploads;) {
-        if (overlaps(&uploads[i], x, y, w, h)) {
+        Upload *u = &uploads[i];
+        if (overlaps(u, x, y, w, h)) {
+            int whole = x <= u->x && y <= u->y && x + w >= u->x + u->w && y + h >= u->y + u->h, known = 0;
+            if (u->src >= 0 && !whole) {
+                for (int d = 0; d < u->ndirty && !known; d++)
+                    known = u->dirty[d].x <= x && u->dirty[d].y <= y && u->dirty[d].x + u->dirty[d].w >= x + w &&
+                            u->dirty[d].y + u->dirty[d].h >= y + h;
+                if (known) {
+                    i++;
+                    continue;
+                }
+                if (u->ndirty < 8) {
+                    u->dirty[u->ndirty].x = x;
+                    u->dirty[u->ndirty].y = y;
+                    u->dirty[u->ndirty].w = w;
+                    u->dirty[u->ndirty].h = h;
+                    u->ndirty++;
+                    i++;
+                    continue;
+                }
+            }
             uploads[i] = uploads[--nuploads];
         } else {
             i++;
@@ -436,6 +492,7 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     uploads[nuploads].h = h;
     uploads[nuploads].hash = hv;
     uploads[nuploads].src = si;
+    uploads[nuploads].ndirty = 0;
     nuploads++;
 }
 
@@ -728,7 +785,7 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
         if (u->src >= 0 && u->src < nsrcs && srcs[u->src].mode == mode && out_scale >= 2) {
             const IdxSrc *s = &srcs[u->src];
             uint16_t pal[256];
-            int n = mode == 0 ? 16 : 256, k = out_scale > 16 ? 16 : out_scale;
+            int n = mode == 0 ? 16 : 256, k = out_scale * prim_mag > 16 ? 16 : out_scale * prim_mag;
             int tx0 = (umin + du) / s->tw, tx1 = (umax + du) / s->tw, ty0 = (vmin + dv) / s->th, ty1 = (vmax + dv) / s->th;
             int ox = tx0 * s->tw, oy = ty0 * s->th, rw = (tx1 - tx0 + 1) * s->tw, rh = (ty1 - ty0 + 1) * s->th;
             TexRepImg *ti;
@@ -736,6 +793,15 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             if (ox + rw > bw) rw = bw - ox;
             if (oy + rh > bh) rh = bh - oy;
             if (rw > 256 || rh > 256) return 0;
+            /* a tile of at most 1M pixels (a primitive over a whole sheet): fewer replacement pixels
+               per texel there, never fewer than the scale's */
+            while (k > out_scale && (int64_t)rw * k * rh * k > ((int64_t)1 << 20)) k--;
+            for (int d = 0; d < u->ndirty; d++) { /* the primitive's texels in VRAM words / lines */
+                int vx0 = u->x + (umin + du) / tpw, vx1 = u->x + (umax + du) / tpw, vy0 = u->y + vmin + dv, vy1 = u->y + vmax + dv;
+                if (vx0 < u->dirty[d].x + u->dirty[d].w && u->dirty[d].x <= vx1 && vy0 < u->dirty[d].y + u->dirty[d].h &&
+                    u->dirty[d].y <= vy1)
+                    return 0;
+            }
             for (int j = 0; j < n; j++) pal[j] = vram(cx + j, cy);
             ti = idx_tile(u->src, ox, oy, rw, rh, k, pal, (uint32_t)fnv(0xCBF29CE484222325ull, pal, (size_t)n * 2));
             if (ti == NULL) return 0;
@@ -768,7 +834,8 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             e = find_entry(base);
         }
         if (e < 0 || (img = load_png(&entries[e], bw, bh, &k)) == NULL) {
-            return 0;
+            continue; /* the array is not in upload order (OnWrite fills gaps): another upload may hold
+                         the box and a replacement (a runtime index source) */
         }
         use->img = img;
         use->k = k;

@@ -593,7 +593,14 @@ static int ensure_px(Frame *f, size_t n) {
     return 1;
 }
 
+static void publish_frame(void);
+
 void Host_Publish(void) {
+    publish_frame();
+    PsxHd_TrimRuntimeTiles(); /* the picture is out: runtime font tiles may go */
+}
+
+static void publish_frame(void) {
     Frame *f;
     void *tex;
     int tw, th, sx, sy, sw, sh, w, h, i;

@@ -50,6 +50,7 @@ void TexRep_AddIndexSource(const uint16_t* words, int w, int h, int mode, int tw
     src_th  = th;
     src_count++;
 }
+void TexRep_ClearIndexSources(void) {}
 void Fonts_RegisterHd(int big, const uint8_t* data, int size);
 
 int main(int argc, char** argv)

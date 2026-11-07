@@ -70,7 +70,7 @@ int Fonts_Mask(int role, const char* text, uint8_t* dst, int stride, int width, 
 {
     int cps[512], n = 0, ascent, descent, gap;
     if (!Fonts_Init() || role < 0 || role >= FONT_COUNT || !text || !dst ||
-        width < 1 || height < 1 || width > 1024 || height > 256 || stride < width)
+        width < 1 || height < 1 || width > 8192 || height > 2048 || stride < width)
         return -1;
     stbtt_fontinfo* f = &faces[role];
     for (const char* p = text; *p;) {
@@ -351,6 +351,7 @@ static void hd_register(int big, const uint8_t* data, int size)
 void Fonts_RegisterHd(int big, const uint8_t* data, int size) { hd_register(big, data, size); }
 void        Fonts_ApplyGame(void)
 {
+    TexRep_ClearIndexSources(); /* the atlases and word pictures of this language register again */
     for (int big = 0; big < 2; big++) {
         int      size = 0, id = big ? 0x110 : 0x13A;
         uint8_t* data  = Host_PakReadFileLayered(id, &size);

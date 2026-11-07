@@ -169,4 +169,6 @@ unsigned PsxHd_PackageSeq(void);
 unsigned PsxHd_SmoothSeq(void);
 int PsxHd_SmoothRead(float alpha, uint32_t *out, int *w, int *h);
 
+void PsxHd_TrimRuntimeTiles(void); /* after a picture: drops the runtime font tiles when their memory is full */
+
 #endif /* BACKEND_PSXGPU_HD_H */

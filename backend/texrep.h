@@ -78,6 +78,11 @@ int TexRep_Sample(const TexRepUse *use, int fu, int fv);
 typedef void (*TexRepIndexFn)(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx);
 void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx);
 void TexRep_ClearIndexSources(void);
+/* the screen pixels per texel of the next TexRep_Find's primitive (1..4, rounded up): an index source
+ * is drawn at k = scale x this (at most 16), so magnified text (zooming battle words) stays sharp */
+void TexRep_SetMagnify(int m);
 void TexRep_IndexStats(int *sources, int *tiles, int *kib);
+int TexRep_TileResetWanted(void); /* the tile memory filled up: drop the tiles after the picture */
+void TexRep_DropTiles(void);      /* frees all tiles (no queued primitive may use one) */
 
 #endif

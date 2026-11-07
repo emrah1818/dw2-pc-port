@@ -39,6 +39,5 @@ asm/USA/*/rodata/
 *.pak
 *.pak.tmp
 
-# dw2-pc-port: German translations of game texts are derived from the game: never in the public repo
-Languages/German/texts.tsv
+# dw2-pc-port: the German fan translation (texts.tsv, dictionary.txt) is public since 7.11.2026
 Languages/German/report.txt

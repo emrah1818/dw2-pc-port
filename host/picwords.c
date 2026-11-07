@@ -337,6 +337,7 @@ static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* 
  * (registered as a runtime index source per file by flush_files) */
 typedef struct {
     const uint8_t* file; /* Tex.d of the painting (matched to its file at the flush) */
+    int            file_id; /* set when its file registers (register_hifile) */
     Cell           c[MAX_CELLS];
     int            n, x0, y0, cw, ch;
     uint8_t        col[MAX_CELLS]; /* the palette index of each cell's letters */
@@ -401,7 +402,8 @@ static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const 
         h->c[i]   = c[i];
         h->col[i] = col[i];
     }
-    h->file = t->d;
+    h->file    = t->d;
+    h->file_id = 0;
     h->n    = n;
     h->x0   = x0;
     h->y0   = y0;
@@ -808,6 +810,25 @@ static struct {
 } skillpics[MAX_SKILLPICS];
 static int nskillpics;
 
+/* the texture rectangles of file `file` under painted word pictures (host/uipanels.c: no panel
+   style there); returns how many (at most max), as u, v, w, h */
+int PicWords_Rects(int file, int* r, int max)
+{
+    int n = 0;
+    for (int i = 0; i < nhipics; i++) {
+        const HiPic* p = &hipics[i];
+        if (p->file_id != file)
+            continue;
+        for (int j = 0; j < p->n && n < max; j++, n++) {
+            r[4 * n]     = p->c[j].u;
+            r[4 * n + 1] = p->c[j].v;
+            r[4 * n + 2] = p->c[j].w;
+            r[4 * n + 3] = p->c[j].h;
+        }
+    }
+    return n;
+}
+
 void PicWords_AddSkill(int32_t parts_entry, const char* de)
 {
     if (nskillpics < MAX_SKILLPICS && parts_entry != 0) {
@@ -1040,8 +1061,10 @@ static void register_hifile(const Open* o)
     HiFile* f = &hifiles[nhifiles];
     f->nids   = 0;
     for (int i = 0; i < nhipics && f->nids < (int)(sizeof(f->ids) / sizeof(f->ids[0])); i++)
-        if (hipics[i].file == o->d)
+        if (hipics[i].file == o->d) {
             f->ids[f->nids++] = i;
+            hipics[i].file_id = o->id;
+        }
     if (f->nids == 0)
         return;
     f->pix = malloc((size_t)t.stride * t.h);

@@ -174,7 +174,7 @@ static void num_overlay(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
         int sh = (3 * k + 2) / 4; /* the shadow: 0.75 texel (the PS1's one pixel, a little finer) */
         for (int y = 0; y < CH; y++)
             for (int x = 0; x < CW; x++) {
-                int X = (c->u - x0) * k + x, Y = (c->v - y0) * k + y, v = 0;
+                int X = (c->u - x0) * k + x, Y = (c->v - y0) * k + y, v = TEXREP_OVERLAY_CLEAR;
                 if (X < 0 || Y < 0 || X >= W || Y >= h * k)
                     continue;
                 if (cov[y * CW + x] >= 80)

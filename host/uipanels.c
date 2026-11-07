@@ -133,11 +133,18 @@ static void classify(Sheet* s, const uint8_t* d, int size)
         } else {
             continue;
         }
-        if (ba != bb && npairs < 16) { /* a stippled fill: also searched outside the cells below */
+        if (npairs < 16) { /* a stippled or flat fill: also searched outside the cells below (a flat one
+                              as the pair of its colour with itself: a texel of it next to another) */
+            int dup = 0;
+            for (int q = 0; q < npairs; q++)
+                dup |= pairs_a[q] == ba && pairs_b[q] == bb;
+            if (dup)
+                goto known;
             pairs_a[npairs] = ba;
             pairs_b[npairs] = bb;
             npairs++;
         }
+    known:;
         int id = s->ncomp++;
         s->comp[2 * id]     = (uint16_t)v;
         s->comp[2 * id + 1] = (uint16_t)(v + h - 1);
@@ -192,13 +199,24 @@ static void classify(Sheet* s, const uint8_t* d, int size)
         for (int i = 0; i < n; i++)
             s->cls[i] = s->cls[i] == 3 ? 1 : s->cls[i] == 4 ? 2 : s->cls[i];
     }
+    /* the word pictures on the sheet (ZIEL, Schaden, HP / MP labels) keep their own colours */
+    {
+        extern int PicWords_Rects(int file, int* r, int max);
+        static int r[4 * 512];
+        int        nr = PicWords_Rects(s->id, r, 512);
+        for (int q = 0; q < nr; q++)
+            for (int y = r[4 * q + 1]; y < r[4 * q + 1] + r[4 * q + 3] && y < H; y++)
+                for (int x = r[4 * q]; x < r[4 * q] + r[4 * q + 2] && x < W; x++)
+                    s->cls[y * W + x] = 0;
+    }
 }
 
 void UiPanels_Apply(int modern)
 {
-    /* in development: on with DW2_MODERN_PANELS=1 until it is checked on all covered screens */
+    /* on in Modern UI (checked: field menu, status, Digi-Line, load / save, battle HUD and commands,
+       result); DW2_MODERN_PANELS=0 keeps the game's own window sheets */
     const char* env = getenv("DW2_MODERN_PANELS");
-    modern = modern && env != NULL && env[0] == '1';
+    modern = modern && !(env != NULL && env[0] == '0');
     panels_total = 0;
     for (int i = 0; i < NSHEETS; i++) {
         Sheet* s = &sheets[i];

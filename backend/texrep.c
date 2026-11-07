@@ -688,7 +688,19 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     memset(idx, 0, styled ? n : bytes);
     Uint64 t0 = SDL_GetTicksNS();
     srcs[si].fn(srcs[si].ctx, k, ox, oy, rw, rh, idx);
-    if (srcs[si].ofn != NULL) srcs[si].ofn(srcs[si].octx, k, ox, oy, rw, rh, idx);
+    /* the overlay (numbers): into the indices, or on a styled tile after the panel style (its colours
+       are the palette's: the style would recolour the digits as panel detail) */
+    uint8_t *ov = NULL;
+    if (srcs[si].ofn != NULL) {
+        if (styled) {
+            ov = calloc(n, 1);
+            if (ov != NULL) srcs[si].ofn(srcs[si].octx, k, ox, oy, rw, rh, ov);
+        } else {
+            srcs[si].ofn(srcs[si].octx, k, ox, oy, rw, rh, idx);
+            for (size_t i = 0; i < n; i++)
+                if (idx[i] == TEXREP_OVERLAY_CLEAR) idx[i] = 0;
+        }
+    }
     Uint64 t1 = SDL_GetTicksNS();
     if (styled) {
         for (size_t i = 0; i < n; i++) {
@@ -701,6 +713,14 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     }
     Uint64 t2 = SDL_GetTicksNS();
     if (styled) style_panels(&srcs[si], k, ox, oy, rw, rh, px);
+    if (ov != NULL) {
+        for (size_t i = 0; i < n; i++) {
+            if (ov[i] == 0) continue;
+            uint16_t c = ov[i] == TEXREP_OVERLAY_CLEAR ? 0 : pal[ov[i] & (srcs[si].mode == 0 ? 15 : 255)];
+            px[i] = c == 0 ? 0u : argb_of(c);
+        }
+        free(ov);
+    }
     Uint64 t3 = SDL_GetTicksNS();
     texrep_perf.raster_ns += t1 - t0;
     texrep_perf.conv_ns += t2 - t1;

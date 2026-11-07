@@ -85,6 +85,8 @@ void TexRep_ClearIndexSources(void);
 /* A second drawing on top of a source's (numeric sprites, host/fontnumbers.c), called after its
    fn with the same tile. A sheet without a source gets one with its plain 1x texels (words must stay
    valid). Tiles of that source made before are dropped (TexRep_RefreshSource). */
+/* an overlay pixel that is transparent (0 = the source's own pixel stays) */
+#define TEXREP_OVERLAY_CLEAR 0xFE
 void TexRep_AddIndexOverlay(const uint16_t *words, int w, int h, int mode, TexRepIndexFn fn, void *ctx);
 /* the tiles of the source with these pixels are made again (its drawing changed) */
 void TexRep_RefreshSource(const uint16_t *words, int w, int h);

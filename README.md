@@ -37,6 +37,14 @@ Die Release-Seite enthält die jeweils veröffentlichten Downloads und Versionsh
 | Integriertes 3D-Studio | Offen | Noch nicht implementiert |
 | Eigenständiger Launcher | Offen | Noch nicht implementiert |
 
+## Visueller Zwischenstand – deutsche Übersetzung (7. November 2026)
+
+Ein aktueller, vom Projektinhaber bereitgestellter Screenshot zeigt vier Spielsituationen: zweimal Agumons Statusansicht, die Technik-Auswahl und die Digimon-Teamübersicht. Sichtbar sind bereits deutsche Bezeichnungen wie **Status**, **alle Techniken**, **Zurück**, **Kleine Flamme**, **Unterbrechen**, **Gegenangriff**, **Hilfe**, **Angriff**, **Abwehr**, **Tempo**, **Nächstes Level** sowie die Angriffsbeschreibung **„Schießt einen Feuerball“** und **„MP-Verbrauch 8“**.
+
+Der Screenshot dokumentiert einen **Zwischenstand der deutschen Lokalisierung und Menügestaltung**, keine abgeschlossene Übersetzung oder Freigabe aller Ansichten. Er bestätigt für sich genommen weder die Performance noch die vollständige Funktionsfähigkeit sämtlicher Menüs. Das Originalbild wurde im Projektchat bereitgestellt; eine Bilddatei ist mit diesem Dokumentations-Commit noch nicht ins Repository hochgeladen worden.
+
+---
+
 ## Bekannte Probleme und Einschränkungen
 
 - **Performance beim Nachladen von Texturen:** Aus einem aktuellen Praxistest wurden deutliche Framerate-Einbrüche beim erstmaligen Anzeigen neuer Texturen und übersetzter Angriffsbanner gemeldet. Ursache und vollständige Behebung sind noch nicht bestätigt. Frühere automatisierte HD-Tests ohne Hänger ersetzen diesen Praxistest nicht.

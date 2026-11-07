@@ -6,6 +6,7 @@
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "imgui.h"
@@ -179,13 +180,13 @@ const Tr k_tr[] = {
       "Cheats ändern deine Spieldaten. Sie sind bei jedem Start aus." },
     { "Turning them on copies your memory cards to a backup folder first and keeps the current state for undo.",
       "Beim Einschalten werden deine Memory Cards zuerst gesichert und der jetzige Stand für Rückgängig gemerkt." },
-    { "Enable cheats", "Cheats einschalten" }, { "Backup: %s", "Sicherung: %s" },
+    { "Enable cheats", "Cheats einschalten" }, { "Apply values", "Werte übernehmen" }, { "Max values", "Werte auf Maximum" }, { "Backup: %s", "Sicherung: %s" },
     { "Undo all cheat changes", "Alle Cheat-Änderungen rückgängig" },
     { "Undo waits until the battle or card screen is over.", "Rückgängig wartet, bis Kampf oder Kartenbildschirm vorbei ist." },
     { "Restored.", "Wiederhergestellt." }, { "Tamer", "Tamer" }, { "Bits", "Bits" }, { "Set", "Setzen" },
     { "Party and server", "Team und Server" }, { "Digi-Beetle", "Digi-Beetle" }, { "Add item to the bag", "Item in die Tasche" },
     { "Level", "Level" }, { "EXP", "EXP" }, { "Max HP", "Max. HP" }, { "HP", "HP" }, { "Max MP", "Max. MP" },
-    { "MP", "MP" }, { "Attack", "Angriff" }, { "Defense", "Verteidigung" }, { "Speed", "Tempo" },
+    { "MP", "MP" }, { "Attack", "Angriff" }, { "Defense", "Abwehr" }, { "Speed", "Tempo" },
     { "Heal all", "Alle heilen" }, { "Apply", "Anwenden" }, { "Last results", "Letzte Ergebnisse" },
     { "Waiting for the game...", "Warte auf das Spiel..." },
     { "Values are checked against the game's limits before they are written at the next frame.",
@@ -198,7 +199,7 @@ const Tr k_tr[] = {
     { "Held values are written again at every frame while cheats are on. A Digimon at 0 HP stays knocked out.",
       "Gehaltene Werte werden bei jedem Bild neu geschrieben, solange Cheats an sind. Ein Digimon mit 0 HP bleibt besiegt." },
     { "Max: EXP 9,999,999, HP / MP / Attack / Defense / Speed 999 (values of the cheat list)",
-      "Max: EXP 9.999.999, HP / MP / Angriff / Verteidigung / Tempo 999 (Werte der Cheat-Liste)" },
+      "Max: EXP 9.999.999, HP / MP / Angriff / Abwehr / Tempo 999 (Werte der Cheat-Liste)" },
     { "Max: HP and EP 9999", "Max: HP und EP 9999" }, { "Max all", "Alle maximal" },
     { "Digimon details", "Digimon-Details" }, { "Digimon", "Digimon" }, { "Species", "Art" }, { "Level limit", "Level-Grenze" },
     { "Attacks (slots 1-12)", "Attacken (Platz 1-12)" }, { "Slot %d", "Platz %d" }, { "(none)", "(keine)" },
@@ -1141,11 +1142,23 @@ void cheats_tab(void) {
             }
         }
     }
-    if (ImGui::BeginTable("digis", 11, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX)) {
-        ImGui::TableSetupColumn("#");
-        ImGui::TableSetupColumn("Digimon");
+    /* columns sized by the font (player report: the value fields were too narrow to read); wider
+       than the window: the table scrolls sideways, the first two columns stay */
+    const float em = ImGui::GetFontSize();
+    int nrows = 0;
+    for (int i = 0; i < 0x24; i++)
+        nrows += gs[0xE4 + i * 0x5C] != 0;
+    float table_h = ImGui::GetFrameHeightWithSpacing() * (float)(nrows + 1) + ImGui::GetStyle().ScrollbarSize + em;
+    if (table_h > em * 20.0f)
+        table_h = em * 20.0f;
+    if (ImGui::BeginTable("digis", 11, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
+                                           ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit,
+                          ImVec2(0, table_h))) {
+        ImGui::TableSetupScrollFreeze(2, 1);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, em * 1.6f);
+        ImGui::TableSetupColumn("Digimon", ImGuiTableColumnFlags_WidthFixed, em * 13.0f);
         for (int k = 0; k < 9; k++) {
-            ImGui::TableSetupColumn(T(cols[k]));
+            ImGui::TableSetupColumn(T(cols[k]), ImGuiTableColumnFlags_WidthFixed, k == 1 ? em * 6.5f : em * 4.6f);
         }
         ImGui::TableHeadersRow();
         for (int i = 0; i < 0x24; i++) {
@@ -1190,7 +1203,7 @@ void cheats_tab(void) {
             for (int k = 0; k < 9; k++) {
                 ImGui::TableNextColumn();
                 ImGui::PushID(k);
-                ImGui::SetNextItemWidth(k == 1 ? 90.0f : 60.0f);
+                ImGui::SetNextItemWidth(-FLT_MIN); /* the whole column */
                 ImGui::InputInt("##v", &vals[i][k], 0, 0);
                 ImGui::PopID();
             }
@@ -1232,6 +1245,49 @@ void cheats_tab(void) {
                 }
             }
             ImGui::EndCombo();
+        }
+        if (d[0] != 0 && have_vals[sel]) {
+            /* the values of the chosen Digimon as large labelled fields (player report: the table's
+               columns were too narrow to read Attack / Defense / Speed) */
+            ImGui::Spacing();
+            if (ImGui::BeginTable("digivals", 6, ImGuiTableFlags_SizingFixedFit)) {
+                const float em2 = ImGui::GetFontSize();
+                for (int c = 0; c < 3; c++) {
+                    ImGui::TableSetupColumn("##l", ImGuiTableColumnFlags_WidthFixed, em2 * 6.5f);
+                    ImGui::TableSetupColumn("##v", ImGuiTableColumnFlags_WidthFixed, em2 * 8.0f);
+                }
+                static const int order[9] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+                for (int q = 0; q < 9; q++) {
+                    int k = order[q];
+                    if (q % 3 == 0)
+                        ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(T(cols[k]));
+                    ImGui::TableNextColumn();
+                    ImGui::PushID(100 + k);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::InputInt("##dv", &vals[sel][k], 1, 10);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            if (ImGui::Button(TL("Apply values", "dvapply"))) {
+                for (int k = 0; k < 9; k++) {
+                    int cur = k == 0 ? d[0x0D] : k == 1 ? rd32s(d + 0x10) : rd16s(d + offs[k]);
+                    vals[sel][k] = clampi(vals[sel][k], lo[k], hi[k]);
+                    if (vals[sel][k] != cur)
+                        push_edit(DEVEDIT_DIGI, sel, fields[k], vals[sel][k]);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(TL("Max values", "dvmax"))) {
+                for (int k = 1; k < 9; k++) {
+                    int kk = k == 2 ? 3 : k == 3 ? 2 : k == 4 ? 5 : k == 5 ? 4 : k;
+                    push_edit(DEVEDIT_DIGI, sel, fields[kk], maxv[kk]);
+                }
+            }
+            ImGui::Spacing();
         }
         if (d[0] != 0 && DevData_Ready()) {
             /* species: every DIGIMNDT Digimon with base data */
@@ -1475,7 +1531,7 @@ void SettingsUi_Draw(void) {
     ImGuiIO &io = ImGui::GetIO();
     ImVec2 ds = io.DisplaySize;
     float k = ImGui::GetStyle().FontScaleMain * ImGui::GetStyle().FontScaleDpi;
-    float w = 600.0f * k, h = 720.0f * k;
+    float w = 860.0f * k, h = 720.0f * k; /* wide enough for the cheat tables (Digimon values) */
     bool open = true;
 
     w = w < ds.x * 0.95f ? w : ds.x * 0.95f;
@@ -1483,6 +1539,8 @@ void SettingsUi_Draw(void) {
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Appearing);
     ImGui::SetNextWindowBgAlpha(0.94f);
+    if (const char *sy = getenv("DW2_UI_SCROLLY")) /* headless UI shots (--ui-shots): a scrolled view */
+        ImGui::SetNextWindowScroll(ImVec2(0.0f, (float)atof(sy)));
     if (ImGui::Begin(TL("Settings (F1)", "settings"), &open, ImGuiWindowFlags_NoCollapse)) {
         update_banner();
         if (ImGui::BeginTabBar("tabs")) {

@@ -181,6 +181,91 @@ void Menu_DigiStatusTask(Actor *a) {
 extern s32 GsSetRefView2(GsRVIEW2 *);
 #endif
 
+#ifdef DW2_NATIVE
+
+extern char *getenv(const char *);
+#include "main/model.h"
+extern s32 Gfx_ModelScreenBounds(Actor *a0, s32 *b);
+
+/* dw2-pc-port, Modern UI: the model preview's scale (4096 = as on the PS1) that fits the model
+ * into the picture's window at every turn. Measured once per Digimon: the model's projected
+ * rectangle at eight view angles (projection only, nothing drawn) around its origin; the largest
+ * scale (at most 2.5x, at least 1x) that keeps it inside the window's inner area. The window is
+ * the PS1 layout's (DIGI_BOX_*: screen pixels of the 320x240 picture, the preview half of the
+ * status window). */
+#define DIGI_BOX_L 14
+#define DIGI_BOX_T 72
+#define DIGI_BOX_R 146
+#define DIGI_BOX_B 228
+static void *fit_rec;
+static s32 fit_id = -1, fit_scale = 0x1000;
+
+static s32 digistatus_fitted(Actor *actor, Wk19214 *work) {
+    return fit_id == actor->digiId && fit_rec == P32(void, work->digimon) ? fit_scale : 0x1000;
+}
+
+/* after the frame's model is drawn (its primitives are queued; the bones' animation is set) */
+static void digistatus_fit(Actor *actor, Wk19214 *work, GsRVIEW2 *ls, Nd19214 *node) {
+    s16 *rot = (s16 *)&work->rot;
+    s32 ext[4] = { 1, 1, 1, 1 }; /* left, up, right, down of the origin */
+    s32 b[6], o[2] = { 0, 0 }, got = 0;
+    s32 keep = node->scaleX;
+
+    if (fit_id == actor->digiId && fit_rec == P32(void, work->digimon)) return;
+    {
+        static GsCOORDINATE2 coord;
+        s16 save = rot[1];
+        node->scaleX = node->scaleY = node->scaleZ = 0x1000;
+        Gfx_AttachModel(actor, work->modelFile);
+        for (s32 a = 0; a < 8; a++) {
+            rot[1] = (s16)(save + a * 512);
+            RotMatrixYXZ(&work->rot, &work->coordMatrix);
+            coord.coord = *(MATRIX *)&work->coordMatrix;
+            coord.flg = 0;
+            coord.super = NULL;
+            coord.sub = NULL;
+            ls->super = &coord;
+            GsSetRefView2(ls);
+            Actor_UpdateTransform(actor);
+            Gfx_CalcModelBoneMatrices(actor);
+            if (!Gfx_ModelScreenBounds(actor, b)) continue;
+            if (a == 0) { /* the projection's coordinates are relative to the picture's centre */
+                o[0] = b[4] + 160;
+                o[1] = b[5] + 120;
+            }
+            got = 1;
+            ext[0] = b[4] - b[0] > ext[0] ? b[4] - b[0] : ext[0];
+            ext[1] = b[5] - b[1] > ext[1] ? b[5] - b[1] : ext[1];
+            ext[2] = b[2] - b[4] > ext[2] ? b[2] - b[4] : ext[2];
+            ext[3] = b[3] - b[5] > ext[3] ? b[3] - b[5] : ext[3];
+        }
+        rot[1] = save;
+        RotMatrixYXZ(&work->rot, &work->coordMatrix);
+        coord.coord = *(MATRIX *)&work->coordMatrix;
+        GsSetRefView2(ls);
+        node->scaleX = node->scaleY = node->scaleZ = keep;
+        Actor_UpdateTransform(actor);
+        Gfx_CalcModelBoneMatrices(actor);
+        if (!got) return; /* measure again next frame */
+        {
+            /* the origin stays where it is: each side of the model may grow to its window edge */
+            s32 room[4] = { o[0] - DIGI_BOX_L, o[1] - DIGI_BOX_T, DIGI_BOX_R - o[0], DIGI_BOX_B - o[1] };
+            s32 f = 0x2800;
+            for (s32 i = 0; i < 4; i++) {
+                s32 g = room[i] <= 0 ? 0x1000 : (s32)((s64)room[i] * 0x1000 / ext[i]);
+                f = g < f ? g : f;
+            }
+            fit_scale = f < 0x1000 ? 0x1000 : f;
+            if (getenv("DW2_DIGISTATUS_LOG") != NULL)
+                printf("[digistatus] digimon %d: origin %d,%d extent l %d u %d r %d d %d -> scale %.2f\n", actor->digiId,
+                       o[0], o[1], ext[0], ext[1], ext[2], ext[3], fit_scale / 4096.0);
+        }
+        fit_id = actor->digiId;
+        fit_rec = P32(void, work->digimon);
+    }
+}
+#endif
+
 void Menu_DigiStatusDraw(Actor *actor) {
     Wk19214 *work;
     Rec19214 *rec;
@@ -252,12 +337,34 @@ void Menu_DigiStatusDraw(Actor *actor) {
         work->modelPhase = work->modelPhase + 1;
     }
     node = (Nd19214 *)actor->u38.ptr38;
+#ifdef DW2_NATIVE
+    {
+        /* dw2-pc-port, Modern UI: a larger preview, fitted to its window (same camera, light and
+         * renderer). Classic: as on the PS1. */
+        extern int UiText_Modern(void);
+        s32 sc = work->modelScale;
+        if (UiText_Modern()) {
+            s32 f = digistatus_fitted(actor, work);
+            sc = (s32)((s64)sc * f >> 12);
+        }
+        node->scaleX = sc;
+        node->scaleY = sc;
+        node->scaleZ = sc;
+    }
+#else
     node->scaleX = work->modelScale;
     node->scaleY = work->modelScale;
     node->scaleZ = work->modelScale;
+#endif
     Gfx_AttachModel(actor, work->modelFile);
     Anim_StepModelAnim(actor);
     Actor_UpdateTransform(actor);
     Gfx_CalcModelBoneMatrices(actor);
     Gfx_DrawTexModel(actor, 0);
+#ifdef DW2_NATIVE
+    {
+        extern int UiText_Modern(void);
+        if (UiText_Modern()) digistatus_fit(actor, work, &ls, node);
+    }
+#endif
 }

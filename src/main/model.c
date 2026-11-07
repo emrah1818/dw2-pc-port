@@ -255,6 +255,45 @@ void Gfx_DrawTexModel(Actor *a0, s32 mode) {
     Gfx_AnimateModelTex(a0);
 }
 
+#ifdef DW2_NATIVE
+/* dw2-pc-port: the screen rectangle of a model's vertices with the current view and bone
+ * matrices (projection only, nothing drawn; Gfx_CalcModelBoneMatrices first), and its origin's
+ * screen position. Used to fit a preview into its window (src/main/digistatus.c, Modern UI).
+ * b: min x, min y, max x, max y, origin x, origin y. 0: nothing projected. */
+s32 Gfx_ModelScreenBounds(Actor *a0, s32 *b) {
+    ActorModel *s = a0->model;
+    ModelBone *e = s->bones;
+    s32 got = 0;
+
+    b[0] = b[1] = 0x7FFF;
+    b[2] = b[3] = -0x8000;
+    for (s32 i = 0; i < s->boneCount; i++, e++) {
+        Vert6Pmv *v = (Vert6Pmv *)P32(s16, s->boneVerts[i]);
+        SxyPmv *sxy = (SxyPmv *)((ModelProjView *)s)->screenXY;
+        gte_SetRotMatrix(&e->viewMat);
+        gte_SetTransMatrix(&e->viewMat);
+        if (i == 0) {
+            SxyPmv o;
+            gte_ldv0(Gfx_ZeroVector);
+            gte_rtps();
+            gte_stsxy(&o);
+            b[4] = o.vx >> (Sys_State.centerX.s != 320);
+            b[5] = o.vy >> (Sys_State.centerY.s != 240);
+        }
+        if (v == NULL || v->vx <= 0) continue;
+        Gfx_ProjectModelVerts(v, (ModelProjView *)s, 1);
+        for (s32 j = 0; j < v->vx; j++) {
+            b[0] = sxy[j].vx < b[0] ? sxy[j].vx : b[0];
+            b[1] = sxy[j].vy < b[1] ? sxy[j].vy : b[1];
+            b[2] = sxy[j].vx > b[2] ? sxy[j].vx : b[2];
+            b[3] = sxy[j].vy > b[3] ? sxy[j].vy : b[3];
+        }
+        got = 1;
+    }
+    return got;
+}
+#endif
+
 void Gfx_DrawWireModel(Actor *a0, s32 mode, CVECTOR *col) {
     ActorModel *s;
     ModelBone *e;

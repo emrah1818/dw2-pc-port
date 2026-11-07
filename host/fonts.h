@@ -7,6 +7,8 @@ extern "C" {
 enum { FONT_INTERFACE,
        FONT_DISPLAY,
        FONT_TELEMETRY,
+       FONT_INTERFACE_BOLD, /* Exo 2 Bold */
+       FONT_DISPLAY_HEAVY,  /* Orbitron Black */
        FONT_COUNT };
 /* Embedded, licensed fonts; no files from the player's disc are embedded. */
 const unsigned char* Fonts_Data(int role, int* size);
@@ -22,6 +24,15 @@ void Fonts_SetEnabled(int on);
 int  Fonts_Enabled(void);
 int  Fonts_DevBitmap(uint8_t* out, int size);
 int  Fonts_PatchGameFont(uint8_t* data, int size, int big);
+/* the game atlas glyphs (version 2): metrics in 1/256 pixel of the 1x screen, the glyph of code c
+   at k times the cell as coverage, body and the original shadow as palette indices */
+int  Fonts_GameAdvance(int big, int code);
+int  Fonts_GameSpace(int big);
+int  Fonts_GameKern(int big, int a, int b);
+int  Fonts_GameOrigin(int big, int code);
+int  Fonts_GameGlyph(int big, int code, int k, uint8_t* out);
+int  Fonts_Digit(int digit, uint8_t* out, int w, int h);
+void Fonts_GameShadow(int big, const uint8_t* cov, int w, int h, int thresh, int s, uint8_t* idx, int stride);
 void Fonts_ApplyGame(void);
 /* Numeric sprite frames are identified by the game's numeric setter, never by
  * guessing whether a texture looks like text. Applied on the game thread. */

@@ -51,6 +51,14 @@ void TexRep_AddIndexSource(const uint16_t* words, int w, int h, int mode, int tw
     src_count++;
 }
 void TexRep_ClearIndexSources(void) {}
+/* numeric sprites: the 1x path (scale 1 here) */
+int  TexRep_SourceGeneration(void) { return 1; }
+int  TexRep_RuntimeScale(void) { return 1; }
+void TexRep_NoteUploadAt(const uint16_t* words, int w, int h, int vx, int vy) { (void)words; (void)w; (void)h; (void)vx; (void)vy; }
+void TexRep_AddIndexOverlay(const uint16_t* words, int w, int h, int mode, TexRepIndexFn fn, void* ctx)
+{
+    (void)words; (void)w; (void)h; (void)mode; (void)fn; (void)ctx;
+}
 void Fonts_RegisterHd(int big, const uint8_t* data, int size);
 
 int main(int argc, char** argv)
@@ -134,16 +142,18 @@ int main(int argc, char** argv)
         for (int k = 2; k <= 12; k += 5) {
             /* the cell of 'A' (code 10; big atlas: its cell 10 holds code 0x92) */
             const int cw = big ? 9 : 7, ch = big ? 14 : 10, cols = big ? 13 : 17, gw = big ? 8 : 7, gh = big ? 13 : 9;
-            int       x0 = (10 % cols) * cw, y0 = (10 / cols) * ch, ink = 0, outside = 0;
+            int       x0 = (10 % cols) * cw, y0 = (10 / cols) * ch, ink = 0, outside = 0, shadow = 0;
             uint8_t*  idx = calloc((size_t)cw * k * ch * k, 1);
             assert(idx);
             src_fn(src_ctx, k, x0, y0, cw, ch, idx);
             for (int y = 0; y < ch * k; y++)
                 for (int x = 0; x < cw * k; x++) {
-                    assert(idx[y * cw * k + x] <= 1);
-                    ink += idx[y * cw * k + x];
+                    /* body 1, the original shadow 2 (big font: 2 right, 3 below) */
+                    assert(idx[y * cw * k + x] <= (big ? 3 : 2));
+                    ink += idx[y * cw * k + x] == 1;
+                    shadow += idx[y * cw * k + x] >= 2;
                     if (x >= gw * k || y >= gh * k)
-                        outside += idx[y * cw * k + x];
+                        outside += idx[y * cw * k + x] == 1;
                 }
             /* ink in proportion to the 1x cell (at least a third of k*k per 1x ink texel), none
                outside the glyph box */
@@ -153,7 +163,7 @@ int main(int argc, char** argv)
                     int gx = x0 + x;
                     ink1 += (data[68 + (y0 + y) * 64 + gx / 2] >> ((gx & 1) * 4) & 15) == 1;
                 }
-            assert(outside == 0 && ink1 > 0 && ink * 3 > ink1 * k * k && ink < ink1 * k * k * 3);
+            assert(outside == 0 && ink1 > 0 && shadow > 0 && ink * 3 > ink1 * k * k && ink < ink1 * k * k * 3);
             free(idx);
         }
     }

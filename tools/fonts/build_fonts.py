@@ -14,16 +14,16 @@ from fontTools.varLib.instancer import instantiateVariableFont
 
 ROOT = Path(__file__).resolve().parents[2]
 DIRECTORY = ROOT / "misc/fonts"
-FAMILIES = ["DW2 Interface", "DW2 Display", "DW2 Telemetry"]
-ROLES = ["INTERFACE", "DISPLAY", "TELEMETRY"]
 
 
 def main():
     sizes = ["/* Sizes of the embedded, committed font files. */"]
-    for source, family, role in zip(
-        json.loads((DIRECTORY / "sources.json").read_text()), FAMILIES, ROLES
-    ):
-        data = urllib.request.urlopen(source["upstream"], timeout=45).read()
+    cache = {}
+    for source in json.loads((DIRECTORY / "sources.json").read_text()):
+        family, role = source["family"], source["role"]
+        if source["upstream"] not in cache:
+            cache[source["upstream"]] = urllib.request.urlopen(source["upstream"], timeout=45).read()
+        data = cache[source["upstream"]]
         if hashlib.sha256(data).hexdigest() != source["upstream_sha256"]:
             raise RuntimeError(f"Upstream hash changed: {source['upstream']}")
         font = instantiateVariableFont(

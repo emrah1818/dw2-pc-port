@@ -11,10 +11,12 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "host/imgui/imstb_truetype.h"
 
-extern const unsigned char Dw2Interface[], Dw2Display[], Dw2Telemetry[];
+extern const unsigned char Dw2Interface[], Dw2Display[], Dw2Telemetry[], Dw2InterfaceBold[], Dw2DisplayHeavy[];
 INCLUDE_BIN(Dw2Interface, "misc/fonts/DW2Interface.ttf");
 INCLUDE_BIN(Dw2Display, "misc/fonts/DW2Display.ttf");
 INCLUDE_BIN(Dw2Telemetry, "misc/fonts/DW2Telemetry.ttf");
+INCLUDE_BIN(Dw2InterfaceBold, "misc/fonts/DW2InterfaceBold.ttf"); /* Exo 2 Bold: emphasis, numbers */
+INCLUDE_BIN(Dw2DisplayHeavy, "misc/fonts/DW2DisplayHeavy.ttf");   /* Orbitron Black: big battle words */
 /* Generated from the committed binaries by tools/fonts/build_fonts.py. */
 #include "misc/fonts/sizes.h"
 static stbtt_fontinfo faces[FONT_COUNT];
@@ -22,8 +24,9 @@ static int            ready;
 
 const unsigned char* Fonts_Data(int role, int* size)
 {
-    static const unsigned char* const data[]  = { Dw2Interface, Dw2Display, Dw2Telemetry };
-    static const int                  sizes[] = { DW2_INTERFACE_SIZE, DW2_DISPLAY_SIZE, DW2_TELEMETRY_SIZE };
+    static const unsigned char* const data[]  = { Dw2Interface, Dw2Display, Dw2Telemetry, Dw2InterfaceBold, Dw2DisplayHeavy };
+    static const int                  sizes[] = { DW2_INTERFACE_SIZE, DW2_DISPLAY_SIZE, DW2_TELEMETRY_SIZE,
+                                                  DW2_INTERFACE_BOLD_SIZE, DW2_DISPLAY_HEAVY_SIZE };
     if (role < 0 || role >= FONT_COUNT)
         return NULL;
     if (size)
@@ -166,7 +169,9 @@ int Fonts_PatchGameFont(uint8_t* data, int size, int big)
         return 0;
     for (int c = 0; c <= 0xEC; c++) {
         int     cp = Fonts_GameCodepoint(c);
-        uint8_t mask[13 * 8];
+        uint8_t mask[14 * 9], cell[14 * 9];
+        int     cc = big && c >= 0x88 ? c - 0x88 : c, x0 = (cc % cols) * cw, y0 = (cc / cols) * ch;
+        memset(cell, 0, sizeof(cell));
         if (c == 0x43 || (c >= 0x4A && c <= 0x4E)) {
             char label[3] = { 'L', (char)('1' + c - 0x4A), 0 };
             if (c == 0x43) {
@@ -175,18 +180,21 @@ int Fonts_PatchGameFont(uint8_t* data, int size, int big)
             }
             if (Fonts_Mask(FONT_TELEMETRY, label, mask, gw, gw, gh) < 0)
                 return 0;
+            for (int y = 0; y < gh; y++)
+                for (int x = 0; x < gw; x++)
+                    cell[y * cw + x] = mask[y * gw + x] >= 80;
         } else {
             if (!cp)
                 continue;
-            /* A shared sample fixes baseline/size for all individual atlas letters.
-             * Each glyph is cropped from a uniformly scaled line by the helper below. */
-            if (!Fonts_Cell(c < 10 ? FONT_TELEMETRY : FONT_INTERFACE, cp, mask, gw, gh))
+            if (!Fonts_GameGlyph(big, c, 1, mask))
                 return 0;
+            Fonts_GameShadow(big, mask, cw, ch, 96, 1, cell, cw);
         }
-        int cc = big && c >= 0x88 ? c - 0x88 : c, x0 = (cc % cols) * cw, y0 = (cc / cols) * ch;
+        if ((cc / cols + 1) * ch > 256)
+            continue;
         for (int y = 0; y < ch; y++)
             for (int x = 0; x < cw; x++) {
-                int v  = x < gw && y < gh && mask[y * gw + x] >= 80 ? 1 : 0;
+                int v  = cell[y * cw + x];
                 int gx = x0 + x, off = img + (y0 + y) * 64 + gx / 2, shift = (gx & 1) * 4;
                 data[off] = (uint8_t)((data[off] & ~(15 << shift)) | (v << shift));
             }
@@ -231,6 +239,191 @@ int Fonts_Cell(int role, int cp, uint8_t* out, int w, int h)
         stbtt_MakeCodepointBitmap(f, out + y * w + (w - bw) / 2, bw, bh, w, scale, scale, cp);
     }
     return 1;
+}
+
+/* ---- the game atlas glyphs, version 2 (7 November 2026) ----
+ * One rule for the 1x atlas and every runtime size k, so the layout (text.c, 1/256 pixel
+ * advances) and the pictures agree:
+ *   - size from the original font's cap height (small 7x10 cells: 6.6 px, big 9x14: 9.8 px), not
+ *     from the widest letter: before, the whole alphabet was shrunk until "W" fitted the 7 pixel
+ *     cell and capitals were about 5 px high, smaller than the PS1 letters (7 px);
+ *   - the pen at 0.5 px from the cell's left edge (glyphs were centred in the cell: uneven
+ *     spacing); a letter wider than its cell minus the shadow (W, M, m, w) is set narrower;
+ *   - advances from the font (in 1/256 pixel, with kerning and a little tracking for the shadow);
+ *     digits keep the cell (columns of numbers) and are centred; Exo 2's digits (plain zero: Roboto
+ *     Mono's dotted zero read as 8 at this size).
+ * The shadow of the original letters (one pixel right / down in the palette's shadow colours) is
+ * added by the callers (Fonts_GameShadow). */
+static const float g_cap[2] = { 6.4f, 9.4f }, g_base[2] = { 7.1f, 10.4f }, g_track[2] = { 0.45f, 0.55f };
+/* cells; the part text.c draws of each (glyph): small 7 x 9 of 7 x 10, big 8 x 13 of 9 x 14 */
+static const int g_cw[2] = { 7, 9 }, g_ch[2] = { 10, 14 }, g_gw[2] = { 7, 8 }, g_gh[2] = { 9, 13 };
+#define G_ORIGIN 0.5f
+
+static stbtt_fontinfo* game_face(int c)
+{
+    (void)c;
+    return &faces[FONT_INTERFACE];
+}
+
+static float game_scale(int big) /* font units -> 1x pixels */
+{
+    stbtt_fontinfo* f = &faces[FONT_INTERFACE];
+    int             x0, y0, x1, y1;
+    if (!stbtt_GetCodepointBox(f, 'H', &x0, &y0, &x1, &y1) || y1 <= 0)
+        return 0;
+    return g_cap[big] / (float)y1;
+}
+
+/* horizontal factor for a letter whose ink would not fit its cell (1 = as designed) */
+static float game_condense(int big, int cp, float sc)
+{
+    int x0, y0, x1, y1;
+    if (!stbtt_GetCodepointBox(game_face(0), cp, &x0, &y0, &x1, &y1) || x1 <= x0)
+        return 1;
+    float room = g_gw[big] - G_ORIGIN - 0.75f - (x0 > 0 ? x0 * sc : 0);
+    float ink  = (x1 - (x0 > 0 ? x0 : 0)) * sc;
+    return ink > room && ink > 0 ? room / ink : 1;
+}
+
+static int game_digit(int c) { return c >= 0 && c < 10; }
+
+int Fonts_GameAdvance(int big, int c)
+{
+    int cp = Fonts_GameCodepoint(c), adv, lsb;
+    if (!Fonts_Init() || !cp || game_digit(c))
+        return g_cw[big ? 1 : 0] * 256;
+    big       = big ? 1 : 0;
+    float sc  = game_scale(big);
+    stbtt_GetCodepointHMetrics(game_face(c), cp, &adv, &lsb);
+    float a = adv * sc * game_condense(big, cp, sc) + g_track[big];
+    return (int)(a * 256 + 0.5f);
+}
+
+int Fonts_GameSpace(int big)
+{
+    int adv, lsb;
+    big = big ? 1 : 0;
+    if (!Fonts_Init())
+        return (big ? 5 : 4) * 256;
+    stbtt_GetCodepointHMetrics(game_face(0), ' ', &adv, &lsb);
+    return (int)((adv * game_scale(big) + g_track[big]) * 256 + 0.5f);
+}
+
+int Fonts_GameKern(int big, int a, int b)
+{
+    int ca = Fonts_GameCodepoint(a), cb = Fonts_GameCodepoint(b);
+    if (!Fonts_Init() || !ca || !cb || game_digit(a) || game_digit(b))
+        return 0;
+    return (int)(stbtt_GetCodepointKernAdvance(game_face(a), ca, cb) * game_scale(big ? 1 : 0) * 256);
+}
+
+int Fonts_GameOrigin(int big, int c)
+{
+    (void)big;
+    return game_digit(c) || !Fonts_GameCodepoint(c) ? 0 : (int)(G_ORIGIN * 256);
+}
+
+/* The glyph of game code c into a (cw*k) x (ch*k) coverage mask (the whole cell). 0: no letter. */
+int Fonts_GameGlyph(int big, int c, int k, uint8_t* out)
+{
+    int cp = Fonts_GameCodepoint(c);
+    big    = big ? 1 : 0;
+    if (!Fonts_Init() || !cp || k < 1 || k > 16)
+        return 0;
+    int   W = g_cw[big] * k, H = g_ch[big] * k;
+    float sc = game_scale(big) * k, cx = game_condense(big, cp, game_scale(big));
+    float sx = sc * cx, ox;
+    int   x0, y0, x1, y1;
+    memset(out, 0, (size_t)W * H);
+    stbtt_GetCodepointBitmapBoxSubpixel(game_face(c), cp, sx, sc, 0, 0, &x0, &y0, &x1, &y1);
+    if (x1 <= x0 || y1 <= y0)
+        return 1; /* a space-like glyph */
+    if (game_digit(c)) {
+        ox = (g_gw[big] * k - 0.75f * k - (x1 - x0)) / 2.0f - x0; /* centred, the shadow beside */
+    } else {
+        ox = G_ORIGIN * k;
+        if (ox + x0 < 0)
+            ox = (float)-x0;
+    }
+    float frac = ox - floorf(ox);
+    stbtt_GetCodepointBitmapBoxSubpixel(game_face(c), cp, sx, sc, frac, 0, &x0, &y0, &x1, &y1);
+    int bw = x1 - x0, bh = y1 - y0, px = (int)floorf(ox) + x0, py = (int)floorf(g_base[big] * k + 0.5f) + y0;
+    uint8_t* bm = malloc((size_t)bw * bh);
+    if (!bm)
+        return 0;
+    stbtt_MakeCodepointBitmapSubpixel(game_face(c), bm, bw, bh, bw, sx, sc, frac, 0, cp);
+    for (int y = 0; y < bh; y++)
+        for (int x = 0; x < bw; x++) {
+            int X = px + x, Y = py + y;
+            if (X >= 0 && Y >= 0 && X < g_gw[big] * k && Y < g_gh[big] * k && Y < H)
+                out[Y * W + X] = bm[y * bw + x];
+        }
+    free(bm);
+    return 1;
+}
+
+/* A digit whose ink fills h rows exactly (the original sprite's body height), at most w wide,
+ * centred, into a w x h coverage mask (numeric sprites, host/fontnumbers.c). Exo 2: a plain zero. */
+int Fonts_Digit(int d, uint8_t* out, int w, int h)
+{
+    int x0, y0, x1, y1, cp = '0' + d;
+    if (!Fonts_Init() || d < 0 || d > 9 || w < 2 || h < 2)
+        return 0;
+    stbtt_fontinfo* f = &faces[FONT_INTERFACE_BOLD]; /* bold: the numbers read at a glance */
+    if (!stbtt_GetCodepointBox(f, '0', &x0, &y0, &x1, &y1) || y1 <= y0)
+        return 0;
+    float sc = (float)h / (float)(y1 - y0); /* digits share the height of '0' (lining figures) */
+    float sx = sc;
+    stbtt_GetCodepointBox(f, cp, &x0, &y0, &x1, &y1);
+    if ((x1 - x0) * sx > w - 0.25f)
+        sx = (w - 0.25f) / (float)(x1 - x0);
+    int bx0, by0, bx1, by1;
+    float fx = (w - (x1 - x0) * sx) / 2.0f - x0 * sx;
+    float fy = 0; /* the top of '0' at row 0 */
+    int   top0;
+    {
+        int a, b, c, e;
+        stbtt_GetCodepointBitmapBox(f, '0', sc, sc, &a, &top0, &c, &e);
+        (void)a; (void)b; (void)c; (void)e;
+    }
+    float sub = fx - floorf(fx);
+    stbtt_GetCodepointBitmapBoxSubpixel(f, cp, sx, sc, sub, 0, &bx0, &by0, &bx1, &by1);
+    memset(out, 0, (size_t)w * h);
+    int bw = bx1 - bx0, bh = by1 - by0;
+    if (bw <= 0 || bh <= 0)
+        return 1;
+    uint8_t* bm = malloc((size_t)bw * bh);
+    if (!bm)
+        return 0;
+    stbtt_MakeCodepointBitmapSubpixel(f, bm, bw, bh, bw, sx, sc, sub, 0, cp);
+    int px = (int)floorf(fx) + bx0 - (int)floorf(x0 * sx), py = by0 - top0 + (int)fy;
+    for (int y = 0; y < bh; y++)
+        for (int x = 0; x < bw; x++) {
+            int X = px + x, Y = py + y;
+            if (X >= 0 && Y >= 0 && X < w && Y < h)
+                out[Y * w + X] = bm[y * bw + x];
+        }
+    free(bm);
+    return 1;
+}
+
+/* Body (index 1) and the original shadow: small font index 2 one pixel right and down; big font
+ * index 2 right, 3 below (as the PS1 letters). s = the shadow's offset in output pixels. */
+void Fonts_GameShadow(int big, const uint8_t* cov, int W, int H, int thresh, int s, uint8_t* idx, int stride)
+{
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            int v = 0;
+            if (cov[y * W + x] >= thresh)
+                v = 1;
+            else if (x >= s && y >= s && cov[(y - s) * W + x - s] >= thresh)
+                v = big ? 3 : 2;
+            else if (x >= s && cov[y * W + x - s] >= thresh)
+                v = 2;
+            else if (y >= s && cov[(y - s) * W + x] >= thresh)
+                v = big ? 3 : 2;
+            idx[y * stride + x] = (uint8_t)v;
+        }
 }
 
 extern void* Host_PakReadFileLayered(int id, int* size);
@@ -288,8 +481,8 @@ static void atlas_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
 {
     HdAtlas*  a  = ctx;
     const int cw = a->big ? 9 : 7, ch = a->big ? 14 : 10, cols = a->big ? 13 : 17, gw = a->big ? 8 : 7, gh = a->big ? 13 : 9;
-    const int W = w * k;
-    static uint8_t mask[16 * 8 * 16 * 13];
+    const int W = w * k, CW = cw * k, CH = ch * k;
+    static uint8_t mask[16 * 9 * 16 * 14], cell[16 * 9 * 16 * 14];
     for (int y = 0; y < h * k; y++)
         for (int x = 0; x < W; x++)
             idx[y * W + x] = (uint8_t)atlas_nibble(a, x0 + x / k, y0 + y / k);
@@ -303,19 +496,24 @@ static void atlas_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
                 if (c == 0x43)
                     label[0] = label[1] = 'I';
                 ok = Fonts_Mask(FONT_TELEMETRY, label, mask, gw * k, gw * k, gh * k) >= 0;
+                if (ok)
+                    for (int yy = 0; yy < CH; yy++)
+                        for (int xx = 0; xx < CW; xx++)
+                            cell[yy * CW + xx] = xx < gw * k && yy < gh * k && mask[yy * gw * k + xx] >= 72;
             } else {
-                ok = Fonts_Cell(c < 10 ? FONT_TELEMETRY : FONT_INTERFACE, Fonts_GameCodepoint(c), mask, gw * k, gh * k);
+                /* the letter and the original shadow (0.75 texel: the PS1's one pixel, a little finer) */
+                ok = Fonts_GameGlyph(a->big, c, k, mask);
+                if (ok)
+                    Fonts_GameShadow(a->big, mask, CW, CH, 72, (3 * k + 2) / 4, cell, CW);
             }
             if (!ok)
                 continue;
-            for (int yy = 0; yy < ch * k; yy++)
-                for (int xx = 0; xx < cw * k; xx++) {
-                    int X = (cx * cw - x0) * k + xx, Y = (cy * ch - y0) * k + yy, v = 0;
+            for (int yy = 0; yy < CH; yy++)
+                for (int xx = 0; xx < CW; xx++) {
+                    int X = (cx * cw - x0) * k + xx, Y = (cy * ch - y0) * k + yy;
                     if (X < 0 || Y < 0 || X >= W || Y >= h * k)
                         continue;
-                    if (xx < gw * k && yy < gh * k)
-                        v = mask[yy * gw * k + xx] >= 72;
-                    idx[Y * W + X] = (uint8_t)v;
+                    idx[Y * W + X] = cell[yy * CW + xx];
                 }
         }
 }

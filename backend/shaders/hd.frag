@@ -108,7 +108,7 @@ int rep_sample(ivec2 f, uint tex) {
         uint a = uint(hy * W + hx);
         uint i = (rep.px[uint(base) + (a >> 2)] >> ((a & 3u) * 8u)) & 255u;
         uint c = i != 0u ? vram16(int((tex >> 9) & 63u) * 16 + int(i), int((tex >> 15) & 511u)) : 0u;
-        return c == 0u ? -1 : int(c & 0x7FFFu);
+        return c == 0u ? -1 : int(c | 0x10000u); /* with its own mask bit (TexRep_Sample) */
     }
     if (n >= 2) {
         uint r = 0u, g = 0u, b = 0u, cnt = 0u, all = 0u;
@@ -189,7 +189,7 @@ void main() {
         if (rc < 0) {
             discard;
         }
-        uint t = uint(rc) | (fetch(f.x >> 8, f.y >> 8, tex, win) & 0x8000u);
+        uint t = (rc & 0x10000) != 0 ? uint(rc) & 0xFFFFu : uint(rc) | (fetch(f.x >> 8, f.y >> 8, tex, win) & 0x8000u);
         if (t == 0u) {
             t = 0x0421u; /* opaque black must not read as transparent */
         }

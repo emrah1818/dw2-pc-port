@@ -295,6 +295,9 @@ typedef struct {
     const uint16_t *comp; /* per panel: top, bottom texel row */
     int ncomp;
     float *dist; /* per texel: distance (texels) from its centre to the panel outline, inside > 0 */
+    const uint16_t *words; /* the pixels as registered (the upload's original content) */
+    TexRepIndexFn ofn; /* TexRep_AddIndexOverlay */
+    void *octx;
 } IdxSrc;
 typedef struct {
     uint64_t src; /* the source's pixel hash: tiles stay valid when the sources are registered again */
@@ -327,6 +330,7 @@ void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw
         if (srcs[i].hash == hv && srcs[i].w == w && srcs[i].h == h) {
             srcs[i].fn = fn; /* the same pixels again (language switch): the newer drawing */
             srcs[i].ctx = ctx;
+            srcs[i].words = words;
             return;
         }
     }
@@ -343,7 +347,103 @@ void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw
     srcs[nsrcs].comp = NULL;
     srcs[nsrcs].ncomp = 0;
     srcs[nsrcs].dist = NULL;
+    srcs[nsrcs].ofn = NULL;
+    srcs[nsrcs].octx = NULL;
+    srcs[nsrcs].words = words;
     nsrcs++;
+}
+
+typedef struct {
+    const uint16_t *words;
+    int w, h, mode;
+} PlainSrc;
+static PlainSrc plain_srcs[64];
+static int nplain;
+
+static void plain_fn(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx) {
+    const PlainSrc *p = ctx;
+    const uint8_t *b = (const uint8_t *)p->words;
+    for (int y = 0; y < h * k; y++)
+        for (int x = 0; x < w * k; x++) {
+            int X = x0 + x / k, Y = y0 + y / k, v;
+            v = p->mode == 0 ? (b[Y * p->w * 2 + X / 2] >> ((X & 1) * 4)) & 15 : b[Y * p->w * 2 + X];
+            idx[y * w * k + x] = (uint8_t)v;
+        }
+}
+
+static uint64_t src_hash(const uint16_t *words, int w, int h) {
+    int dims[2] = { w, h };
+    uint64_t hv = fnv(0xCBF29CE484222325ull, dims, sizeof(dims));
+    return fnv(hv, words, (size_t)w * (size_t)h * 2);
+}
+
+static int src_gen = 1;
+int TexRep_SourceGeneration(void) {
+    return src_gen;
+}
+
+int TexRep_RuntimeScale(void) {
+    return out_scale;
+}
+
+void TexRep_RefreshSource(const uint16_t *words, int w, int h) {
+    uint64_t hv = src_hash(words, w, h);
+    if (idx_tab == NULL) return;
+    for (int i = 0; i < IDX_TABLE; i++) {
+        /* a tombstone: the slot stays taken (probe chains), its picture stays allocated until the
+           next TexRep_DropTiles (the GPU pool may still hold its pixels) */
+        if (idx_tab[i].img != NULL && idx_tab[i].src == hv) idx_tab[i].src = 0;
+    }
+}
+
+void TexRep_AddIndexOverlay(const uint16_t *words, int w, int h, int mode, TexRepIndexFn fn, void *ctx) {
+    uint64_t hv;
+    int si;
+
+    if (words == NULL || w <= 0 || h <= 0 || mode < 0 || mode > 1) return;
+    hv = src_hash(words, w, h);
+    si = src_of(hv, w, h);
+    if (si < 0 && nplain < 64) {
+        PlainSrc *p = &plain_srcs[nplain++];
+        p->words = words;
+        p->w = w;
+        p->h = h;
+        p->mode = mode;
+        TexRep_AddIndexSource(words, w, h, mode, 16, 16, plain_fn, p);
+        si = src_of(hv, w, h);
+    }
+    if (si < 0) return;
+    srcs[si].ofn = fn;
+    srcs[si].octx = ctx;
+    TexRep_RefreshSource(words, w, h);
+}
+
+/* the sheet is already in VRAM at (vx, vy) (uploaded before its overlay existed: OnUpload only
+   records uploads that have a replacement): recorded when VRAM there still holds its pixels */
+void TexRep_NoteUploadAt(const uint16_t *words, int w, int h, int vx, int vy) {
+    uint64_t hv = src_hash(words, w, h);
+    int si = src_of(hv, w, h);
+
+    if (si < 0 || vx < 0 || vy < 0 || vx + w > PSXGPU_VRAM_W || vy + h > PSXGPU_VRAM_H) return;
+    for (int i = 0; i < nuploads; i++)
+        if (uploads[i].x == vx && uploads[i].y == vy && uploads[i].w == w && uploads[i].h == h) {
+            uploads[i].src = si;
+            return;
+        }
+    for (int y = 0; y < h; y++)
+        if (memcmp(&PsxGpu_Vram[vy + y][vx], words + (size_t)y * w, (size_t)w * 2) != 0) return;
+    if (nuploads == MAX_UPLOADS) {
+        memmove(uploads, uploads + 1, sizeof(uploads[0]) * (MAX_UPLOADS - 1));
+        nuploads--;
+    }
+    uploads[nuploads].x = vx;
+    uploads[nuploads].y = vy;
+    uploads[nuploads].w = w;
+    uploads[nuploads].h = h;
+    uploads[nuploads].hash = hv;
+    uploads[nuploads].src = si;
+    uploads[nuploads].ndirty = 0;
+    nuploads++;
 }
 
 /* the 1x texels of a source as plain indices, k times larger (sources without a drawing of
@@ -485,6 +585,8 @@ void TexRep_AddIndexSourceIfNew(const uint16_t *words, int w, int h, int mode, i
 void TexRep_ClearIndexSources(void) {
     idx_reset_wanted = idx_tiles > 0; /* tiles of the old drawing or style go after the next picture */
     nsrcs = 0;
+    nplain = 0;
+    src_gen++;
     for (int i = 0; i < nuploads; i++) uploads[i].src = -1;
 }
 
@@ -586,6 +688,7 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     memset(idx, 0, styled ? n : bytes);
     Uint64 t0 = SDL_GetTicksNS();
     srcs[si].fn(srcs[si].ctx, k, ox, oy, rw, rh, idx);
+    if (srcs[si].ofn != NULL) srcs[si].ofn(srcs[si].octx, k, ox, oy, rw, rh, idx);
     Uint64 t1 = SDL_GetTicksNS();
     if (styled) {
         for (size_t i = 0; i < n; i++) {
@@ -999,8 +1102,17 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             for (int d = 0; d < u->ndirty; d++) { /* the primitive's texels in VRAM words / lines */
                 int vx0 = u->x + (umin + du) / tpw, vx1 = u->x + (umax + du) / tpw, vy0 = u->y + vmin + dv, vy1 = u->y + vmax + dv;
                 if (vx0 < u->dirty[d].x + u->dirty[d].w && u->dirty[d].x <= vx1 && vy0 < u->dirty[d].y + u->dirty[d].h &&
-                    u->dirty[d].y <= vy1)
-                    return 0;
+                    u->dirty[d].y <= vy1) {
+                    /* a partial write over the page (palette animation in the page, a copied piece):
+                       the replacement stays when this primitive's texels are still the original
+                       ones (strips of the attack names were drawn as 1x texels otherwise) */
+                    int same = s->words != NULL;
+                    for (int y = vy0; y <= vy1 && same; y++)
+                        for (int x = vx0; x <= vx1 && same; x++)
+                            same = vram(x, y) == s->words[(size_t)(y - u->y) * s->w + (x - u->x)];
+                    if (!same) return 0;
+                    break;
+                }
             }
             uint32_t ch = 0;
             if (s->cls != NULL) { /* a styled tile is coloured when made: per palette */
@@ -1125,7 +1237,9 @@ int TexRep_Sample(const TexRepUse *use, int fu, int fv) {
         int i = ((const uint8_t *)img->px)[(size_t)hy * (size_t)img->w + (size_t)hx];
         uint16_t c = i != 0 ? vram(use->cx + i, use->cy) : 0;
         if (c == 0) return -1; /* index 0 and colour 0: transparent, as on the PS1 */
-        return c & 0x7FFF;
+        /* with its own semi-transparency bit (the CLUT colour's, as the PS1 does per texel): the 1x
+           texel's bit followed the old 1x letter shape (blended attack names showed it) */
+        return c | 0x10000;
     }
     if (n >= 2) {
         /* the block of the output pixel, kept inside the primitive's texels */

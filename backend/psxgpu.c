@@ -271,6 +271,38 @@ static void pgxp_stats_summary(void) {
     }
 }
 
+/* dw2-pc-port Modern UI text (src/main/text.c): a glyph quad whose left edge falls between two
+ * 1x pixels. The 1x picture uses the integer quad; the HD surfaces draw it dx256 / 256 pixel to the
+ * right, so the letters are spaced as the font's advances say at the output resolution. Keyed by
+ * the packet's address, checked against its first corner and UV/CLUT words (a reused address). */
+#define SUBPX_TABLE 8192
+static struct {
+    uintptr_t addr;
+    uint32_t xy, uvc;
+    int dx;
+} subpx[SUBPX_TABLE];
+
+void PsxGpu_NoteSubpixel(const void *pkt, int dx256) {
+    const uint32_t *q = (const uint32_t *)pkt;
+    uintptr_t a = (uintptr_t)pkt;
+    unsigned h = (unsigned)((a >> 2) * 2654435761u) % SUBPX_TABLE;
+
+    subpx[h].addr = a;
+    subpx[h].xy = q[2];
+    subpx[h].uvc = q[3];
+    subpx[h].dx = dx256;
+}
+
+static int subpixel_of(const uint32_t *w) {
+    uintptr_t a = PsxHd_Packet;
+    unsigned h = (unsigned)((a >> 2) * 2654435761u) % SUBPX_TABLE;
+
+    if (a == 0 || subpx[h].addr != a || subpx[h].xy != w[1] || subpx[h].uvc != w[2]) {
+        return 0;
+    }
+    return subpx[h].dx;
+}
+
 static void polygon(const uint32_t *w, int op) {
     int quad = op & 0x08;
     int textured = op & 0x04;
@@ -344,6 +376,12 @@ static void polygon(const uint32_t *w, int op) {
             }
         }
         precise = hit != 0;
+        int text_dx = !hit && quad && textured ? subpixel_of(w) : 0;
+        if (text_dx != 0) {
+            for (k = 0; k < nv; k++) {
+                v[k].px += text_dx / 256.0f;
+            }
+        }
         {
             /* dw2-pc-port: DW2_PGXP_STATS=1 counts the 3D polygons by how many corners got a
                precise position (all / some / none): mixed ones are where wobble can remain */
@@ -371,7 +409,9 @@ static void polygon(const uint32_t *w, int op) {
                 }
             }
         }
-        if (precise && textured && sprite_like(&v[0], &v[1], &v[2]) && (!quad || sprite_like(&v[1], &v[2], &v[3]))) {
+        if (text_dx != 0) {
+            precise = 1; /* the glyph at its sub-pixel place */
+        } else if (precise && textured && sprite_like(&v[0], &v[1], &v[2]) && (!quad || sprite_like(&v[1], &v[2], &v[3]))) {
             /* a 2D sprite-like mapping keeps its integer corners. Decided for the whole quad: a
              * floor tile whose side is vertical on screen has one sprite-like triangle, and that
              * half drawn on integer corners left a gap along the diagonal (PG.10). */

@@ -173,10 +173,13 @@ static s32 Text_NativeTight; /* the line being measured / drawn is set close (it
    PS1 cells unless a line does not fit */
 static s32 Text_NativeTable;
 
+/* advances, ink offsets and kerning in 1/256 pixel (Modern UI: the font's own, with sub-pixel
+   positions at the output resolution; Classic: the cell, exactly the PS1 positions) */
+extern int UiText_Kern(int big, int a, int b);
 static s32 Text_NativeAdv(TextBox *r, s32 c) {
     s32 def = r->charAdvance == (r->bigFont ? 9 : 7);
     if (!def || (Text_NativeTable && !Text_NativeTight)) {
-        return r->charAdvance;
+        return r->charAdvance * 256;
     }
     return Text_NativeTight ? UiText_TightAdvance(r->bigFont != 0, c, r->charAdvance)
                             : UiText_Advance(r->bigFont != 0, c, r->charAdvance);
@@ -192,12 +195,19 @@ static s32 Text_NativeInkLeft(TextBox *r, s32 c) {
 static s32 Text_NativeSpace(TextBox *r) {
     s32 def = r->charAdvance == (r->bigFont ? 9 : 7);
     if (def && Text_NativeTight) {
-        return r->bigFont ? 5 : 4;
+        return (r->bigFont ? 5 : 4) * 256;
     }
     if (Text_NativeTable) {
-        return r->charAdvance;
+        return r->charAdvance * 256;
     }
-    return def ? UiText_SpaceAdvance(r->bigFont != 0, r->charAdvance) : r->charAdvance;
+    return def ? UiText_SpaceAdvance(r->bigFont != 0, r->charAdvance) : r->charAdvance * 256;
+}
+
+static s32 Text_NativeKern(TextBox *r, s32 a, s32 c) {
+    if (a < 0 || r->charAdvance != (r->bigFont ? 9 : 7) || Text_NativeTable || Text_NativeTight) {
+        return 0;
+    }
+    return UiText_Kern(r->bigFont != 0, a, c);
 }
 
 
@@ -205,9 +215,9 @@ static s32 Text_NativeSpace(TextBox *r) {
 /* Modern UI: texts laid out in columns with spaces (shop lists, the name entry grid, tables: a
    box with two spaces in a row somewhere) keep their columns: after a space, the line goes on at the
    latest at the position the fixed cells would give (text.c draws the same way). */
-static s32 Text_NativeSnap(TextBox *r, s32 w, s32 cells, s32 spaces, s32 c) {
-    if (Text_NativeTable && spaces > 0 && w < cells * r->charAdvance) {
-        return cells * r->charAdvance;
+static s32 Text_NativeSnap(TextBox *r, s32 w, s32 cells, s32 spaces, s32 c) { /* w in 1/256 pixel */
+    if (Text_NativeTable && spaces > 0 && w < cells * r->charAdvance * 256) {
+        return cells * r->charAdvance * 256;
     }
     return w;
 }
@@ -229,7 +239,7 @@ static s32 Text_NativeIsTable(const u8 *s) {
 
 static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
     const u8 *stack[4];
-    s32 depth = 0, w = 0, guard = 0, cells = 0, spaces = 0;
+    s32 depth = 0, w = 0, guard = 0, cells = 0, spaces = 0, prev = -1;
 
     while (guard++ < 2048) {
         u8 b = *s;
@@ -248,16 +258,19 @@ static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
             w += Text_NativeSpace(r);
             cells++;
             spaces++;
+            prev = -1;
             s++;
             break;
         case 0xFB:
-            w += r->charAdvance; /* the blinking wait mark */
+            w += r->charAdvance * 256; /* the blinking wait mark */
+            prev = -1;
             s++;
             break;
         case 0xF8:
-            w += r->charAdvance; /* the choice cursor or its place */
+            w += r->charAdvance * 256; /* the choice cursor or its place */
             cells++;
             spaces = 0;
+            prev = -1;
             s += 2;
             break;
         case 0xFA:
@@ -307,17 +320,19 @@ static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
             w = Text_NativeSnap(r, w, cells, spaces, s[1] + 0xF0) + Text_NativeAdv(r, s[1] + 0xF0);
             cells++;
             spaces = 0;
+            prev = -1;
             s += 2;
             break;
         default:
-            w = Text_NativeSnap(r, w, cells, spaces, b) + Text_NativeAdv(r, b);
+            w = Text_NativeSnap(r, w + Text_NativeKern(r, prev, b), cells, spaces, b) + Text_NativeAdv(r, b);
             cells++;
             spaces = 0;
+            prev = b;
             s++;
             break;
         }
     }
-    return w;
+    return (w + 255) >> 8;
 }
 
 extern int UiLayout_ColumnShift(int x, int y);
@@ -475,10 +490,13 @@ void Text_UpdateAllBoxes(Actor *a0) {
     PadState *tb;
 #ifdef DW2_NATIVE
     s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0, uiShift = 0, uiWide = 0;
+    s32 uiPrev = -1, uiLeft;
 #define UI_LINE(p)                                                                                           \
-    (uiAcc = 0, uiX0 = pos.field_0, uiCells = 0, uiSpaces = 0,                                               \
+    (uiAcc = 0, uiX0 = pos.field_0, uiCells = 0, uiSpaces = 0, uiPrev = -1,                                  \
      uiScale = Text_NativeLine(wk, r, (p), pos.field_0, pos.field_2))
-#define UI_ADV(a) (uiAcc += (a) * uiScale, uiStep = uiAcc >> 16, uiAcc -= uiStep << 16, pos.field_0 += uiStep)
+    /* a: 1/256 pixel; uiAcc keeps the pen's fraction (16.16) */
+#define UI_ADV(a)                                                                                            \
+    (uiAcc += (s32)(((s64)(a) * uiScale) >> 8), uiStep = uiAcc >> 16, uiAcc -= uiStep << 16, pos.field_0 += uiStep)
 #endif
 
     pkt = (TextGlyphPoly *)Sys_State.packet.addr;
@@ -569,6 +587,7 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     UI_ADV(Text_NativeSpace(r));
                     uiCells++;
                     uiSpaces++;
+                    uiPrev = -1;
 #else
                     pos.field_0 += r->charAdvance;
 #endif
@@ -748,9 +767,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
                         }
                     }
 #ifdef DW2_NATIVE
-                    UI_ADV(r->charAdvance);
+                    UI_ADV(r->charAdvance * 256);
                     uiCells++;
                     uiSpaces = 0;
+                    uiPrev = -1;
 #else
                     pos.field_0 += r->charAdvance;
 #endif
@@ -990,10 +1010,12 @@ void Text_UpdateAllBoxes(Actor *a0) {
                 draw:
 #ifdef DW2_NATIVE
                     uiCode = c; /* the code before the big font's page split (metrics) */
+                    UI_ADV(Text_NativeKern(r, uiPrev, c));
+                    uiPrev = c;
                     {
-                        s32 snap = Text_NativeSnap(r, pos.field_0 - uiX0, uiCells, uiSpaces, c);
-                        if (snap != pos.field_0 - uiX0) {
-                            pos.field_0 = uiX0 + (s32)(((s64)snap * uiScale) >> 16);
+                        s32 at = (pos.field_0 - uiX0) * 256, snap = Text_NativeSnap(r, at, uiCells, uiSpaces, c);
+                        if (snap != at) {
+                            pos.field_0 = uiX0 + (s32)(((s64)(snap >> 8) * uiScale) >> 16);
                             uiAcc = 0;
                         }
                     }
@@ -1011,7 +1033,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     pkt->tag.b.len = 9;
                     pkt->c.code = 0x2C;
 #ifdef DW2_NATIVE
-                    pkt->x0 = pkt->x2 = pos.field_0 - Text_NativeInkLeft(r, uiCode) + uiWide;
+                    /* the glyph's left edge in 1/256 pixel: the integer quad, the fraction for the HD
+                       renderer (Text_NoteSubpixel below) */
+                    uiLeft = (pos.field_0 + uiWide) * 256 + (uiAcc >> 8) - Text_NativeInkLeft(r, uiCode);
+                    pkt->x0 = pkt->x2 = uiLeft >> 8;
 #else
                     pkt->x0 = pkt->x2 = pos.field_0;
 #endif
@@ -1038,6 +1063,12 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     }
                     pkt->tag.word = (pkt->tag.word & 0xFF000000) | (*ot & 0xFFFFFF);
                     *ot = (*ot & 0xFF000000) | ((u32)pkt & 0xFFFFFF);
+#ifdef DW2_NATIVE
+                    if ((uiLeft & 255) != 0) {
+                        extern void PsxGpu_NoteSubpixel(const void *pkt, int dx256);
+                        PsxGpu_NoteSubpixel(pkt, (uiLeft & 255) * (Sys_State.centerX.s == 0x140 ? 2 : 1));
+                    }
+#endif
                     pkt++;
 #ifdef DW2_NATIVE
                     UI_ADV(Text_NativeAdv(r, uiCode));

@@ -27,6 +27,7 @@
 #include "host/host.h"
 #include "host/settings.h"
 #include "host/uilayout.h"
+#include "host/fonts.h"
 
 /* ---- text metrics ---- */
 
@@ -99,37 +100,50 @@ static int proportional(int big, int c) {
     return c == 0x42 || c == 0x44 || c == 0x45 || c == 0x46 || c == 0x49 || (c >= 0x54 && c <= 0x5D);
 }
 
+/* Advances and offsets in 1/256 pixel (src/main/text.c). Modern UI: the font's metrics
+   (host/fonts.c Fonts_Game*, the same rule that draws the glyphs); Classic: the cell. */
 int UiText_Advance(int big, int c, int cell) {
     if (!UiText_Modern() || c < 0 || c > 255 || !proportional(big, c)) {
-        return cell;
+        return cell * 256;
     }
-    return ink_w[big][c] + 1;
+    return Fonts_Enabled() ? Fonts_GameAdvance(big, c) : (ink_w[big][c] + 1) * 256;
+}
+
+int UiText_Kern(int big, int a, int b) {
+    if (!UiText_Modern() || !Fonts_Enabled() || a < 0 || a > 255 || b < 0 || b > 255 || !proportional(big, a) ||
+        !proportional(big, b)) {
+        return 0;
+    }
+    return Fonts_GameKern(big, a, b);
 }
 
 /* a line that does not fit: letters set close (their ink only), in both modes */
 int UiText_TightAdvance(int big, int c, int cell) {
     if (!have_metrics || c < 0 || c > 255 || !proportional(big, c)) {
-        return cell;
+        return cell * 256;
     }
-    return ink_w[big][c];
+    return ink_w[big][c] * 256;
 }
 
 int UiText_TightInkLeft(int big, int c) {
     if (!have_metrics || c < 0 || c > 255 || !proportional(big, c)) {
         return 0;
     }
-    return ink_l[big][c];
+    return ink_l[big][c] * 256;
 }
 
 int UiText_SpaceAdvance(int big, int cell) {
-    return UiText_Modern() ? (big ? 5 : 4) : cell;
+    if (!UiText_Modern()) {
+        return cell * 256;
+    }
+    return Fonts_Enabled() ? Fonts_GameSpace(big) : (big ? 5 : 4) * 256;
 }
 
 int UiText_InkLeft(int big, int c) {
     if (!UiText_Modern() || c < 0 || c > 255 || !proportional(big, c)) {
         return 0;
     }
-    return ink_l[big][c];
+    return Fonts_Enabled() ? Fonts_GameOrigin(big, c) : ink_l[big][c] * 256;
 }
 
 /* ---- windows ---- */

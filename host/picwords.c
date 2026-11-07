@@ -210,7 +210,14 @@ static int picture_ink(const Tex* t, const Cell* c)
 /* The letters of a picture as coverage (0..255), k times the picture's size: the same layout at
  * every k (k = 1: the painted texture; k = the HD renderer's scale: the runtime picture). The
  * picture spans the cells' screen box; each line is fitted into the cells it crosses. */
+/* pad: output pixels kept free around the letters (the outline rings drawn outside them) */
+static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* mask, int stride, int pad);
 static int words_mask(const Cell* c, int n, const Words* w, int k, uint8_t* mask, int stride)
+{
+    return words_mask_pad(c, n, w, k, mask, stride, 0);
+}
+
+static int words_mask_pad(const Cell* c, int n, const Words* w, int k, uint8_t* mask, int stride, int pad)
 {
     int x0 = 99999, x1 = -99999, y0 = 99999, y1 = -99999;
     if (n <= 0 || k < 1)
@@ -231,8 +238,13 @@ static int words_mask(const Cell* c, int n, const Words* w, int k, uint8_t* mask
     for (const char* p = w->text; *p; p++)
         if (*p == '\n')
             lines++;
-    int line_h = (ch - 2) / lines, LH = line_h * k;
-    if (line_h < 1)
+    int line_h = (ch - 2) / lines, LH = line_h * k - 2 * pad, LS = line_h * k;
+    /* the big battle and title words in Orbitron Black: the originals are heavy letters with
+       outline rings and a bevel (their colours by depth, depth_colour), Bold left no body inside
+       the rings; small lines and the narrow title code keep Orbitron Bold */
+    if (role == FONT_DISPLAY && line_h >= 14 && w->squeeze <= 10)
+        role = FONT_DISPLAY_HEAVY;
+    if (line_h < 1 || LH < 2)
         return 0;
     uint8_t* row  = malloc((size_t)stride * LH);
     uint8_t* wide = malloc((size_t)stride * LH);
@@ -259,7 +271,7 @@ static int words_mask(const Cell* c, int n, const Words* w, int k, uint8_t* mask
                 if (b > hi)
                     hi = b;
             }
-        int available = (hi - lo - 2) * k;
+        int available = (hi - lo - 2) * k - 2 * pad;
         if (available < 1) {
             ok = 0;
             break;
@@ -300,10 +312,10 @@ static int words_mask(const Cell* c, int n, const Words* w, int k, uint8_t* mask
             ok = 0;
             break;
         }
-        int left = lo * k + (w->align < 0 ? 0 : w->align > 0 ? available - width
-                                                             : (available - width) / 2);
+        int left = lo * k + pad + (w->align < 0 ? 0 : w->align > 0 ? available - width
+                                                                   : (available - width) / 2);
         for (int y = 0; y < LH; y++)
-            memcpy(mask + (line * LH + y) * stride + left, row + y * stride, (size_t)width);
+            memcpy(mask + (line * LS + pad + y) * stride + left, row + y * stride, (size_t)width);
         if (end)
             p = end + 1;
     }
@@ -321,7 +333,12 @@ typedef struct {
     uint8_t        col[MAX_CELLS]; /* the palette index of each cell's letters */
     Words          w;
     char           text[512];
-    uint8_t*       hmask[2]; /* runtime masks at k = hk[i] (the zooming words use two sizes at once) */
+    /* the original's layers (paint1): outline rings from the outside in, the body, a bevel (top /
+       left, bottom / right; 0 none); nring < 0: no layers, the body colour col (small pictures) */
+    int            nring;
+    uint8_t        ring[4], body, bevel_tl, bevel_br;
+    uint8_t*       hmask[2]; /* runtime pictures at k = hk[i] (the zooming words use two sizes at once):
+                                with ndepth the palette index of each pixel, else the coverage */
     int            hk[2];
     size_t         hbytes[2];
 } HiPic;
@@ -331,7 +348,12 @@ static size_t hmask_bytes; /* all runtime masks; past HMASK_LIMIT they are made 
 static HiPic hipics[MAX_HIPICS];
 static int   nhipics;
 
-static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const uint8_t* col)
+typedef struct {
+    int nring;
+    uint8_t ring[4], body, bevel_tl, bevel_br;
+} Layers;
+
+static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const uint8_t* col, const Layers* ly)
 {
     if (nhipics == MAX_HIPICS || n > MAX_CELLS)
         return;
@@ -354,6 +376,13 @@ static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const 
     h->w    = *w;
     snprintf(h->text, sizeof(h->text), "%s", w->text);
     h->w.text = h->text;
+    h->nring = ly ? ly->nring : -1;
+    if (ly) {
+        memcpy(h->ring, ly->ring, sizeof(h->ring));
+        h->body     = ly->body;
+        h->bevel_tl = ly->bevel_tl;
+        h->bevel_br = ly->bevel_br;
+    }
     memset(h->hmask, 0, sizeof(h->hmask));
     memset(h->hk, 0, sizeof(h->hk));
     memset(h->hbytes, 0, sizeof(h->hbytes));
@@ -384,7 +413,7 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
      * colour only: an outline fills the counters of the small letters. */
     {
         enum { MAXD = 10 };
-        static uint8_t orig[CW * CH], dist[CW * CH], tot[CW * CH];
+        static uint8_t orig[CW * CH], dist[CW * CH], tot[CW * CH], odist[CW * CH];
         static int     hist[CH][MAXD + 1][256];
         int            color[CH][MAXD + 1], all[MAXD + 1], maxd = 0, bottom = -1, nmax = 0;
         int            tall = 0; /* an outline ring closes the counters of the new letters (e, a): body colour only */
@@ -408,6 +437,7 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                     if (in)
                         dist[k] = (uint8_t)(d + 1);
                 }
+        memcpy(odist, dist, sizeof(odist)); /* the original's depths (its layers, below) */
         memset(hist, 0, sizeof(hist));
         for (int y = 0; y < ch; y++)
             for (int x = 0; x < cw; x++) {
@@ -436,7 +466,7 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                 uint8_t col[MAX_CELLS];
                 for (int i = 0; i < n && i < MAX_CELLS; i++)
                     col[i] = (uint8_t)inks[i];
-                hipic_add(t, c, n, w, col);
+                hipic_add(t, c, n, w, col, NULL);
             }
             return 1;
         }
@@ -510,7 +540,57 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
             uint8_t col[MAX_CELLS];
             for (int i = 0; i < n && i < MAX_CELLS; i++)
                 col[i] = (uint8_t)all[maxd < 3 ? maxd : 3];
-            hipic_add(t, c, n, w, col);
+            /* the original's colour per depth from its rim (outline rings, bevels, the gradient
+               to the bright core): drawn at the output resolution by relative depth in the new
+               strokes (hifile_index); the 1x picture above keeps the body colour */
+            Layers ly;
+            memset(&ly, 0, sizeof(ly));
+            {
+                /* the body: the most common colour at depths 4..7 (deeper ones cross into the
+                   neighbouring letters' rims); the rings: the depths before it; the bevel: the
+                   colours at the first body depth whose outside is up / left, or down / right */
+                int sum[256] = { 0 }, tl[256] = { 0 }, br[256] = { 0 }, b = 0;
+                for (int d = 4; d <= 7 && d <= maxd; d++)
+                    for (int y = 0; y < ch; y++)
+                        for (int v = 1; v < 256; v++)
+                            sum[v] += hist[y][d][v];
+                for (int v = 1; v < 256; v++)
+                    b = sum[v] > sum[b] ? v : b;
+                if (!b)
+                    b = all[maxd];
+                ly.body = (uint8_t)b;
+                /* at most three rings: the fourth depth is the bevel (a mix of its colours) */
+                while (ly.nring < 3 && ly.nring <= maxd && all[ly.nring] != b)
+                    ly.nring++;
+                for (int d = 0; d < ly.nring; d++)
+                    ly.ring[d] = (uint8_t)all[d];
+                for (int y = 1; y < ch; y++)
+                    for (int x = 1; x < cw; x++) {
+                        int kk = y * CW + x;
+                        if (odist[kk] - 1 != ly.nring)
+                            continue;
+                        if (odist[kk - 1] - 1 < ly.nring || odist[kk - CW] - 1 < ly.nring)
+                            tl[orig[kk]]++;
+                        else
+                            br[orig[kk]]++;
+                    }
+                int t1 = 0, b1 = 0;
+                for (int v = 1; v < 256; v++) {
+                    t1 = tl[v] > tl[t1] ? v : t1;
+                    b1 = br[v] > br[b1] ? v : b1;
+                }
+                ly.bevel_tl = (uint8_t)(t1 && t1 != b ? t1 : 0);
+                ly.bevel_br = (uint8_t)(b1 && b1 != b ? b1 : 0);
+            }
+            {
+                /* layers only for the big pictures (battle words, attack names, title menu): the small
+                   ones (title code, copyright, small labels) keep their body colour, their rings
+                   would fill the letters */
+                int lines = 1;
+                for (const char* q = w->text; *q; q++)
+                    lines += *q == '\n';
+                hipic_add(t, c, n, w, col, (ch - 2) / lines >= 14 && w->squeeze <= 10 ? &ly : NULL);
+            }
         }
     }
     return 1;
@@ -640,6 +720,84 @@ static int hifile_texel(const HiFile* f, int x, int y)
     return (f->pix[y * f->stride + x / 2] >> ((x & 1) * 4)) & 15;
 }
 
+/* The original's layers at the output resolution (paint1 learned them): rings of ring_w output
+ * pixels each around the new letters (outermost = ring[0]), a bevel of the same width just inside
+ * (top / left and bottom / right colours), the body. Ring width: half a texel, at least one pixel:
+ * the PS1 rings are one texel each; at the output resolution half of it reads as a clean outline
+ * without filling the letters. */
+static int ring_w(int k) { return k >= 2 ? (k + 1) / 2 : 1; }
+static int layer_pad(const HiPic* p, int k) { return p->nring > 0 ? p->nring * ring_w(k) + 1 : 0; }
+
+/* chamfer (3-4) distance to the nearest pixel where in != inside, in 1/3 pixels (0 there) */
+static void chamfer(const uint8_t* m, int w, int h, int inside, uint16_t* d)
+{
+    for (int i = 0; i < w * h; i++)
+        d[i] = ((m[i] >= 80) == inside) ? 0xFFFF : 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            uint16_t* q = &d[y * w + x];
+            if (!*q)
+                continue;
+            int b = *q;
+            if (x > 0 && d[y * w + x - 1] + 3 < b) b = d[y * w + x - 1] + 3;
+            if (y > 0) {
+                if (d[(y - 1) * w + x] + 3 < b) b = d[(y - 1) * w + x] + 3;
+                if (x > 0 && d[(y - 1) * w + x - 1] + 4 < b) b = d[(y - 1) * w + x - 1] + 4;
+                if (x + 1 < w && d[(y - 1) * w + x + 1] + 4 < b) b = d[(y - 1) * w + x + 1] + 4;
+            }
+            *q = (uint16_t)b;
+        }
+    for (int y = h - 1; y >= 0; y--)
+        for (int x = w - 1; x >= 0; x--) {
+            uint16_t* q = &d[y * w + x];
+            if (!*q)
+                continue;
+            int b = *q;
+            if (x + 1 < w && d[y * w + x + 1] + 3 < b) b = d[y * w + x + 1] + 3;
+            if (y + 1 < h) {
+                if (d[(y + 1) * w + x] + 3 < b) b = d[(y + 1) * w + x] + 3;
+                if (x + 1 < w && d[(y + 1) * w + x + 1] + 4 < b) b = d[(y + 1) * w + x + 1] + 4;
+                if (x > 0 && d[(y + 1) * w + x - 1] + 4 < b) b = d[(y + 1) * w + x - 1] + 4;
+            }
+            *q = (uint16_t)b;
+        }
+}
+
+static void layer_colour(const HiPic* p, int k, uint8_t* m, int stride, int h)
+{
+    int       w = stride, rw = ring_w(k);
+    uint16_t* din  = malloc((size_t)w * h * sizeof(uint16_t));
+    uint16_t* dout = malloc((size_t)w * h * sizeof(uint16_t));
+    if (!din || !dout) {
+        free(din);
+        free(dout);
+        return;
+    }
+    chamfer(m, w, h, 1, din);
+    chamfer(m, w, h, 0, dout);
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int i = y * w + x, v = 0;
+            if (din[i] != 0) {
+                v = p->body;
+                if ((p->bevel_tl || p->bevel_br) && din[i] <= rw * 3) {
+                    /* the bevel: is the outside nearer above / left or below / right? */
+                    int up = 0;
+                    for (int s = 1; s <= rw + 1 && !up; s++)
+                        up = (x - s >= 0 && din[i - s] == 0) || (y - s >= 0 && din[i - s * w] == 0);
+                    v = up ? (p->bevel_tl ? p->bevel_tl : p->body) : (p->bevel_br ? p->bevel_br : p->body);
+                }
+            } else if (p->nring > 0 && dout[i] <= p->nring * rw * 3) {
+                int r = (dout[i] - 1) / (rw * 3); /* 0: next to the letter = the innermost ring */
+                r     = r >= p->nring ? p->nring - 1 : r;
+                v     = p->ring[p->nring - 1 - r];
+            }
+            m[i] = (uint8_t)v;
+        }
+    free(din);
+    free(dout);
+}
+
 static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t* idx)
 {
     HiFile* f = ctx;
@@ -678,10 +836,12 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
             slot         = 0;
             p->hmask[0]  = malloc(need);
             p->hk[0]     = k;
-            if (p->hmask[0] && !words_mask(p->c, p->n, &p->w, k, p->hmask[0], stride)) {
+            if (p->hmask[0] && !words_mask_pad(p->c, p->n, &p->w, k, p->hmask[0], stride, layer_pad(p, k))) {
                 free(p->hmask[0]);
                 p->hmask[0] = NULL;
             }
+            if (p->hmask[0] && p->nring >= 0)
+                layer_colour(p, k, p->hmask[0], stride, p->ch * k);
             p->hbytes[0] = p->hmask[0] ? need : 0;
             hmask_bytes += p->hbytes[0];
         }
@@ -697,8 +857,12 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
                     int X = (c->x - p->x0) * k + tu - c->u * k, Y = (c->y - p->y0) * k + tv - c->v * k, v = 0;
                     int X1 = X / k, Y1 = Y / k, mx = X - k, my = Y - k; /* shift 1 texel right, 1 down */
                     if (!(p->w.border && (X1 == 0 || X1 == p->cw - 1 || Y1 == 0 || Y1 == p->ch - 1)) && mx >= 0 &&
-                        mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k && hm[my * stride + mx] >= 80)
-                        v = p->col[i];
+                        mx < (p->cw - 2) * k && my >= 0 && my < (p->ch - 2) * k) {
+                        if (p->nring >= 0)
+                            v = hm[my * stride + mx]; /* the palette index of its layer (layer_colour) */
+                        else if (hm[my * stride + mx] >= 80)
+                            v = p->col[i];
+                    }
                     idx[(tv - y0 * k) * W + tu - x0 * k] = (uint8_t)v;
                 }
         }

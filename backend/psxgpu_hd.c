@@ -327,8 +327,12 @@ static uint16_t rep_texel(const PsxGpuState *st, const Cmd *c, int u, int v, int
     if (col < 0) {
         return 0;
     }
-    o = texel(st, &c->tex, u, v);
-    out = (uint16_t)(col | (o & 0x8000));
+    if (col & 0x10000) {
+        out = (uint16_t)col; /* a runtime tile: its own colour's mask bit */
+    } else {
+        o = texel(st, &c->tex, u, v);
+        out = (uint16_t)(col | (o & 0x8000));
+    }
     return out == 0 ? 0x0421 : out; /* opaque black must not read as transparent */
 }
 

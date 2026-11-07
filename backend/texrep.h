@@ -82,6 +82,15 @@ int TexRep_Sample(const TexRepUse *use, int fu, int fv);
 typedef void (*TexRepIndexFn)(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx);
 void TexRep_AddIndexSource(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx);
 void TexRep_ClearIndexSources(void);
+/* A second drawing on top of a source's (numeric sprites, host/fontnumbers.c), called after its
+   fn with the same tile. A sheet without a source gets one with its plain 1x texels (words must stay
+   valid). Tiles of that source made before are dropped (TexRep_RefreshSource). */
+void TexRep_AddIndexOverlay(const uint16_t *words, int w, int h, int mode, TexRepIndexFn fn, void *ctx);
+/* the tiles of the source with these pixels are made again (its drawing changed) */
+void TexRep_RefreshSource(const uint16_t *words, int w, int h);
+void TexRep_NoteUploadAt(const uint16_t *words, int w, int h, int vx, int vy);
+int TexRep_SourceGeneration(void); /* changes with TexRep_ClearIndexSources (overlays to register again) */
+int TexRep_RuntimeScale(void); /* the HD scale runtime tiles are drawn for (1: none) */
 /* as TexRep_AddIndexSource, but an existing source with these pixels keeps its drawing */
 void TexRep_AddIndexSourceIfNew(const uint16_t *words, int w, int h, int mode, int tw, int th, TexRepIndexFn fn, void *ctx);
 /* Modern UI panels on a source: cls holds one class per texel of the upload (0 not a panel,

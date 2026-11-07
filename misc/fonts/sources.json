@@ -3,18 +3,40 @@
     "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/exo2/Exo2%5Bwght%5D.ttf",
     "upstream_sha256": "205a448676a2586f9c57c25f3d5c58ca8db7e6cf5edf7506783a010c6fe2bfb5",
     "weight": 500,
-    "file": "DW2Interface.ttf"
+    "file": "DW2Interface.ttf",
+    "family": "DW2 Interface",
+    "role": "INTERFACE"
   },
   {
     "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/orbitron/Orbitron%5Bwght%5D.ttf",
     "upstream_sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
     "weight": 700,
-    "file": "DW2Display.ttf"
+    "file": "DW2Display.ttf",
+    "family": "DW2 Display",
+    "role": "DISPLAY"
   },
   {
     "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/robotomono/RobotoMono%5Bwght%5D.ttf",
     "upstream_sha256": "66a80e79d17e4c7cabd162e2916578a4cc08fd19eef6e2a643305eae9c567b2b",
     "weight": 500,
-    "file": "DW2Telemetry.ttf"
+    "file": "DW2Telemetry.ttf",
+    "family": "DW2 Telemetry",
+    "role": "TELEMETRY"
+  },
+  {
+    "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/exo2/Exo2%5Bwght%5D.ttf",
+    "upstream_sha256": "205a448676a2586f9c57c25f3d5c58ca8db7e6cf5edf7506783a010c6fe2bfb5",
+    "weight": 700,
+    "file": "DW2InterfaceBold.ttf",
+    "family": "DW2 Interface Bold",
+    "role": "INTERFACE_BOLD"
+  },
+  {
+    "upstream": "https://raw.githubusercontent.com/google/fonts/main/ofl/orbitron/Orbitron%5Bwght%5D.ttf",
+    "upstream_sha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+    "weight": 900,
+    "file": "DW2DisplayHeavy.ttf",
+    "family": "DW2 Display Heavy",
+    "role": "DISPLAY_HEAVY"
   }
 ]

@@ -147,7 +147,7 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/host/miniz/miniz.c ${CMAKE_SOURC
     ${CMAKE_SOURCE_DIR}/host/assets.c PROPERTIES COMPILE_DEFINITIONS "${MINIZ_DEFS}")
 list(APPEND HOST_SRC ${UPDATE_LIB_SRC})
 set_source_files_properties(${CMAKE_SOURCE_DIR}/host/fonts.c PROPERTIES
-    OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/misc/fonts/DW2Interface.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2Display.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2Telemetry.ttf"
+    OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/misc/fonts/DW2Interface.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2Display.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2Telemetry.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2InterfaceBold.ttf;${CMAKE_SOURCE_DIR}/misc/fonts/DW2DisplayHeavy.ttf"
     COMPILE_OPTIONS "-Wno-unused-function")
 # Emulated PS1 hardware (backend/psxgpu.c: the GPU).
 file(GLOB BACKEND_SRC CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/backend/*.c)

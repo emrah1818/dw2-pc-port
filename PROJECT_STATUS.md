@@ -133,13 +133,14 @@ Siehe TESTBERICHT.md. Kurzfassung:
 - Integriert (ChatGPT): perf-test1 und perf-test2 (Mailbox-Pacing, GPU-Wartezeit-Messung) sowie die PlayStation-Tastensymbole (9d2d651).
 - Wichtig für Tests: Modern ist jetzt Standard. Die Referenzbilder gelten für Classic/EN, deshalb ref-Lauf mit `--settings-set ui_style=classic`.
 - Nicht bestätigt: Wirkung von perf-test2 auf die GPU-Submit-Wartezeit (195 s von 582 s im GTX-1070-Log) auf dem Nvidia-PC des Nutzers. Das ist nicht als behoben anzusehen.
+- Erledigt: Reiter Status/Techniken (Labels aus 01FD 0xD0/0xD1) und MP-Kosten je Zeile in der Attackenliste (96d8fcd).
+- **Veröffentlicht: v1.6.0-preview** (Vorabversion, Commit d833f7e, interne Version 1.6.0-preview). Die fertige 1.6.0 kommt erst nach der Nvidia-Bestätigung des Nutzers.
 - Offen, in dieser Reihenfolge:
-  1. Status/Techniken als Reiter (Tab-Leiste) im Kopf. Beschriftung aus den vorhandenen Ressourcen 01FD:0340/0344/0348; keine neuen Texte erfinden.
-  2. Attackenliste: MP-Kosten in der Liste. Beschreibung und MP stehen heute schon im Infofenster.
-  3. Digitation.
-  4. Lexikon.
-  5. Restliche Panel-Kanten.
-  6. P3–P5.
+  1. Digitation.
+  2. Lexikon.
+  3. Restliche Panel-Kanten.
+  4. P3–P5.
+  5. Auswertung der Leistungsmessung des Nutzers.
 
 **1.5.0 erledigt:**
 - Sprachwahl ohne F1: erster Start und Select am Titel.

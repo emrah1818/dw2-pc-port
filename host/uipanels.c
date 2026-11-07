@@ -7,12 +7,11 @@
  * icons on the panels stay as the game draws them; the game's layout, colours of text and the
  * order of drawing do not change. Classic UI keeps the PS1 sheets.
  *
- * A panel is found in the 1x sheet, not listed by hand: a connected piece of opaque texels at
- * least 24 x 10 texels, at least 60 % of its box opaque, its one or two (stippled) most common
- * colours at least 40 % of it (its fill). The fill, and the ring within 2 texels of the transparent outside (the
- * old bevel), take the new style; the rest of the piece is detail. Open ends of a piece (it
- * continues in another piece on screen) touch the sheet's or the piece's opaque neighbours, not
- * transparency, so they get no edge: a window made of several pieces has no seams. */
+ * A panel piece is found in the 1x sheet, not listed by hand (classify below). Its fill takes the
+ * new style; on its detail the renderer turns grey frame lines and labels into cyan lines and the
+ * old blue shading into fill, and keeps bars, value fields and icons. The edge is drawn where a
+ * piece meets transparency; where two panel pieces meet (one window made of several pieces) there
+ * is none, so windows have no seams. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,8 +32,10 @@ typedef struct {
     int       ncomp;
 } Sheet;
 
-/* the UI sheets with window and panel pieces (battle status and commands, battle result, talk box) */
-static const int sheet_ids[] = { 0x13B, 0x25C, 0x315 };
+/* the UI sheets with window and panel pieces: battle status and commands (0x13B), battle result
+   (0x25C), talk box (0x315), menu windows (0x457, 0x6B5, 0xE0A), area windows (0x3D9). Not the
+   backgrounds of the same screens (0x515 grid, 0xCD8 circuit lines): they are no panels. */
+static const int sheet_ids[] = { 0x13B, 0x25C, 0x315, 0x457, 0x6B5, 0xE0A, 0x3D9 };
 #define NSHEETS (int)(sizeof(sheet_ids) / sizeof(sheet_ids[0]))
 static Sheet sheets[NSHEETS];
 static int   panels_total;
@@ -59,83 +60,91 @@ static void plain_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t*
             idx[y * w * k + x] = (uint8_t)texel(s, x0 + x / k, y0 + y / k);
 }
 
-static void classify(Sheet* s)
+/* The pieces are the sheet's cell rectangles (the part layouts of the file): the sheets are
+ * packed, pieces touch each other without a transparent gap. A piece is a panel piece when it has
+ * a stippled fill (the most common pair of horizontally alternating colours takes at least an
+ * eighth of its neighbouring texel pairs: those two colours are its fill) or a flat one (one colour
+ * covers at least half of it). The rest of the piece is detail. */
+static void classify(Sheet* s, const uint8_t* d, int size)
 {
-    int  W = s->ww * (s->bits == 4 ? 4 : 2), H = s->h, n = W * H;
-    int* lab = malloc(sizeof(int) * n);
-    int* stack = malloc(sizeof(int) * n);
-    s->cls = calloc(n, 1);
-    s->cid = calloc(n, sizeof(uint16_t));
-    s->comp = calloc(2 * 512, sizeof(uint16_t));
+    int W = s->ww * (s->bits == 4 ? 4 : 2), H = s->h, n = W * H, count = PictureTable_Count(d, size);
+    s->cls  = calloc(n, 1);
+    s->cid  = calloc(n, sizeof(uint16_t));
+    s->comp = calloc(2 * 1024, sizeof(uint16_t));
     s->ncomp = 0;
-    if (!lab || !stack || !s->cls || !s->cid || !s->comp) {
-        free(lab);
-        free(stack);
+    if (!s->cls || !s->cid || !s->comp)
         return;
-    }
-    for (int i = 0; i < n; i++)
-        lab[i] = -1;
-    int ncomp = 0;
-    for (int start = 0; start < n; start++) {
-        if (lab[start] >= 0 || texel(s, start % W, start / W) == 0)
-            continue;
-        /* the piece: 4-connected opaque texels */
-        int sp = 0, area = 0, x0 = W, x1 = -1, y0 = H, y1 = -1, hist[256] = { 0 };
-        stack[sp++] = start;
-        lab[start]  = ncomp;
-        while (sp) {
-            int i = stack[--sp], x = i % W, y = i / W;
-            area++;
-            hist[texel(s, x, y)]++;
-            x0 = x < x0 ? x : x0;
-            x1 = x > x1 ? x : x1;
-            y0 = y < y0 ? y : y0;
-            y1 = y > y1 ? y : y1;
-            static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
-            for (int d = 0; d < 4; d++) {
-                int X = x + dx[d], Y = y + dy[d];
-                if (X < 0 || Y < 0 || X >= W || Y >= H)
-                    continue;
-                int j = Y * W + X;
-                if (lab[j] < 0 && texel(s, X, Y) != 0) {
-                    lab[j]      = ncomp;
-                    stack[sp++] = j;
-                }
+    static int rects[4096][4];
+    int        nrect = 0;
+    for (int e = 1; e < count; e++) {
+        uint32_t o = PictureTable_Entry(d, size, e);
+        for (int k = 0; o != 0 && o + 16 <= (uint32_t)size && d[o] != 0xFF && k < 64; k++, o += 16) {
+            int u = d[o], v = d[o + 1], w = d[o + 8], h = d[o + 9] ? d[o + 9] : 256, dup = 0;
+            if (w < 4 || h < 4 || u + w > W || v + h > H)
+                continue;
+            for (int i = 0; i < nrect && !dup; i++)
+                dup = rects[i][0] == u && rects[i][1] == v && rects[i][2] == w && rects[i][3] == h;
+            if (!dup && nrect < 4096) {
+                rects[nrect][0] = u;
+                rects[nrect][1] = v;
+                rects[nrect][2] = w;
+                rects[nrect][3] = h;
+                nrect++;
             }
         }
-        int bw = x1 - x0 + 1, bh = y1 - y0 + 1, first = 1, second = 0;
-        for (int v = 1; v < 256; v++)
-            if (hist[v] > hist[first])
-                first = v;
-        for (int v = 1; v < 256; v++)
-            if (v != first && hist[v] > hist[second])
-                second = v;
-        int fill2 = second && hist[second] * 5 >= hist[first];
-        int panel = bw >= 24 && bh >= 10 && area >= 200 && area * 10 >= bw * bh * 6 &&
-                    (hist[first] + (fill2 ? hist[second] : 0)) * 10 >= area * 4 && s->ncomp < 512;
-        if (panel) {
-            int pc = s->ncomp++;
-            s->comp[2 * pc]     = (uint16_t)y0;
-            s->comp[2 * pc + 1] = (uint16_t)y1;
-            for (int y = y0; y <= y1; y++)
-                for (int x = x0; x <= x1; x++) {
-                    int i = y * W + x;
-                    if (lab[i] != ncomp)
-                        continue;
-                    int v = texel(s, x, y), ring = 0;
-                    for (int dy = -2; dy <= 2 && !ring; dy++)
-                        for (int dx = -2; dx <= 2 && !ring; dx++) {
-                            int X = x + dx, Y = y + dy;
-                            ring = X >= 0 && Y >= 0 && X < W && Y < H && texel(s, X, Y) == 0;
-                        }
-                    s->cls[i] = (uint8_t)(v == first || (fill2 && v == second) || ring ? 1 : 2);
-                    s->cid[i] = (uint16_t)pc;
-                }
-        }
-        ncomp++;
     }
-    free(lab);
-    free(stack);
+    for (int r = 0; r < nrect && s->ncomp < 1024; r++) {
+        int u = rects[r][0], v = rects[r][1], w = rects[r][2], h = rects[r][3], pairs = 0, best = 0, ba = 0, bb = 0;
+        static int pc[256][256];
+        if (w * h < 64)
+            continue;
+        memset(pc, 0, sizeof(pc));
+        for (int y = v; y < v + h; y++)
+            for (int x = u; x + 1 < u + w; x++) {
+                int a = texel(s, x, y), b = texel(s, x + 1, y);
+                if (a == 0 || b == 0)
+                    continue;
+                pairs++;
+                if (a != b) {
+                    int lo = a < b ? a : b, hi = a < b ? b : a;
+                    if (++pc[lo][hi] > best) {
+                        best = pc[lo][hi];
+                        ba   = lo;
+                        bb   = hi;
+                    }
+                }
+            }
+        int hist[256] = { 0 }, opaque = 0, dom = 0;
+        for (int y = v; y < v + h; y++)
+            for (int x = u; x < u + w; x++) {
+                int t = texel(s, x, y);
+                if (t) {
+                    hist[t]++;
+                    opaque++;
+                }
+            }
+        for (int t = 1; t < 256; t++)
+            if (hist[t] > hist[dom])
+                dom = t;
+        if (pairs >= 32 && best * 8 >= pairs) {
+            /* stippled: the pair */
+        } else if (opaque >= 64 && dom && hist[dom] * 2 >= opaque) {
+            ba = bb = dom; /* flat: the dominant colour */
+        } else {
+            continue;
+        }
+        int id = s->ncomp++;
+        s->comp[2 * id]     = (uint16_t)v;
+        s->comp[2 * id + 1] = (uint16_t)(v + h - 1);
+        for (int y = v; y < v + h; y++)
+            for (int x = u; x < u + w; x++) {
+                int t = texel(s, x, y), i = y * W + x;
+                if (t == 0 || s->cls[i] == 1)
+                    continue;
+                s->cls[i] = (uint8_t)(t == ba || t == bb ? 1 : 2);
+                s->cid[i] = (uint16_t)id;
+            }
+    }
 }
 
 void UiPanels_Apply(int modern)
@@ -184,7 +193,7 @@ void UiPanels_Apply(int modern)
         s->words = malloc((size_t)ww * h * 2);
         if (s->words) {
             memcpy(s->words, d + p + 12, (size_t)ww * h * 2);
-            classify(s);
+            classify(s, d, size);
             /* a sheet the word pictures did not register yet gets the plain 1x texels (a newer
                registration of the same pixels keeps its own drawing) */
             TexRep_AddIndexSourceIfNew(s->words, ww, h, s->bits == 4 ? 0 : 1, 16, 16, plain_index, s);

@@ -116,6 +116,11 @@ static const char *volatile quit_why = "window closed";
 static SDL_AtomicInt smooth_on;  /* PR.34: smooth frames active (game side sets it) */
 static int shown_vsync;          /* main thread: the renderer's vsync */
 static int vsync_ok = 1;         /* main thread: vsync could be turned on */
+/* SDL's Vulkan backend presents while holding its shared submit lock. Use mailbox when
+ * available and pace the window outside GPU calls, so the game can keep submitting. */
+static int mailbox_supported;
+static SDL_AtomicInt mailbox_pacing;
+static SDL_AtomicInt window_present_us, window_presents;
 static SDL_Texture *smooth_wrap; /* main thread: the smooth picture as a renderer texture */
 static void *smooth_wrap_tex;
 static int smooth_wrap_w, smooth_wrap_h;
@@ -194,6 +199,7 @@ static int init_gpu(void) {
         return 0;
     }
     PsxHd_SetGpu(1);
+    mailbox_supported = SDL_WindowSupportsGPUPresentMode(gpudev, window, SDL_GPU_PRESENTMODE_MAILBOX);
     return 1;
 }
 
@@ -632,7 +638,8 @@ static void perf_line(Uint64 pub_ns) {
             fprintf(perf_f, "frame,t_ms,frame_ms,flush_ms,publish_ms,finds,hits,new_tiles,new_kpx,full,drops,raster_ms,"
                             "conv_ms,style_ms,gpu_ups,gpu_kib,gpu_up_ms,gpu_deferred,tiles,tile_kib,sleep_ms,vblanks,used_kib,mag1,mag2,mag3,mag4,"
                             "submit_ms,fence_wait_ms,acquire_ms,build_ms,record_ms,submits,fence_waits,package_ms,packages,"
-                            "gpu,scale,smooth,late,vsync_setting,fps_limit,language,ui_style,sharpen,smooth2d,version\n");
+                            "gpu,scale,smooth,late,vsync_setting,fps_limit,language,ui_style,sharpen,smooth2d,version,"
+                            "mailbox_pacing,window_present_ms,window_presents\n");
     }
     if (perf_f != NULL && perf_last != 0) {
         TexRep_IndexStats(&srcs, &tiles, &kib);
@@ -645,17 +652,23 @@ static void perf_line(Uint64 pub_ns) {
                 (unsigned long long)p->gpu_refused, tiles, kib, p->sleep_ns / 1e6, (unsigned long long)p->vblanks,
                 (unsigned long long)p->used_kib, (unsigned long long)p->mag_hist[1], (unsigned long long)p->mag_hist[2],
                 (unsigned long long)p->mag_hist[3], (unsigned long long)p->mag_hist[4]);
-        fprintf(perf_f, ",%.3f,%.3f,%.3f,%.3f,%.3f,%llu,%llu,%.3f,%llu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n",
+        fprintf(perf_f, ",%.3f,%.3f,%.3f,%.3f,%.3f,%llu,%llu,%.3f,%llu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%.3f,%d\n",
                 p->gpu_submit_ns / 1e6, p->gpu_wait_ns / 1e6, p->gpu_acquire_ns / 1e6,
                 p->gpu_build_ns / 1e6, p->gpu_record_ns / 1e6,
                 (unsigned long long)p->gpu_submits, (unsigned long long)p->gpu_waits,
                 p->package_ns / 1e6, (unsigned long long)p->packages,
                 PsxHd_Gpu(), PsxHd_Scale(), PsxHd_Smooth(), Host_GameLate(),
                 Settings_Get(SET_VSYNC), Settings_Get(SET_FPS_LIMIT), Settings_Get(SET_LANGUAGE),
-                Settings_Get(SET_UI_STYLE), Settings_Get(SET_SHARPEN), Settings_Get(SET_SMOOTH2D), DW2_VERSION);
+                Settings_Get(SET_UI_STYLE), Settings_Get(SET_SHARPEN), Settings_Get(SET_SMOOTH2D), DW2_VERSION,
+                SDL_GetAtomicInt(&mailbox_pacing), SDL_SetAtomicInt(&window_present_us, 0) / 1000.0,
+                SDL_SetAtomicInt(&window_presents, 0));
         if ((perf_frame & 63) == 0) fflush(perf_f);
     }
     memset(p, 0, sizeof(*p));
+    if (perf_f == NULL || perf_last == 0) {
+        SDL_SetAtomicInt(&window_present_us, 0);
+        SDL_SetAtomicInt(&window_presents, 0);
+    }
     TexRep_PerfPicture();
     perf_last = now;
     perf_frame++;
@@ -1000,7 +1013,13 @@ void Host_Present(void) {
     }
     shot_notice();
     Ui_Render();
-    SDL_RenderPresent(renderer);
+    {
+        Uint64 start = SDL_GetTicksNS();
+        SDL_RenderPresent(renderer);
+        /* Approximate window-thread totals, atomically drained by the game log. */
+        SDL_AddAtomicInt(&window_present_us, (int)((SDL_GetTicksNS() - start) / 1000));
+        SDL_AddAtomicInt(&window_presents, 1);
+    }
 }
 
 static void request(int bits) {
@@ -1314,13 +1333,50 @@ static int smooth_vsync(void) {
     int want = sm || (Settings_Get(SET_VSYNC) && !(SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED));
 
     if (want != shown_vsync) {
+        int mailbox = want && mailbox_supported;
         shown_vsync = want;
-        vsync_ok = SDL_SetRenderVSync(renderer, want ? 1 : 0);
-        printf("[host] vsync %s%s\n", want ? (sm ? "on (smooth frames)" : "on (setting)") : "off",
+        /* SDL 3.4.8 GPU_SetVSync(0) selects MAILBOX before IMMEDIATE. Only use this
+         * for requested synchronization when mailbox is actually supported: no tearing
+         * fallback, no preference rewrite. FIFO remains the fallback on other devices. */
+        vsync_ok = SDL_SetRenderVSync(renderer, want && !mailbox ? 1 : 0);
+        SDL_SetAtomicInt(&mailbox_pacing, mailbox && vsync_ok);
+        if (mailbox && !vsync_ok) {
+            vsync_ok = SDL_SetRenderVSync(renderer, 1);
+        }
+        printf("[host] vsync %s%s%s\n", want ? (sm ? "on (smooth frames)" : "on (setting)") : "off",
+               SDL_GetAtomicInt(&mailbox_pacing) ? " [mailbox, window-thread pacing]" : "",
                vsync_ok ? "" : ": not available");
         fflush(stdout);
     }
     return sm;
+}
+
+/* Sleep outside SDL's device/submit locks. Mailbox is tear-free but does not itself
+ * wait for each refresh; cap it to the display rate (and a lower user FPS cap). */
+static void pace_window(int smooth) {
+    static Uint64 next;
+    int mailbox = SDL_GetAtomicInt(&mailbox_pacing);
+    int lim = Settings_Get(SET_FPS_LIMIT);
+    double hz = lim;
+    Uint64 now = SDL_GetTicksNS();
+
+    if (mailbox || (smooth && lim <= 0 && !vsync_ok)) {
+        const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+        double refresh = dm != NULL && dm->refresh_rate > 0.0f ? dm->refresh_rate : 60.0;
+        if (hz <= 0 || hz > refresh) hz = refresh;
+    }
+    if (!smooth && !mailbox) {
+        next = 0;
+        return;
+    }
+    if (hz > 0) {
+        Uint64 step = (Uint64)(1000000000.0 / hz + 0.5);
+        if (next == 0 || now > next + step) next = now;
+        next += step;
+        if (next > now) SDL_DelayPrecise(next - now);
+    } else {
+        next = 0;
+    }
 }
 
 /* Main thread while the game thread runs: events and present until the game has quit. */
@@ -1331,7 +1387,7 @@ void Host_WindowLoop(void) {
     while (!SDL_GetAtomicInt(&game_done)) {
         Host_PumpEvents();
         if (smooth_vsync()) {
-            /* PR.34: a picture per refresh (the present waits for the vsync) */
+            /* One picture per refresh: mailbox uses pace_window, FIFO waits in present. */
             Uint64 t = SDL_GetTicksNS();
 
             if (Host_GameLate()) {
@@ -1339,37 +1395,12 @@ void Host_WindowLoop(void) {
                    so the smooth pictures cannot slow the game down (vblank.c) */
                 if (SDL_WaitSemaphoreTimeout(frame_sem, 20) || Ui_Drawing()) {
                     Host_Present();
+                    pace_window(1);
                 }
                 continue;
             }
             Host_Present();
-            {
-                /* dw2-pc-port: fps_limit caps the pictures per second (game logic is unaffected);
-                   without a working vsync the cap is the display's refresh rate (60 when unknown),
-                   so the window thread never draws more pictures than can be shown */
-                static Uint64 next;
-                int lim = Settings_Get(SET_FPS_LIMIT);
-                Uint64 now = SDL_GetTicksNS();
-
-                if (lim <= 0 && !vsync_ok) {
-                    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
-                    lim = dm != NULL && dm->refresh_rate >= 30.0f ? (int)(dm->refresh_rate + 0.5f) : 60;
-                }
-
-                if (lim > 0) {
-                    Uint64 step = 1000000000ull / (Uint64)lim;
-
-                    if (next == 0 || now > next + step) {
-                        next = now;
-                    }
-                    next += step;
-                    if (next > now) {
-                        SDL_DelayPrecise(next - now);
-                    }
-                } else {
-                    next = 0;
-                }
-            }
+            pace_window(1);
             /* the picture rate, about every 10 s */
             if (rate_t0 == 0 || t - rate_t0 > 30000000000ull) {
                 rate_t0 = t;
@@ -1388,9 +1419,11 @@ void Host_WindowLoop(void) {
             worst = t > worst ? t : worst;
         } else if (SDL_WaitSemaphoreTimeout(frame_sem, 4)) {
             Host_Present();
+            pace_window(0);
         }
         else if (Ui_Drawing()) {
             Host_Present(); /* ImGui needs frames while the game picture stays the same */
+            pace_window(0);
         }
     }
     Host_Shutdown();

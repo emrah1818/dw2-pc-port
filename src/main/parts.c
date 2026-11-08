@@ -16,6 +16,18 @@
 #include "main/texslot.h"
 #ifdef DW2_NATIVE
 #include "host/fonts.h"
+
+/* dw2-pc-port, Modern UI: the talk window (0x315 entries 5-8) drawn opaque. The PS1 draws it
+   half transparent; over bright floors its new dark panel was washed out and the text hard to read
+   (player report). Classic: as on the PS1. */
+#ifdef DW2_NATIVE
+static int Parts_ModernOpaque(s32 fileId) {
+    extern int UiText_Modern(void);
+    return (fileId >> 16) == 0x315 && (fileId & 0xFFFF) >= 5 && (fileId & 0xFFFF) <= 8 && UiText_Modern();
+}
+#else
+#define Parts_ModernOpaque(id) 0
+#endif
 #endif
 
 /* Gfx_DrawPartsEx's cached rotation/scale and the matrix built from it (identity at boot). */
@@ -60,7 +72,7 @@ void Gfx_DrawPartSprites(GfxPartSprite *s, GfxPartOTag *ot) {
         p->s.c = s->color;
         p->s.tag.len = 4;
         p->s.c.code = 0x64;
-        if (e->blend & 0x80) {
+        if ((e->blend & 0x80) && !Parts_ModernOpaque(s->fileId)) {
             p->s.c.code = 0x66;
             tpage = t->tpage + ((e->blend & 3) << 5);
         } else {
@@ -148,7 +160,7 @@ void Gfx_DrawPartQuadsRot(void *arg0, void *arg1, s32 arg2, s32 arg3) {
         p->c = ((GfxPartSprite *)arg0)->color;
         p->tag.len = 9;
         p->c.code = 0x2C;
-        if (e->blend & 0x80) {
+        if ((e->blend & 0x80) && !Parts_ModernOpaque(((GfxPartSprite *)arg0)->fileId)) {
             p->c.code = 0x2E;
             p->v[1].extra = t->tpage | ((e->blend & 3) << 5);
         } else {

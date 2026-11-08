@@ -174,6 +174,10 @@ typedef struct {
     int         squeeze; /* dw2-pc-port: up to this many tenths narrower instead of smaller (25: the
                             title's code, set in a very narrow face) */
     int         tight;   /* the whole cell, no margin (the tiny stats labels HP / MP / EL) */
+    int         clear_rest; /* (reserved) */
+    int         bright;  /* the letters in the original's body colour (stroke cores: LEVELAUFSTIEG's
+                            yellow), not the colour at depth 3 (the box's blue there); a box picture:
+                            its brightest letter colour */
 } Words;
 
 /* ---- battle status letter cells (file 0x22B, 12 x 15) ---- */
@@ -351,6 +355,8 @@ typedef struct {
     int            ib[4];        /* a box's inside (picture texels x0, x1, y0, y1): fill at HD */
     int            fill;
     uint32_t       used;         /* the original's palette indices (PicWords_NoteClut) */
+    uint8_t        rowbg[64];    /* the background per texel row (cur_rowbg), rowbg_n rows */
+    int            rowbg_n;
     uint8_t        rowcol[CH];   /* the letters' colour per row of the original (its vertical gradient) */
     int            oy0, oy1;     /* the rows of the original's letters */
     int            gradient;     /* body colour by row (else flat: body) */
@@ -393,11 +399,21 @@ static int row_colour(const uint8_t* rowcol, int oy0, int oy1, int body, int y, 
     return body;
 }
 
+/* paint_pic: a picture's background per texel row (LEVELAUFSTIEG: the original LEVEL UP box's
+   rows, from its end cell); NULL: transparent */
+static const uint8_t* cur_rowbg;
+static int            cur_rowbg_n;
+
 static void hipic_add(const Tex* t, const Cell* c, int n, const Words* w, const uint8_t* col, const Layers* ly)
 {
     if (nhipics == MAX_HIPICS || n > MAX_CELLS)
         return;
     HiPic* h = &hipics[nhipics];
+    h->rowbg_n = 0;
+    if (cur_rowbg != NULL) {
+        h->rowbg_n = cur_rowbg_n < 64 ? cur_rowbg_n : 64;
+        memcpy(h->rowbg, cur_rowbg, (size_t)h->rowbg_n);
+    }
     int    x0 = 99999, x1 = -99999, y0 = 99999, y1 = -99999;
     for (int i = 0; i < n; i++) {
         x0 = c[i].x < x0 ? c[i].x : x0;
@@ -654,6 +670,22 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                 ly.body  = ly.fill; /* the box: rings, fill; its letters by row */
                 ly.nring = 0;
             }
+            int boxletter = -1; /* Words.bright: the brightest letter colour of the original box */
+            if (ly.box && w->bright && t->palette_bytes >= 32) {
+                int bl = -1;
+                for (int y = 0; y < ch; y++)
+                    for (int x = 0; x < cw; x++) {
+                        int v = orig[y * CW + x];
+                        if (!v || v == ly.fill || v == all[0] || v == all[1] || (uint32_t)v * 2 + 2 > t->palette_bytes)
+                            continue;
+                        uint16_t col = (uint16_t)(t->d[t->palette + v * 2] | t->d[t->palette + v * 2 + 1] << 8);
+                        int      l   = (col & 31) * 3 + ((col >> 5) & 31) * 6 + ((col >> 10) & 31);
+                        if (l > bl) {
+                            bl        = l;
+                            boxletter = v;
+                        }
+                    }
+            }
             if (ly.box && (bx0 > 0 || bx1 < cw - 1)) {
                 /* the box stretched over the whole width: its frame columns at both ends, a column of
                    its fill between */
@@ -666,6 +698,20 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                     }
                 for (int y = 0; y < ch; y++)
                     memcpy(orig + y * CW, wide + y * CW, (size_t)cw);
+            }
+            if (ly.box) {
+                /* the right frame columns as the left ones (mirrored): the original's last columns can
+                   hold a piece of its letters (a yellow spot at LEVELAUFSTIEG's end) */
+                int l0 = cw, r0 = -1;
+                for (int y = 0; y < ch; y++)
+                    for (int x = 0; x < cw; x++)
+                        if (orig[y * CW + x]) {
+                            l0 = x < l0 ? x : l0;
+                            r0 = x > r0 ? x : r0;
+                        }
+                for (int y = 0; y < ch && r0 - l0 > 8; y++)
+                    for (int j = 0; j < 3; j++)
+                        orig[y * CW + r0 - j] = orig[y * CW + l0 + j];
             }
             ly.oy0 = ly.oy1 = -1;
             memset(rn, 0, sizeof(rn));
@@ -702,6 +748,13 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                 }
                 ly.gradient = ly.box || bands >= 4;
             }
+            if (getenv("DW2_PICDEBUG"))
+                printf("[picwords] layers '%s': box %d fill %d body %d boxletter %d all %d %d %d %d nring %d grad %d\n", w->text,
+                       ly.box, ly.fill, ly.body, boxletter, all[0], all[1], all[2], all[3], ly.nring, ly.gradient);
+            if (boxletter > 0) {
+                ly.body     = (uint8_t)boxletter;
+                ly.gradient = 0;
+            }
         }
         int ny0 = -1, ny1 = -1;
         for (int y = 0; y < ch; y++)
@@ -737,11 +790,13 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
                            depth 3 from its rim), never the dark rim. A per-row colour put the rim's
                            rows of the original (top and bottom of its letters) as dark bands across
                            the thin new letters ("Verfehlt" read "Verfehit"). */
-                        v = all[maxd < 3 ? maxd : 3];
+                        v = w->bright && !ly.box ? ly.body : all[maxd < 3 ? maxd : 3];
                         if (ly.box)
-                            v = row_colour(ly.rowcol, ly.oy0, ly.oy1, v, Y, ny0, ny1);
+                            v = ly.gradient ? row_colour(ly.rowcol, ly.oy0, ly.oy1, v, Y, ny0, ny1) : ly.body;
                         (void)nmax;
                         (void)color;
+                    } else if (cur_rowbg != NULL && !ly.box) {
+                        v = y < cur_rowbg_n ? cur_rowbg[y] : 0; /* the box row behind the letters */
                     } else if (ly.box) {
                         /* the box (fill and frame) stays; the old letters in it become fill */
                         v = orig[k];
@@ -755,7 +810,7 @@ static int paint1(Tex* t, const Cell* c, int n, const Words* w, double min_sq)
         {
             uint8_t col[MAX_CELLS];
             for (int i = 0; i < n && i < MAX_CELLS; i++)
-                col[i] = (uint8_t)all[maxd < 3 ? maxd : 3];
+                col[i] = (uint8_t)(w->bright && !ly.box ? ly.body : all[maxd < 3 ? maxd : 3]);
             /* the original's colour per depth from its rim (outline rings, bevels, the gradient
                to the bright core): drawn at the output resolution by relative depth in the new
                strokes (hifile_index); the 1x picture above keeps the body colour */
@@ -823,7 +878,7 @@ static const Pic pics[] = {
     { 0x313, 6, 0, 1, { "NIEDERLAGE", 0, 0 } },   /* LOSE (squeezed narrower, the 1-pixel gap of Orbitron between N and I closed: "NEDERLAGE") */
     /* battle result (file 0x25C) */
     { 0x25C, 10, 0, 1, { "SIEG", 0, 0 } },                   /* WIN */
-    { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 1, 1, 78, 1 } }, /* LEVEL UP: the value of "Next Level" in the result box; right of the label, so
+    { 0x25C, 7, 0, 1, { "LEVELAUFSTIEG", 0, 1, 1, 78, 1, 0, 0, 0, 0, 0, 1 } }, /* LEVEL UP: the value of "Next Level" in the result box; right of the label, so
                                                               right-aligned at its old right edge, as wide as the room after "Nächstes Level" */
     /* title (file 0xB64) */
     /* the title words: tall and narrow like the originals (squeezed instead of set smaller: the
@@ -1087,6 +1142,8 @@ static void hifile_index(void* ctx, int k, int x0, int y0, int w, int h, uint8_t
                         else if (hm[my * stride + mx] >= 80)
                             v = p->col[i];
                     }
+                    if (v == 0 && p->rowbg_n > 0 && tv / k - c->v < p->rowbg_n)
+                        v = p->rowbg[tv / k - c->v]; /* the box row behind the letters */
                     idx[(tv - y0 * k) * W + tu - x0 * k] = (uint8_t)v;
                 }
         }
@@ -1350,6 +1407,25 @@ static int paint_pic(int file, int e, int first, int count, const Words* w)
     if (first < 0 || first + count > n || count <= 0) {
         return 0;
     }
+    static uint8_t rowbg[64];
+    cur_rowbg = NULL;
+    if (w->bright && count == 1 && n > first + 1 && c[first + 1].w >= 4 && c[first + 1].h <= 64) {
+        /* the original is an opaque box over the value field (LEVEL UP): its end cell gives the box
+           per row (inner column); the end cell keeps the box, its letter pieces become the row's
+           box colour; the German word gets the same rows behind its letters */
+        const Cell* e2 = &c[first + 1];
+        for (int y = 0; y < e2->h; y++) {
+            int inner = tget(&t, e2->u + e2->w - 2, e2->v + y), edge = tget(&t, e2->u + e2->w - 1, e2->v + y);
+            rowbg[y] = (uint8_t)inner;
+            for (int x = 0; x < e2->w; x++) {
+                int v = tget(&t, e2->u + x, e2->v + y);
+                if (v != inner && v != edge && v != 0)
+                    tset(&t, e2->u + x, e2->v + y, inner);
+            }
+        }
+        cur_rowbg   = rowbg;
+        cur_rowbg_n = e2->h;
+    }
     if (count == 1 && w->grow > 0) {
         grow_rect(f, &t, &c[first], w->grow);
         if (w->move) {
@@ -1378,13 +1454,16 @@ static int paint_pic(int file, int e, int first, int count, const Words* w)
             for (int i = 0; i < count; i++) {
                 Words one = { words[i], w->italic, i == 0 ? 1 : -1, w->narrow, 0 };
                 if (!paint(&t, c + first + i, 1, &one)) {
+                    cur_rowbg = NULL;
                     return 0;
                 }
             }
         } else if (!paint(&t, c + first, count, w)) {
+            cur_rowbg = NULL;
             return 0;
         }
     }
+    cur_rowbg = NULL;
     f->changed = 1;
     return 1;
 }
@@ -1884,16 +1963,22 @@ const void* Lang_PartCells(int32_t file_id, const void* cells)
  * the runtime tiles are made again. Decided once per palette row the game uses. Only at the output resolution (scale 2 and up). */
 void PicWords_NoteClut(int id, int clut)
 {
-    static int last = -1;
+    /* the pictures that take their letter colour from the palette they are drawn with: the
+       battle's ZIEL (0x13B entry 3) and the result's LEVELAUFSTIEG (0x25C entry 7: yellow like the
+       original LEVEL UP; it came out in the box's blue) */
+    static const struct { int id, file; const char *de, *en; } pics[] = {
+        { 0x013B0003, 0x13B, "ZIEL", "TARGET" }, { 0x025C0007, 0x25C, "LEVELAUFSTIEG", "LEVEL UP" } };
+    static int last[2] = { -1, -1 };
     extern uint16_t PsxGpu_Vram[512][1024];
     extern void TexRep_RequestTileReset(void);
-    if (id != 0x013B0003 || clut == last)
+    int q = id == pics[0].id ? 0 : id == pics[1].id ? 1 : -1;
+    if (q < 0 || clut == last[q])
         return;
-    last = clut;
+    last[q] = clut;
     int cx = (clut & 0x3F) * 16, cy = (clut >> 6) & 0x1FF;
     for (int i = 0; i < nhipics; i++) {
         HiPic* h = &hipics[i];
-        if (h->file_id != 0x13B || h->nring < 0 || (strcmp(h->text, "ZIEL") != 0 && strcmp(h->text, "TARGET") != 0))
+        if (h->file_id != pics[q].file || h->nring < 0 || (strcmp(h->text, pics[q].de) != 0 && strcmp(h->text, pics[q].en) != 0))
             continue;
         int cand[16], nc = 0, best = h->body, bl = -1;
         for (int v = 1; v < 16; v++)
@@ -1918,7 +2003,7 @@ void PicWords_NoteClut(int id, int clut)
             h->gradient = 0;
             memset(h->hk, 0, sizeof(h->hk)); /* the cached masks are drawn again */
             TexRep_RequestTileReset();
-            printf("[lang] target word: body colour %d (brightest of its palette)\n", best);
+            printf("[lang] %s: body colour %d (brightest of its palette)\n", h->text, best);
         }
     }
 }

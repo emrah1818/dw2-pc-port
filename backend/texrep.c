@@ -987,6 +987,8 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     hv = fnv(0xCBF29CE484222325ull, dims, sizeof(dims));
     hv = fnv(hv, src, (size_t)w * (size_t)h * 2);
     int si = src_of(hv, w, h);
+    if (getenv("DW2_UPLOAD_LOG") && w == 32 && h == 256)
+        printf("[upload] %d,%d %dx%d src %d\n", x, y, w, h, si);
     if (dump_dir == NULL && si < 0 && !has_hash(hv)) return;
     if (nuploads == MAX_UPLOADS) {
         memmove(uploads, uploads + 1, sizeof(uploads[0]) * (MAX_UPLOADS - 1)); /* drop the oldest */
@@ -1329,6 +1331,13 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
                     for (int y = vy0; y <= vy1 && same; y++)
                         for (int x = vx0; x <= vx1 && same; x++)
                             same = vram(x, y) == s->words[(size_t)(y - u->y) * s->w + (x - u->x)];
+                    if (!same && getenv("DW2_DIRTY_LOG")) {
+                        static int nl;
+                        if (nl++ < 40)
+                            printf("[dirty] src %d (%dx%d) styled %d prim uv %d..%d,%d..%d dirty %d,%d %dx%d upload at %d,%d\n", u->src, s->w, s->h,
+                                   s->cls != NULL, umin + du, umax + du, vmin + dv, vmax + dv, u->dirty[d].x, u->dirty[d].y,
+                                   u->dirty[d].w, u->dirty[d].h, u->x, u->y);
+                    }
                     if (!same) return 0;
                     break;
                 }

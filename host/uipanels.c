@@ -217,17 +217,35 @@ static void classify(Sheet* s, const uint8_t* d, int size)
         if (o != 0 && o + 16 <= (uint32_t)size && d[o] != 0xFF) {
             int u = d[o], v = d[o + 1], w = d[o + 8], h = d[o + 9] ? d[o + 9] : 256;
             int id = s->ncomp < 1024 ? s->ncomp++ : s->ncomp - 1;
+            int hist[256] = { 0 }, inner[256] = { 0 }, cnt = 0;
             s->comp[2 * id]     = (uint16_t)v;
             s->comp[2 * id + 1] = (uint16_t)(v + h - 1);
-            for (int y = v; y < v + h && y < H; y++)
-                for (int x = u; x < u + w && x < W; x++)
-                    if (texel(s, x, y)) {
-                        /* the border band (detail) becomes panel; the inside (the face is drawn over
-                           it, semi-transparent) stays as drawn */
-                        int band = s->cls[y * W + x] == 2;
-                        s->cls[y * W + x] = band ? 1 : 5; /* 5: inside the outline, as drawn */
-                        s->cid[y * W + x] = (uint16_t)id;
+            /* the face background: the colours of the rectangle's middle (at least 5 % of it) */
+            for (int y = v + h / 4; y < v + 3 * h / 4 && y < H; y++)
+                for (int x = u + w / 4; x < u + 3 * w / 4 && x < W; x++) {
+                    int t = texel(s, x, y);
+                    if (t) {
+                        hist[t]++;
+                        cnt++;
                     }
+                }
+            for (int t = 1; t < 256; t++)
+                inner[t] = cnt > 0 && hist[t] * 20 >= cnt;
+            /* the frame ring: every opaque texel from the outside up to the face background (its
+               white / grey stripe too: those texels had the fill class and stayed the PS1's
+               stair of texels); the face background inside: as drawn (class 5) */
+            for (int y = v; y < v + h && y < H; y++)
+                for (int x = u; x < u + w && x < W; x++) {
+                    int t = texel(s, x, y);
+                    if (!t)
+                        continue;
+                    int near = 0; /* within 12 texels of the outside along its row or column */
+                    for (int k = 1; k <= 12 && !near; k++)
+                        near = texel(s, x - k, y) == 0 || texel(s, x + k, y) == 0 || texel(s, x, y - k) == 0 ||
+                               texel(s, x, y + k) == 0 || x - k < u || x + k >= u + w || y - k < v || y + k >= v + h;
+                    s->cls[y * W + x] = near && !inner[t] ? 1 : 5;
+                    s->cid[y * W + x] = (uint16_t)id;
+                }
         }
     }
     /* the word pictures on the sheet (ZIEL, Schaden, HP / MP labels) keep their own colours */

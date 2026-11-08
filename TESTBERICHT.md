@@ -1,5 +1,11 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
+
+## 1.6.0 (8.11.2026, freigegeben vom Projektinhaber)
+- Stand wie 1.6.0-preview12, nur Version und Release-Art geändert.
+- Breitbild-Dialogfenster (16:9, 21:9, Deutsch/Englisch, Hangar, Wache, Digi-Labor): Fenster über die ganze Breite, Text neu umbrochen, Namenszeile und JA/NEIN-Fragen unverändert.
+- Referenzen 6/6, Speichern 9/9, Cheats 31/31, `fonts_test`, `hd_test` 0 Fehler, textscript 90/90.
+- **Offen:** gelbe Pyramide bei ToyAgumon/ClearAgumon. Geprüft wurden 3 Kämpfe mit GPU-Renderer, Smooth und PGXP inklusive der Zwischenbilder: keine Pyramide, aber auch keiner dieser Gegner. Noch nicht gemessen: Englisch/Classic, ohne HD-Texturen, 6× und 9×.
 ## Leistung beim Nutzer mit 1.6.0-preview10 (8.11.2026)
 - GTX 1070, 51 Minuten, Deutsch und Modern, 4× und 5×, 21:9: Median 16,7 ms. 99,9 % der Bilder kommen pünktlich; 168 Ruckler über 40 ms, meist bei der ersten Anzeige neuer Texte.
 - GPU-Submit-Wartezeit 34 % → 3 % der Spielzeit.

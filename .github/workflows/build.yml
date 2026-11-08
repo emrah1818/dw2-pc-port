@@ -243,16 +243,18 @@ jobs:
               NOTES="$(cat notes.md)"
             fi
             TITLE="DW2 PC-Port $TAG"
-            case "$TAG" in *-preview*) TITLE="DW2 PC-Port $TAG (Testversion)";; esac
+            PRE="--prerelease"
+            # a release the project owner approved as final (no -preview / -rc): a normal, latest release
+            case "$TAG" in *-preview*|*-rc*) TITLE="DW2 PC-Port $TAG (Testversion)";; *) PRE="--latest";; esac
             ok=0
             for try in 1 2 3 4; do
               # an earlier try may have left the release (as a draft): finish that one
               if gh release view "$TAG" >/dev/null 2>&1; then
                 gh release upload "$TAG" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip --clobber &&
-                gh release edit "$TAG" --draft=false --prerelease --title "$TITLE" --notes "$NOTES" && ok=1
+                gh release edit "$TAG" --draft=false $PRE --title "$TITLE" --notes "$NOTES" && ok=1
               else
                 gh release create "$TAG" DW2-PC-Port-windows-x64.zip DW2-PC-Port-linux-x64.zip \
-                  --prerelease --target "${{ github.sha }}" --title "$TITLE" --notes "$NOTES" && ok=1
+                  $PRE --target "${{ github.sha }}" --title "$TITLE" --notes "$NOTES" && ok=1
               fi
               [ "$ok" = 1 ] && break
               echo "try $try failed, waiting"; sleep 45

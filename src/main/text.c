@@ -240,6 +240,8 @@ static s32 Text_NativeIsTable(const u8 *s) {
     return 0;
 }
 
+static s32 Text_NativeWordOnly; /* Text_NativeMeasure: up to the next space (a word) */
+
 static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
     const u8 *stack[4];
     s32 depth = 0, w = 0, guard = 0, cells = 0, spaces = 0, prev = -1;
@@ -254,6 +256,9 @@ static s32 Text_NativeMeasure(TextBox *r, const u8 *s) {
             continue;
         }
         if (b == 0xFE || b == 0xFC || b == 0xF3) {
+            break;
+        }
+        if (b == 0xFD && Text_NativeWordOnly) {
             break;
         }
         switch (b) {
@@ -358,6 +363,41 @@ static s32 Text_NativeLines(const u8 *s) {
            : b == 0xF9 ? ((s[1] & 1) ? 2 : 5) : b == 0xF0 || b == 0xF8 || b == 0xFA || b == 0xEF ? 2 : 1;
     }
     return n;
+}
+
+/* wide talk window (Modern, 16:9 / 21:9): the message window grew into both margins
+   (host/uilayout.c talk_widen); its text moves left with its left edge and is set again over the
+   whole width: a line break goes on as a space while the next word fits, a space breaks the line
+   when the next word does not. With a width larger than every line of the original layout this
+   never needs more lines than the original. Kept as written: the speaker's name line (it ends with
+   the colour command F4 30), texts with choices (F8) and tables. */
+extern int UiLayout_TalkShift(int x, int y, int *right);
+
+static s32 Text_NativeReflowable(TextBox *r, const u8 *s) {
+    s32 guard = 0;
+
+    if (r->charAdvance != (r->bigFont ? 9 : 7) || Text_NativeTable) {
+        return 0;
+    }
+    while (*s != 0xFF && guard++ < 4096) {
+        u8 b = *s;
+        if (b == 0xF8 || b == 0xF3) {
+            return 0;
+        }
+        s += b == 0xF6 || b == 0xF7 ? 10 : b == 0xF1 || b == 0xF2 ? 4 : b == 0xF4 ? (s[1] < 0x20 ? 5 : 2)
+           : b == 0xF9 ? ((s[1] & 1) ? 2 : 5) : b == 0xF0 || b == 0xFA || b == 0xEF ? 2 : 1;
+    }
+    return 1;
+}
+
+/* does the word at s fit after a space, with the pen at pen (1/256 pixel), before right? */
+static s32 Text_NativeWordFits(TextBox *r, const u8 *s, s32 pen, s32 right) {
+    s32 w;
+
+    Text_NativeWordOnly = 1;
+    w = Text_NativeMeasure(r, s);
+    Text_NativeWordOnly = 0;
+    return pen + Text_NativeSpace(r) + w * 256 <= right * 256;
 }
 
 /* the next text box to the right of a line at x, y (menus with options side by side, a column of
@@ -502,10 +542,10 @@ void Text_UpdateAllBoxes(Actor *a0) {
     PadState *tb;
 #ifdef DW2_NATIVE
     s32 uiScale = 0x10000, uiAcc = 0, uiStep, uiCode = 0, uiX0 = 0, uiCells = 0, uiSpaces = 0, uiShift = 0, uiWide = 0;
-    s32 uiPrev = -1, uiLeft;
+    s32 uiPrev = -1, uiLeft, uiTalk = 0, uiRight = 0x7FFF;
 #define UI_LINE(p)                                                                                           \
     (uiAcc = 0, uiX0 = pos.field_0, uiCells = 0, uiSpaces = 0, uiPrev = -1,                                  \
-     uiScale = Text_NativeLine(wk, r, (p), pos.field_0, pos.field_2))
+     uiScale = uiTalk ? 0x10000 : Text_NativeLine(wk, r, (p), pos.field_0, pos.field_2))
     /* a: 1/256 pixel; uiAcc keeps the pen's fraction (16.16) */
 #define UI_ADV(a)                                                                                            \
     (uiAcc += (s32)(((s64)(a) * uiScale) >> 8), uiStep = uiAcc >> 16, uiAcc -= uiStep << 16, pos.field_0 += uiStep)
@@ -536,6 +576,8 @@ void Text_UpdateAllBoxes(Actor *a0) {
             {
                 extern int UiLayout_TextShift(int x, int y);
                 uiWide = UiLayout_TextShift(r->x, r->y); /* drawn moved with its window (wide battle HUD) */
+                uiTalk = UiLayout_TalkShift(r->x, r->y, &uiRight); /* the wide talk window (above) */
+                uiWide -= uiTalk;
                 extern int UiLayout_TextShiftY(int x, int y);
                 pos.field_2 += UiLayout_TextShiftY(r->x, r->y); /* (enemy boxes: one row) */
             }
@@ -573,6 +615,9 @@ void Text_UpdateAllBoxes(Actor *a0) {
             grew = 0;
 #ifdef DW2_NATIVE
             Text_NativeTable = Text_NativeIsTable(s);
+            if (uiTalk != 0 && !Text_NativeReflowable(r, s)) {
+                uiRight = 0x7FFF; /* moved with the window, set as written */
+            }
             UI_LINE(s);
 #endif
             do {
@@ -589,6 +634,18 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     line--;
                     break;
                 case 0xFE:
+#ifdef DW2_NATIVE
+                    if (uiTalk != 0 && uiRight < 0x7FFF && !(s - 2 >= (u8 *)r->text && s[-2] == 0xF4 && s[-1] >= 0x20) &&
+                        s[1] != 0xFE && s[1] != 0xFF && s[1] != 0xFC &&
+                        Text_NativeWordFits(r, s + 1, pos.field_0 * 256 + (uiAcc >> 8), uiRight)) {
+                        UI_ADV(Text_NativeSpace(r)); /* the line goes on (wide talk window) */
+                        uiCells++;
+                        uiSpaces++;
+                        uiPrev = -1;
+                        break;
+                    }
+                talk_break:
+#endif
                     pos.field_0 = r->x;
                     pos.field_2 += r->lineAdvance;
 #ifdef DW2_NATIVE
@@ -598,6 +655,14 @@ void Text_UpdateAllBoxes(Actor *a0) {
                     break;
                 case 0xFD:
 #ifdef DW2_NATIVE
+                    if (uiTalk != 0 && uiRight < 0x7FFF && s[1] != 0xFD &&
+                        !Text_NativeWordFits(r, s + 1, pos.field_0 * 256 + (uiAcc >> 8), uiRight)) {
+                        if (grew == 0 && line + 1 >= r->visibleChars) {
+                            grew = 1;
+                            r->visibleChars++;
+                        }
+                        goto talk_break; /* the next word goes on the next line */
+                    }
                     UI_ADV(Text_NativeSpace(r));
                     uiCells++;
                     uiSpaces++;

@@ -163,6 +163,9 @@ static struct {
 } grows[2][MAX_GROW];
 static int ngrow[2];
 static int nshift[2]; /* column shifts noted this / last frame (below) */
+static Rect talkwin[2][8]; /* talk message windows drawn this / last frame (wide talk window) */
+static int ntalk[2];
+static int talk_window_entry(int file, int entry);
 static int cur;
 static int log_parts = -1;
 static int fit_lines, grown_lines, squeezed_lines; /* stats for the log */
@@ -186,6 +189,7 @@ void UiLayout_Flip(void) {
     nrect[cur] = 0;
     ngrow[cur] = 0;
     nshift[cur] = 0;
+    ntalk[cur] = 0;
     nwwin[cur] = 0;
     nwpart[cur] = 0;
     enemy_top[cur] = 99999;
@@ -520,6 +524,13 @@ void UiLayout_NotePart(const void *part, const void *cells) {
     }
     note_segments(p, cells);
     wide_note(p, &r);
+    {
+        uint32_t id;
+        memcpy(&id, p, 4);
+        if (talk_window_entry((int)(id >> 16), (int)(id & 0xFFFF)) && ntalk[cur] < 8) {
+            talkwin[cur][ntalk[cur]++] = r;
+        }
+    }
 }
 
 /* a window a text can be in: big enough for a line, not a full-screen picture */
@@ -775,8 +786,124 @@ static const void *wide_fill(const uint8_t *p, const uint8_t *e) {
 
 static const void *part_cells_grown(const void *part, const void *cells);
 
+/* ---- wide talk window (Modern UI, 16:9 / 21:9) ----
+ * The message window under a talk (file 0x315, entries 5-8: window and its shadow) spans the 4:3
+ * picture; in a wide picture it grows into both margins by the margin's width (as far from the
+ * screen edge as in 4:3), so the dialog has the picture's shape. Its middle tile (the piece that
+ * repeats most) is repeated over the new width, the edge pieces move out. The texts inside it move
+ * left with its left edge and may use the whole width (text.c). */
+static int talk_window_entry(int file, int entry) {
+    return file == 0x315 && entry >= 5 && entry <= 8;
+}
+
+int UiLayout_TalkGrow(void) {
+    return PsxHd_Wide() > 0 && UiText_Modern() ? PsxHd_Margin(320) : 0;
+}
+
+static const void *talk_widen(const uint8_t *p, const uint8_t *e) {
+    static uint8_t buf[4][128 * 0x10];
+    static int ring;
+    uint32_t id;
+    int g = UiLayout_TalkGrow(), n = 0, m = 0, best = 0, tu = -1, tv = -1, tw = 0, xmin = 99999, xmax = -99999;
+    uint8_t *out;
+
+    memcpy(&id, p, 4);
+    if (g <= 0 || e == NULL || !talk_window_entry((int)(id >> 16), (int)(id & 0xFFFF))) {
+        return e;
+    }
+    for (const uint8_t *c = e; c[0] != 0xFF && n < 64; c += 0x10, n++) {
+        int k = 0;
+        if (c[0xC] != p[0xD]) {
+            continue;
+        }
+        for (const uint8_t *d = e; d[0] != 0xFF; d += 0x10) {
+            k += d[0xC] == p[0xD] && d[0] == c[0] && d[1] == c[1] && d[8] == c[8] && d[9] == c[9];
+        }
+        if (k > best) {
+            best = k;
+            tu = c[0];
+            tv = c[1];
+            tw = c[8];
+        }
+    }
+    if (n >= 64 || best < 3 || tw < 4) {
+        return e;
+    }
+    for (const uint8_t *c = e; c[0] != 0xFF; c += 0x10) {
+        int16_t cx;
+        memcpy(&cx, c + 2, 2);
+        if (c[0xC] == p[0xD] && c[0] == tu && c[1] == tv && c[8] == tw) {
+            xmin = cx < xmin ? cx : xmin;
+            xmax = cx > xmax ? cx : xmax;
+        }
+    }
+    xmax += tw; /* the middle: xmin .. xmax */
+    out = buf[ring];
+    ring = (ring + 1) & 3;
+    for (const uint8_t *c = e; c[0] != 0xFF; c += 0x10) {
+        int16_t cx;
+        memcpy(out + m * 0x10, c, 0x10);
+        memcpy(&cx, c + 2, 2);
+        if (c[0xC] == p[0xD]) {
+            if (cx < xmin) {
+                cx = (int16_t)(cx - g);
+            } else if (cx >= xmax) {
+                cx = (int16_t)(cx + g);
+            }
+            memcpy(out + m * 0x10 + 2, &cx, 2);
+        }
+        m++;
+    }
+    /* the middle tile over the new width on both sides */
+    for (const uint8_t *c = e; c[0] != 0xFF; c += 0x10) {
+        int16_t cx;
+        memcpy(&cx, c + 2, 2);
+        if (c[0xC] != p[0xD] || c[0] != tu || c[1] != tv || c[8] != tw || cx != xmin) {
+            continue;
+        }
+        for (int side = 0; side < 2; side++) {
+            for (int done = 0; done < g && m < 127; done += tw) {
+                int w = g - done < tw ? g - done : tw;
+                int16_t nx = (int16_t)(side == 0 ? xmin - done - w : xmax + done);
+                memcpy(out + m * 0x10, c, 0x10);
+                memcpy(out + m * 0x10 + 2, &nx, 2);
+                out[m * 0x10 + 8] = (uint8_t)w;
+                m++;
+            }
+        }
+        break;
+    }
+    out[m * 0x10] = 0xFF;
+    return out;
+}
+
+/* text.c: how far the talk window around a text at x, y grew to the left (0: none); right: where
+   its lines may end, in the text's own (not moved) positions */
+int UiLayout_TalkShift(int x, int y, int *right) {
+    const int prev = cur ^ 1;
+    int g = UiLayout_TalkGrow();
+
+    if (g <= 0) {
+        return 0;
+    }
+    for (int b = 0; b < 2; b++) {
+        int k = b == 0 ? prev : cur;
+        for (int i = 0; i < ntalk[k]; i++) {
+            const Rect *w = &talkwin[k][i];
+            if (x >= w->x && x < w->x + w->w && y >= w->y && y < w->y + w->h) {
+                *right = w->x + w->w + 2 * g - PAD_RIGHT - 4;
+                return g;
+            }
+        }
+    }
+    return 0;
+}
+
 const void *UiLayout_PartCells(const void *part, const void *cells) {
     const void *c = part_cells_grown(part, cells);
+    if (part != NULL) {
+        c = talk_widen(part, c);
+    }
     return part != NULL ? wide_fill(part, c) : c;
 }
 

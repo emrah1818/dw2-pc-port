@@ -9,7 +9,8 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [main]
+    # development/**: build and tests only, the release job below does not publish from a push there
+    branches: [main, "development/**"]
     paths-ignore: ["**.md", "doc/**"]
   workflow_dispatch:
     inputs:
@@ -223,7 +224,9 @@ jobs:
           path: DW2-PC-Port-linux-x64.zip
 
   release:
-    if: github.event_name != 'pull_request'
+    # main pushes publish the rolling test build; a development branch publishes only when it is
+    # started by hand with a release tag (workflow_dispatch, input "release")
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event.inputs.release != '')
     needs: [windows-x64, linux-x64]
     runs-on: ubuntu-latest
     steps:
@@ -246,6 +249,10 @@ jobs:
             PRE="--prerelease"
             # a release the project owner approved as final (no -preview / -rc): a normal, latest release
             case "$TAG" in *-preview*|*-rc*) TITLE="DW2 PC-Port $TAG (Testversion)";; *) PRE="--latest";; esac
+            # a title of its own: doc/releases/<tag>.title.txt at the built commit, first line
+            if gh api "repos/$GH_REPO/contents/doc/releases/$TAG.title.txt?ref=${{ github.sha }}" -H "Accept: application/vnd.github.raw" > title.txt 2>/dev/null && [ -s title.txt ]; then
+              TITLE="$(head -n 1 title.txt)"
+            fi
             ok=0
             for try in 1 2 3 4; do
               # an earlier try may have left the release (as a draft): finish that one

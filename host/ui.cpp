@@ -29,6 +29,8 @@
 
 extern "C" int Host_WritePng(const char *path, const uint32_t *pixels, int w, int h);
 extern "C" int Host_TitleHint(void);
+extern "C" int Host_ResolveScale(int setting);
+extern "C" void Host_PictureStats(unsigned *game, unsigned *window, unsigned *worst_us);
 extern "C" void Host_RequestQuit(const char *why);
 extern "C" int Host_InputSelectHoldOn(void);
 extern "C" int Host_InputSelectKeyHeld(const SDL_Event *e);
@@ -89,6 +91,51 @@ void draw_notice(void) {
     ImGui::TextUnformatted(text);
     ImGui::End();
     ImGui::PopStyleVar();
+}
+
+/* dw2-pc-port: the picture rate top right (setting show_fps, F1 → Graphics). "Game" counts the
+ * game's own pictures, "window" the pictures shown (more with smooth frames). Drawn with the
+ * pictures the window shows anyway: it asks for no pictures of its own. */
+void draw_fps(int mode) {
+    static Uint64 t0;
+    static unsigned g0, w0, worst;
+    static float game_hz, win_hz, worst_ms;
+    Uint64 now = SDL_GetTicksNS();
+    char text[160];
+
+    if (t0 == 0 || now - t0 >= 500000000ull) {
+        unsigned g, w, us;
+
+        Host_PictureStats(&g, &w, &us);
+        worst = us > worst ? us : worst;
+        if (t0 != 0) {
+            double s = (double)(now - t0) / 1e9;
+
+            game_hz = (float)((g - g0) / s);
+            win_hz = (float)((w - w0) / s);
+            worst_ms = (float)worst / 1000.0f;
+        }
+        worst = 0;
+        g0 = g;
+        w0 = w;
+        t0 = now;
+    }
+    if (mode == SET_FPS_DETAILS) {
+        int scale = Host_ResolveScale(Settings_Get(SET_SCALE));
+
+        snprintf(text, sizeof(text), "%5.1f FPS game  %5.1f FPS window\n%5.1f ms max  %dx (%d lines)  %s  v" DW2_VERSION, game_hz, win_hz,
+                 worst_ms, scale, 240 * scale, Settings_Get(SET_RENDERER) == SET_RENDERER_SOFT ? "soft" : "gpu");
+    } else {
+        snprintf(text, sizeof(text), "%5.1f FPS", game_hz);
+    }
+    float k = ImGui::GetStyle().FontScaleDpi;
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 12.0f * k, 12.0f * k), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::Begin("##fps", NULL,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted(text);
+    ImGui::End();
 }
 
 /* PR.15: Esc asks before quitting (a modal box in the window centre; Cancel has the focus, so
@@ -520,8 +567,9 @@ void Ui_Render(void) {
     SDL_RendererLogicalPresentation mode;
 
     bool hint = title_hint_shown();
+    int fps = g_ready ? Settings_Get(SET_SHOW_FPS) : SET_FPS_OFF;
 
-    if (!Ui_Drawing() && !hint && !SDL_GetAtomicInt(&g_shot_pending)) {
+    if (!Ui_Drawing() && !hint && fps == SET_FPS_OFF && !SDL_GetAtomicInt(&g_shot_pending)) {
         return;
     }
     ImGuiIO &io = ImGui::GetIO();
@@ -555,6 +603,9 @@ void Ui_Render(void) {
         draw_language();
     }
     draw_notice();
+    if (fps != SET_FPS_OFF) {
+        draw_fps(fps);
+    }
     ImGui::Render();
     /* window pixels for ImGui: the logical presentation off around it */
     SDL_GetRenderLogicalPresentation(g_renderer, &lw, &lh, &mode);

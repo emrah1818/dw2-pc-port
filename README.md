@@ -1,98 +1,88 @@
 # Digimon World 2 – PC Port
 
-**Eigenständige Weiterentwicklung für Windows und Linux | Entwicklungsstand: 7. November 2026**
+**Native Fassung für Windows x64 und Linux x64 | aktuelle Version: 1.6.0 | in Entwicklung: 1.6.2 (Branch `development/v1.6.2`)**
 
-Dieses Repository dokumentiert unsere Weiterentwicklung eines nativen PC-Ports von **Digimon World 2 (USA, SLUS-01193)**. Ziel ist es, das ursprüngliche Spiel auf modernen PCs zugänglich zu machen und Grafik, Darstellung, Schrift, deutsche Sprache und Anpassbarkeit schrittweise zu verbessern, ohne die ursprüngliche Spiellogik unnötig zu verändern.
+Nativer PC-Port von **Digimon World 2 (USA, SLUS-01193)** mit hoher Auflösung, Breitbild, moderner Oberfläche, deutscher Sprache, Modding und Cheat-Menü. Das Spiel selbst (Regeln, Werte, Ablauf) bleibt das Original.
 
-> **Entwicklungsprojekt:** Nicht alle Funktionen sind fertig oder auf echter Windows-Hardware geprüft. Die untenstehenden Statusangaben unterscheiden zwischen implementiert, automatisiert getestet, teilweise getestet und offen.
+> **Keine Spieldaten:** Repository und Downloads enthalten keine Daten aus dem Spiel. Du brauchst dein eigenes, rechtmäßig erworbenes Image von *Digimon World 2 (USA)*.
 
-## Download / Releases
+## Download
 
-**[⬇️ Aktuelle Version herunterladen](https://github.com/emrah1818/dw2-pc-port/releases/latest)**
+- **[Aktuelle Version](https://github.com/emrah1818/dw2-pc-port/releases/latest)** – `DW2-PC-Port-windows-x64.zip` oder `DW2-PC-Port-linux-x64.zip`
+- **[Alle Releases](https://github.com/emrah1818/dw2-pc-port/releases)** – ältere Versionen und Vorabversionen
 
-**[📦 Alle Releases und ältere Versionen ansehen](https://github.com/emrah1818/dw2-pc-port/releases)**
+## Installation
 
-Die Release-Seite enthält die jeweils veröffentlichten Downloads und Versionshinweise. Falls noch kein Release veröffentlicht wurde, ist dort entsprechend kein Download verfügbar. Für die Nutzung benötigst du ein eigenes kompatibles Spielimage; Spieldaten werden nicht mitgeliefert.
+1. Zip entpacken.
+2. Dein Image (`.cue` + `.bin`, `.img` oder rohes `.iso`) in den Ordner `DW2-PC` legen.
+3. `dw2.exe` starten (Linux: `./dw2`). Beim ersten Start entsteht aus deinem Image das Datenpaket `dw2.pak` (etwa 406 MB). Alle 3675 Dateien werden geprüft, ein falsches Image wird abgelehnt.
+4. Sprache wählen (Deutsch oder Englisch). **F1** öffnet die PC-Einstellungen, am Controller Select eine Sekunde halten.
 
----
+Fehlt das Image, erklärt das Programm, was es braucht. Spielstände und Einstellungen liegen in `%APPDATA%\DW2-Online\` bzw. `~/.local/share/DW2-Online/`. Die ausführliche Anleitung steht in [README_PORT.md](README_PORT.md).
 
-## Funktionsübersicht
+## Stand der Funktionen
 
-| Bereich | Stand | Hinweise |
-| --- | --- | --- |
-| Nativer PC-Port (Windows/Linux) | Implementiert | Windows-/Linux-Builds und CI vorhanden; reale Windows-Hardware nicht umfassend getestet |
-| Spielstart aus eigenem USA-Image | Implementiert und getestet | Import und Prüfung der Spieldateien; keine Spieldaten im Repository |
-| Spielwelt, Kämpfe, Menüs | Implementiert, teilweise getestet | Einzelne Szenen und automatisierte Abläufe geprüft; kein bestätigter vollständiger Durchlauf |
-| Speichern/Laden | Automatisiert getestet | Speichertest zuletzt 9/9 |
-| Cheat-Menü | Automatisiert getestet | Cheattest zuletzt 31/31 |
-| 4K, 16:9, 21:9 | Implementiert, teilweise getestet | Interne Skalierungen und mehrere Spielszenen geprüft; weitere Fenster-/Hardwaretests offen |
-| Classic-Darstellung | Automatisiert getestet | Englische Classic-Referenzbilder zuletzt 6/6 |
-| Deutsche Spieltexte und Dialoge | Weitgehend implementiert | Automatisierte Textprüfungen vorhanden; vollständige manuelle Story-Prüfung fehlt |
-| Sprachwahl Deutsch/Englisch | Implementiert | Neustart- und Hardwareverhalten noch weiter prüfen |
-| Moderne, auflösungsabhängige Schrift | Implementiert und getestet | Laufzeit-Rendering in mehreren Skalierungen geprüft |
-| Deutsche Kampf-Wortgrafiken | Teilweise getestet | Einige seltene Kampfzustände noch nicht im Spiel ausgelöst |
-| HD-Texturpakete | Implementiert, teilweise getestet | Software-/GPU-Pfade und synthetische Tests vorhanden; reale GPU und Lastfälle weiter prüfen |
-| Modernisierte Fenster/Bedienoberfläche | In Entwicklung | Panel-Design nicht allgemein freigegeben; vollständige neue Menü-Layouts fehlen |
-| Asset-Export und leicht ersetzbare Ressourcen | Teilweise implementiert | Bestehende Export-/Mod-Funktionen; vollständiger strukturierter Ressourcen-Export offen |
-| Integriertes 3D-Studio | Offen | Noch nicht implementiert |
-| Eigenständiger Launcher | Offen | Noch nicht implementiert |
+Die Spalte „Geprüft“ sagt, wie weit eine Funktion nachgewiesen ist: **Spiel** = im laufenden Spiel mit echtem Image, **Nutzer** = auf echter Windows-Hardware (GTX 1070), **Auto** = automatischer Test ohne Spieldaten, **CI** = nur gebaut.
 
-## Visueller Zwischenstand – deutsche Übersetzung (7. November 2026)
+### Funktioniert
 
-![Digimon World 2 PC-Port – aktueller Zwischenstand mit deutscher Übersetzung](Screenshot_20261107_174624_Claude.jpg)
+| Bereich | Inhalt | Geprüft |
+|---|---|---|
+| Start aus eigenem Image | Import, Prüfung, Meldung bei fehlendem oder falschem Image | Spiel, Auto |
+| Speichern und Laden | Spielstände bleiben zwischen den Versionen kompatibel | Spiel (9/9) |
+| Auflösung | 1× bis 12× (240 bis 2880 Zeilen) oder automatisch nach Fenstergröße; 720p, 1080p, 1440p, 4K | Spiel, Nutzer |
+| Seitenverhältnis | 4:3, 16:9, 21:9 mit echtem Breitbild der 3D-Szene | Spiel, Nutzer (16:9, 21:9) |
+| Original-Darstellung | bildgleich mit der PS1-Ausgabe (Referenzbilder 6/6) | Spiel |
+| Sprachwahl | Deutsch oder Englisch beim ersten Start und am Titelbild | Spiel |
+| Deutsche Übersetzung | 2583 Texte: Story, Dialoge, Menüs, Items, Kampf; Attackennamen nach der Anime-Tabelle; Typen Serum, Datei, Virus | Spiel (Stichproben), Auto (Skriptprüfung) |
+| Schriften | Exo 2, Orbitron, Roboto Mono in Ausgabeauflösung, Lizenztexte liegen bei | Spiel, Auto |
+| Moderne Oberfläche | Kampf, Dialoge, Digimon-Status, Digi-Labor, Technik-Erlernen | Spiel, Nutzer |
+| Steuerung | Tastatur und Gamepad frei belegbar, PlayStation-Tastensymbole | Auto; Controller auf echter Hardware offen |
+| Cheat-Menü | Werte lesbar und bearbeitbar, Sicherung und Rückgängig | Spiel (31/31) |
+| Lexikon (F1) | alle Digimon aus den Tabellen der eigenen Disc | Spiel |
+| Leistung | flüssig auf GTX 1070 (Median 16,7 ms) | Nutzer |
 
-*Screenshot des Entwicklungsstands: Statusansicht, Techniken, Agumon-Modell und Teamübersicht mit teilweise übersetzter deutscher Benutzeroberfläche.*
+### Teilweise funktionsfähig
 
+| Bereich | Stand |
+|---|---|
+| Grafikfilter | Vorhanden: Nearest, Bilinear (3D), 2D-Glättung, Schärfen, Korrektur gegen Polygonzittern (PGXP). Offen: FXAA, SMAA, MSAA, trilineare und anisotrope Filterung, Farb- und Kontrastregler. |
+| Grafikprofile | Original, Balanced, HD, Ultra (neu in 1.6.2-dev). Automatisch geprüft, im Spiel noch nicht angesehen. |
+| FPS-Anzeige | F1 → Grafik: aus, FPS, FPS und Details (neu in 1.6.2-dev). Bisher nur kompiliert, im laufenden Spiel noch nicht angesehen. |
+| HD-Texturpakete | PNG-Pakete in beiden Renderern, `--dump-textures`, siehe [doc/TEXTURPAKETE.md](doc/TEXTURPAKETE.md). Offen: JPG, Verwaltung im Menü. |
+| Export bearbeitbarer Daten | `--export-assets` (Texturen, Tabellen, Originaldateien) und `--export-texts`. Offen: Angebot beim ersten Start, Audio. |
+| Moderne Oberfläche, übrige Menüs | Inventar, Speichern/Laden und Hauptmenü nutzen noch das alte Fensterlayout. |
+| Deutsche Wortgrafiken | Kampf, Titel und Attackennamen übersetzt; seltene Kampfzustände noch nicht im Spiel ausgelöst. |
 
+### Noch offen
 
-Ein aktueller, vom Projektinhaber bereitgestellter Screenshot zeigt vier Spielsituationen: zweimal Agumons Statusansicht, die Technik-Auswahl und die Digimon-Teamübersicht. Sichtbar sind bereits deutsche Bezeichnungen wie **Status**, **alle Techniken**, **Zurück**, **Kleine Flamme**, **Unterbrechen**, **Gegenangriff**, **Hilfe**, **Angriff**, **Abwehr**, **Tempo**, **Nächstes Level** sowie die Angriffsbeschreibung **„Schießt einen Feuerball“** und **„MP-Verbrauch 8“**.
+- Integrierter 3D-Viewer als eigener Menüpunkt.
+- Vollständiger Story-Durchlauf und Durchsicht aller deutschen Texte im Spiel.
+- Controller, Ton und Vollbild auf weiterer Windows-Hardware (AMD, Intel).
 
-Der Screenshot dokumentiert einen **Zwischenstand der deutschen Lokalisierung und Menügestaltung**, keine abgeschlossene Übersetzung oder Freigabe aller Ansichten. Er bestätigt für sich genommen weder die Performance noch die vollständige Funktionsfähigkeit sämtlicher Menüs. Das Originalbild wurde im Projektchat bereitgestellt; eine Bilddatei ist mit diesem Dokumentations-Commit noch nicht ins Repository hochgeladen worden.
+## Bekannte Einschränkungen
 
----
+- **Gelbe, flackernde Pyramide im Kampf** (gemeldet bei ToyAgumon und ClearAgumon): bisher nicht nachgestellt. Smooth Frames ausschalten (F9) hilft vermutlich.
+- Der GPU-Renderer braucht Vulkan. Ohne passenden Treiber unter F1 → Grafik den Software-Renderer wählen.
+- Das Programm ist nicht signiert, Windows SmartScreen kann warnen.
+- Leistung ist nur auf einer GTX 1070 gemessen, nicht mit 6× und 9× und nicht im Original-Profil.
 
-## Bekannte Probleme und Einschränkungen
+## Deutsche Übersetzung – Bildschirmfoto vom 7.11.2026
 
-- **Performance beim Nachladen von Texturen:** Aus einem aktuellen Praxistest wurden deutliche Framerate-Einbrüche beim erstmaligen Anzeigen neuer Texturen und übersetzter Angriffsbanner gemeldet. Ursache und vollständige Behebung sind noch nicht bestätigt. Frühere automatisierte HD-Tests ohne Hänger ersetzen diesen Praxistest nicht.
-- **Modern UI:** Ein neuer Panel-Stil wurde entwickelt, ist jedoch noch deaktiviert, weil nicht alle Ergebnis- und Menüfenster korrekt erkannt werden. Neue Status-, Lexikon-, Attacken- und Digitation-Layouts fehlen.
-- **Grafikdetails:** Einzelne PGXP-/Clipping-Fälle am Bildrand sind offen; manche 3D-Räume zeigen in breiten Seitenbereichen Schwarz.
-- **Schrift und Bildtexte:** Einzelne Zahlensprites und mehrzellige Wörter sind noch nicht vollständig modernisiert. Seltene Kampfanzeigen (u. a. Konter, Unterbrechen, NIEDERLAGE) benötigen zusätzliche In-Game-Prüfungen.
-- **Hardwaretests:** Windows mit echter GPU, Controller, Audio, Vollbild, VSync und Langzeitstabilität sind nicht abschließend geprüft.
-- **Story:** Ein vollständiger Durchlauf vom Spielbeginn bis zum Ende ist nicht bestätigt.
+![Digimon World 2 PC-Port – deutsche Oberfläche, Stand 7.11.2026](Screenshot_20261107_174624_Claude.jpg)
 
-## Installation und Nutzung
+*Statusansicht, Techniken, Agumon-Modell und Teamübersicht mit deutscher Oberfläche. Das Bild zeigt den Stand vom 7.11.2026.*
 
-1. Lade ein passendes Build aus den [Releases](../../releases), sofern verfügbar.
-2. Entpacke das Archiv.
-3. Lege dein **eigenes** kompatibles USA-Disc-Image (`.bin`/`.cue`, unterstütztes rohes `.img` oder `.iso`) bereit.
-4. Starte `dw2.exe` unter Windows beziehungsweise die entsprechende Linux-Datei. Beim ersten Start wird das benötigte Datenpaket aus deinem Image erstellt.
-5. Öffne die PC-Einstellungen mit **F1**. Sprache, Darstellung, Steuerung und weitere Funktionen lassen sich dort konfigurieren.
+## Dokumentation
 
-**Wichtig:** Das Repository enthält keine kommerziellen Spieldaten. Ein eigenes kompatibles Spielimage ist erforderlich. Die deutsche Sprach- und Mod-Ebene kann zusätzliche lokal erzeugte Dateien benötigen; nicht alle Übersetzungsdateien werden öffentlich bereitgestellt.
+- [README_PORT.md](README_PORT.md) – Bedienung, Tasten, Sprache, Modding, Cheats
+- [TESTBERICHT.md](TESTBERICHT.md) – was je Version getestet ist und was nicht
+- [doc/V1.6.2_PLAN.md](doc/V1.6.2_PLAN.md) – Arbeitsstand der Version 1.6.2
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) – Architektur und technische Erkenntnisse
+- [GRAFIKTEXTE.md](GRAFIKTEXTE.md), [CHEATS.md](CHEATS.md), [doc/FONTS.md](doc/FONTS.md)
 
-## Entwicklungsprotokoll und Tests
+## Herkunft und Rechte
 
-Die ausführlichen technischen Nachweise stehen in:
+Der Port ist ein Fork von [Wyrelade/DW2-PC](https://github.com/Wyrelade/DW2-PC) (Commit `1dbb32a`, CC0), einer vollständigen Dekompilierung des Spiels mit eigener PC-Laufzeit (SDL3). Die Lizenz des Codes steht in [LICENSE](LICENSE), die Schriftlizenzen (SIL OFL) in `misc/fonts/`.
 
-- [TESTBERICHT.md](TESTBERICHT.md) – Tests, Versionsstände, Fehler und offene Prüfungen
-- [PROJECT_STATUS.md](PROJECT_STATUS.md) – Architektur, Anforderungen und offene Aufgaben
-- [README_PORT.md](README_PORT.md) – Ausführliche Bedienung und Port-spezifische Funktionen
-- [GRAFIKTEXTE.md](GRAFIKTEXTE.md) – Lokalisierte Grafiktexte
-- [CHEATS.md](CHEATS.md) – Cheat-Funktionen und Einschränkungen
-
-**Zuletzt dokumentierte automatisierte Ergebnisse:** Classic 6/6, Textskripte 90/90, Speichern 9/9 und Cheats 31/31. Diese Ergebnisse gelten für die jeweils im Testbericht genannten Commits; sie sind keine pauschale Bestätigung des gesamten Spiels oder jedes späteren Builds.
-
-### Nächste Entwicklungsziele
-
-1. Nachlade-Ruckler auf echter Hardware reproduzieren, messen und beheben.
-2. Modern UI auf alle relevanten Spielbildschirme ausweiten und freigeben.
-3. Deutsche Grafiktexte, Schrift und seltene Kampfzustände vollständig prüfen.
-4. Export und Austausch von Texturen, Texten und weiteren Ressourcen vereinfachen.
-5. Echte Windows-/GPU-/Controller-Tests und einen vollständigen Story-Durchlauf durchführen.
-6. Später: eigenständiger Launcher und integriertes 3D-Studio.
-
-## Projektursprung und Rechte
-
-Diese Weiterentwicklung basiert auf dem Open-Source-Projekt [Wyrelade/DW2-PC](https://github.com/Wyrelade/DW2-PC) (im Projekt dokumentierter Ausgangscommit `1dbb32a`, CC0). Diese Herkunftsangabe ist keine Übernahme der ursprünglichen README oder deren Entwicklungsversprechen.
-
-Die Lizenz des Repository-Codes ist in [LICENSE](LICENSE) dokumentiert. **Digimon World 2** und die zugehörigen Spielinhalte gehören ihren jeweiligen Rechteinhabern. Dieses Repository stellt keine Spielkopie bereit.
+**Digimon World 2** und alle Spielinhalte gehören ihren Rechteinhabern. Dieses Repository stellt keine Spielkopie bereit. Die deutsche Übersetzung ist eine inoffizielle Fan-Übersetzung.

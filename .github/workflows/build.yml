@@ -62,6 +62,12 @@ jobs:
           & build/native64_rel_nodisc/fonts_test.exe
           if ($LASTEXITCODE -ne 0) { throw "fonts_test failed ($LASTEXITCODE)" }
 
+      - name: Graphics profiles (no game data)
+        shell: pwsh
+        run: |
+          python tests/profile_test.py build/native64_rel_nodisc/dw2.exe
+          if ($LASTEXITCODE -ne 0) { throw "profile_test failed ($LASTEXITCODE)" }
+
       - name: Performance report regression (Windows PowerShell 5.1, de-DE and en-US)
         shell: pwsh
         run: |
@@ -189,6 +195,9 @@ jobs:
 
       - name: Font tests (no game data)
         run: build/linux64_rel_nodisc/fonts_test
+
+      - name: Graphics profiles (no game data)
+        run: LD_LIBRARY_PATH=$PWD/sdl3inst/lib python3 tests/profile_test.py build/linux64_rel_nodisc/dw2
 
       - name: Renderer test (software vs GPU on Mesa lavapipe, synthetic scene, no game data)
         run: |

@@ -69,6 +69,9 @@ void Host_SetRenderer(int choice);
 void Host_SetPgxp(int on);
 /* host/sdl.c: PR.2b sharpening of the HD picture, 0..100 (0 off; F8 toggles back to the last). */
 void Host_SetSharpen(int strength);
+/* dw2-pc-port, host/sdl.c: running counts of the game's pictures and of the pictures shown in the
+ * window, and the longest gap between two game pictures since the last call (microseconds). */
+void Host_PictureStats(unsigned *game, unsigned *window, unsigned *worst_us);
 /* host/sdl.c: PG.3 16:9 on / off (wide HD surfaces, 16:9 window picture). */
 void Host_SetWide(int on); /* dw2-pc-port: 0 = 4:3, 1 = 16:9, 2 = 21:9 */
 int Host_ResolveScale(int setting); /* dw2-pc-port: scale setting (0 = auto) -> render scale */

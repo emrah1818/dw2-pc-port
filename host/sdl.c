@@ -674,8 +674,31 @@ static void perf_line(Uint64 pub_ns) {
     perf_frame++;
 }
 
+/* dw2-pc-port: counters for the picture rate display (host/ui.cpp, setting show_fps): the game's
+ * own pictures, the pictures the window showed, and the longest time between two game pictures
+ * since the last read (microseconds). Counting only: nothing waits on these. */
+static SDL_AtomicInt stat_game, stat_window, stat_worst_us;
+static Uint64 stat_last_ns;
+
+void Host_PictureStats(unsigned *game, unsigned *window, unsigned *worst_us) {
+    *game = (unsigned)SDL_GetAtomicInt(&stat_game);
+    *window = (unsigned)SDL_GetAtomicInt(&stat_window);
+    *worst_us = (unsigned)SDL_SetAtomicInt(&stat_worst_us, 0);
+}
+
 void Host_Publish(void) {
     Uint64 t0 = SDL_GetTicksNS();
+
+    if (stat_last_ns != 0) {
+        Uint64 us = (t0 - stat_last_ns) / 1000;
+        int v = us > 0x7FFFFFFF ? 0x7FFFFFFF : (int)us;
+
+        if (v > SDL_GetAtomicInt(&stat_worst_us)) {
+            SDL_SetAtomicInt(&stat_worst_us, v);
+        }
+    }
+    stat_last_ns = t0;
+    SDL_AddAtomicInt(&stat_game, 1);
     publish_frame();
     PsxHd_TrimRuntimeTiles(); /* the picture is out: runtime font tiles may go */
     perf_line(SDL_GetTicksNS() - t0);
@@ -944,6 +967,7 @@ void Host_Present(void) {
     if (no_present()) {
         return;
     }
+    SDL_AddAtomicInt(&stat_window, 1);
     SDL_LockMutex(frame_lock);
     if (latest >= 0) {
         in_use = latest;

@@ -3,7 +3,7 @@
 Dies ist eine native PC-Fassung von **Digimon World 2 (USA, SLUS-01193)** für Windows x64 und Linux x64. Sie bietet:
 
 - 4K und Ultrawide
-- Profile Classic und Remastered
+- Grafikprofile Original, Balanced, HD und Ultra
 - deutsche und englische PC-Menüs, deutsche Spieltexte aus deiner eigenen Disc (Story, Dialoge, Menüs)
 - Spielfenster Modern oder Klassisch: kein Text ragt über sein Fenster
 - Asset-Export und Mod-Ebene für Texturen
@@ -90,14 +90,19 @@ Mit Deutsch ändert sich Folgendes:
 
 ## 4. Grafik
 
-- **Profile:** Classic ist das Originalbild. Remastered bietet 3D in Fensterauflösung, 16:9, kein Wackeln, gefilterte Texturen, geglätteten Text und flüssige Bilder.
+- **Profile** (F1 → Grafik, oder `--profile original|balanced|hd|ultra`):
+  - **Original:** das PS1-Bild (früher „Classic“).
+  - **Balanced:** 720 Zeilen, 16:9, kein Wackeln, gefilterte Texturen, flüssige Bilder.
+  - **HD:** 3D in Fensterauflösung, dazu Schärfen 25 und geglätteter Text (früher „Remastered“, Standard beim ersten Start).
+  - **Ultra:** 2160 Zeilen fest, Schärfen 40. Auf kleineren Bildschirmen wird das Bild weich verkleinert; braucht einen schnellen PC.
+  - Jede Einstellung lässt sich danach einzeln ändern, das Profil heißt dann „angepasst“.
 - **Auflösung:** Automatisch nach Fensterhöhe (Full HD 5×, WQHD 6×, 4K 9×) oder fest 1× bis 12×. Fenstergrößen-Voreinstellungen reichen von 720p bis 4K, dazu 2560×1080 und 3440×1440.
 - **Seitenverhältnis:** 4:3, 16:9 oder 21:9. Breitbild zeigt mehr von der 3D-Welt und streckt nichts.
   - Im Kampf, mit Spielfenster *Modern*, rücken Befehlsmenüs, Attackenlisten und Team-Statusfenster in die Seitenränder (ab 1.5.0), sodass die Digimon in der Mitte frei bleiben.
   - Ab 1.6.0 laufen die Kachelhintergründe von Feldmenü, Shops, Digi-Beetle-Werkstatt und DNA-Labor bis an den Rand. Im Gespräch rückt das Porträt in den Seitenrand.
   - Die Fenster von Gesprächen, Ergebnisbildschirm und Menüs bleiben mittig in 4:3-Größe, vollständig lesbar.
 - **Spielfenster (F1 → Start, ab 1.4.0):** *Modern* setzt Buchstaben nach ihrer eigenen Breite (Ziffern und Tabellen bleiben in ihren Spalten), *Klassisch* behält die festen PS1-Zeichenzellen. In beiden Modi misst der Port jede Textzeile vor dem Zeichnen. Ist sie breiter als ihr Fenster, wird das Fenster nach rechts verlängert, so weit Bildschirm und Nachbarfenster es erlauben, oder der Text daneben rückt zur Seite. Erst wenn beides nicht reicht, wird die Zeile enger gesetzt. Englische Texte passen in die Originalfenster: Mit *Klassisch* sieht ein englisches Spiel genauso aus wie auf der PS1. Technik: `host/uilayout.c`, `src/main/text.c`.
-- **Bildrate:** Die Spiellogik läuft immer im Originaltempo, mit 59,94 Hz. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung.
+- **Bildrate:** Die Spiellogik läuft immer im Originaltempo, mit 59,94 Hz. Flüssige Bilder werden mit der Monitorrate zwischen den Spielbildern überblendet. Dazu gibt es eine FPS-Begrenzung. Die FPS-Anzeige (F1 → Grafik: aus, FPS, FPS und Details) zeigt oben rechts die Bilder pro Sekunde des Spiels, mit Details auch Fensterrate, längstes Bild, Auflösung und Renderer.
   - Ab 1.5.0 werden ohne vsync nie mehr Bilder gezeichnet, als der Monitor zeigt.
   - Kommt das Spiel nicht hinterher, pausieren die Zwischenbilder.
   - Bei „Auto“-Auflösung mit dem Software-Renderer sinkt die Auflösung um eine Stufe.

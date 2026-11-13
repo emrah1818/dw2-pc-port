@@ -542,9 +542,13 @@ HOST_ENTRY int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--smooth-2d") == 0) {
             Settings_Override(SET_SMOOTH2D, 1); /* dw2-pc-port, this run only */
         } else if (strcmp(argv[i], "--profile") == 0 && i + 1 < argc) {
-            /* dw2-pc-port: classic or remastered, this run only */
+            /* dw2-pc-port: original (classic), balanced, hd (remastered) or ultra, this run only */
             i++;
-            cl_profile = strcmp(argv[i], "classic") == 0 ? SET_PROFILE_CLASSIC : SET_PROFILE_REMASTERED;
+            cl_profile = Settings_ParseProfile(argv[i]);
+            if (cl_profile < 0) {
+                fprintf(stderr, "--profile %s: unknown profile (original, balanced, hd, ultra)\n", argv[i]);
+                return 2;
+            }
         } else if (strcmp(argv[i], "--sharpen") == 0 && i + 1 < argc) {
             cl_sharpen = (int)strtol(argv[++i], NULL, 0);
             cl_sharpen = cl_sharpen < 0 ? 0 : cl_sharpen > 100 ? 100 : cl_sharpen;
@@ -607,6 +611,7 @@ HOST_ENTRY int main(int argc, char **argv) {
                 Settings_Override(ids[k], Settings_ProfileValue(cl_profile, ids[k]));
             }
         }
+        printf("[settings] profile %s (this run)\n", Settings_ProfileName(cl_profile));
     }
     if (cl_scale) {
         Settings_Override(SET_SCALE, cl_scale_value);
@@ -641,7 +646,7 @@ HOST_ENTRY int main(int argc, char **argv) {
                 Settings_Set(ids[k], Settings_ProfileValue(SET_PROFILE_REMASTERED, ids[k]));
             }
         }
-        printf("[settings] first start: Remastered profile\n");
+        printf("[settings] first start: HD profile\n");
         Host_LanguageAtStart = 1; /* the language picker (host/ui.cpp) */
         /* dw2-pc-port: the PC menus in German when the system prefers German */
         if (!Settings_Overridden(SET_LANGUAGE)) {

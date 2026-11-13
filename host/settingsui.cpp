@@ -65,8 +65,11 @@ const Tr k_tr[] = {
     { "Headless run: the window mode is not applied.", "Lauf ohne Fenster: Fenstermodus wird nicht angewendet." },
     { "F11 switches between windowed and fullscreen.", "F11 wechselt zwischen Fenster und Vollbild." },
     { "Profile", "Profil" }, { "Classic", "Classic" }, { "Remastered", "Remastered" }, { "(custom)", "(angepasst)" },
-    { "Classic: the PS1 picture. Remastered: sharp 3D at your resolution, widescreen,",
-      "Classic: das PS1-Bild. Remastered: scharfes 3D in deiner Auflösung, Breitbild," },
+    { "Original: the PS1 picture. Balanced: 720 lines, widescreen, no wobble, filtered textures.",
+      "Original: das PS1-Bild. Balanced: 720 Zeilen, Breitbild, kein Wackeln, gefilterte Texturen." },
+    { "HD: your window's resolution, sharpened. Ultra: 2160 lines, scaled down smoothly on smaller screens (needs a fast PC).",
+      "HD: die Auflösung deines Fensters, geschärft. Ultra: 2160 Zeilen, auf kleineren Bildschirmen weich verkleinert (braucht einen schnellen PC)." },
+    { "Gameplay is the same in all profiles.", "Das Spiel selbst ist in allen Profilen gleich." },
     { "no wobble, smooth frames, filtered textures. Gameplay is the same in both.",
       "kein Wackeln, flüssige Bilder, gefilterte Texturen. Das Gameplay ist in beiden gleich." },
     { "Picture", "Bild" }, { "Resolution (F5)", "Auflösung (F5)" }, { "Auto: fits the window", "Auto: passt sich dem Fenster an" },
@@ -97,6 +100,9 @@ const Tr k_tr[] = {
     { "VSync", "VSync" }, { "Waits for the monitor: no tearing, slightly more input delay.",
       "Wartet auf den Monitor: kein Tearing, etwas mehr Eingabeverzögerung." },
     { "FPS limit", "FPS-Begrenzung" }, { "no limit", "keine" },
+    { "FPS display", "FPS-Anzeige" }, { "FPS", "FPS" }, { "FPS and details", "FPS und Details" },
+    { "Shows the game's pictures per second top right; details add the window's rate, the longest picture, resolution and renderer.",
+      "Zeigt oben rechts die Bilder pro Sekunde des Spiels; Details ergänzen die Fensterrate, das längste Bild, Auflösung und Renderer." },
     { "Caps the pictures per second shown; the game itself always runs at its own speed.",
       "Begrenzt die angezeigten Bilder pro Sekunde; das Spiel selbst läuft immer im eigenen Tempo." },
     { "Interface", "Oberfläche" }, { "Menu size", "Menügröße" }, { "auto", "auto" },
@@ -457,7 +463,7 @@ ImGuiTabItemFlags tab_flags(const char *name) {
 }
 
 void apply_profile(int p) {
-    /* dw2-pc-port: Classic / Remastered (host/settings.c Settings_ProfileValue) */
+    /* dw2-pc-port: Original / Balanced / HD / Ultra (host/settings.c Settings_ProfileValue) */
     static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
 
     for (int id : ids) {
@@ -468,7 +474,7 @@ void apply_profile(int p) {
 int profile_now(void) {
     static const int ids[] = { SET_SCALE, SET_WIDE, SET_PGXP, SET_SHARPEN, SET_SMOOTH, SET_TEX_FILTER, SET_SMOOTH2D };
 
-    for (int p = SET_PROFILE_CLASSIC; p <= SET_PROFILE_REMASTERED; p++) {
+    for (int p = 0; p < SET_PROFILE_COUNT; p++) {
         bool all = true;
 
         for (int id : ids) {
@@ -495,17 +501,16 @@ void display_tab(void) {
     int prof = profile_now();
 
     ImGui::SeparatorText(T("Profile"));
-    if (ImGui::RadioButton("Classic", prof == SET_PROFILE_CLASSIC)) {
-        apply_profile(SET_PROFILE_CLASSIC);
+    for (int p = 0; p < SET_PROFILE_COUNT; p++) {
+        if (ImGui::RadioButton(Settings_ProfileName(p), prof == p)) {
+            apply_profile(p);
+        }
+        ImGui::SameLine();
     }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Remastered", prof == SET_PROFILE_REMASTERED)) {
-        apply_profile(SET_PROFILE_REMASTERED);
-    }
-    ImGui::SameLine();
     ImGui::TextDisabled("%s", prof < 0 ? T("(custom)") : "");
-    ui_hint(T("Classic: the PS1 picture. Remastered: sharp 3D at your resolution, widescreen,"));
-    ui_hint(T("no wobble, smooth frames, filtered textures. Gameplay is the same in both."));
+    ui_hint(T("Original: the PS1 picture. Balanced: 720 lines, widescreen, no wobble, filtered textures."));
+    ui_hint(T("HD: your window's resolution, sharpened. Ultra: 2160 lines, scaled down smoothly on smaller screens (needs a fast PC)."));
+    ui_hint(T("Gameplay is the same in all profiles."));
 
     ImGui::SeparatorText(T("Picture"));
     {
@@ -609,6 +614,16 @@ void display_tab(void) {
             ImGui::EndCombo();
         }
         ui_hint(T("Caps the pictures per second shown; the game itself always runs at its own speed."));
+    }
+    {
+        /* dw2-pc-port: picture rate display (host/ui.cpp draw_fps) */
+        const char *modes[] = { T("off"), T("FPS"), T("FPS and details") };
+        int show = Settings_Get(SET_SHOW_FPS);
+
+        if (ImGui::Combo(TL("FPS display", "showfps"), &show, modes, 3)) {
+            Settings_Set(SET_SHOW_FPS, show);
+        }
+        ui_hint(T("Shows the game's pictures per second top right; details add the window's rate, the longest picture, resolution and renderer."));
     }
 
     ImGui::SeparatorText(T("Interface"));

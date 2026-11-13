@@ -39,13 +39,19 @@ enum {
     SET_MUTE,         /* dw2-pc-port: 0 / 1: all sound off */
     SET_FPS_LIMIT,    /* dw2-pc-port: 0 = no limit, else 30..360 pictures per second (window thread) */
     SET_UI_STYLE,     /* dw2-pc-port: SET_UI_*: game windows and texts (host/uilayout.c) */
+    SET_SHOW_FPS,     /* dw2-pc-port: SET_FPS_*: the picture rate top right (host/ui.cpp) */
     SET_COUNT
 };
+enum { SET_FPS_OFF, SET_FPS_RATE, SET_FPS_DETAILS }; /* dw2-pc-port */
 enum { SET_RENDERER_GPU, SET_RENDERER_SOFT };
 enum { SET_LANG_EN, SET_LANG_DE }; /* dw2-pc-port */
 enum { SET_UI_CLASSIC, SET_UI_MODERN }; /* dw2-pc-port */
 enum { SET_TEXF_NEAREST, SET_TEXF_BILINEAR }; /* dw2-pc-port */
-enum { SET_PROFILE_CLASSIC, SET_PROFILE_REMASTERED }; /* dw2-pc-port: Settings_ProfileValue */
+/* dw2-pc-port graphics profiles (Settings_ProfileValue). Original (Classic): the PS1 picture.
+ * Balanced: a fixed 3x picture, widescreen, no wobble, filtered textures. HD (Remastered): the
+ * window's resolution, sharpening, smoothed 2D. Ultra: a fixed 9x picture (2160 lines; scaled
+ * down smoothly on a smaller window), stronger sharpening. */
+enum { SET_PROFILE_CLASSIC, SET_PROFILE_BALANCED, SET_PROFILE_REMASTERED, SET_PROFILE_ULTRA, SET_PROFILE_COUNT };
 enum { SET_WINDOW_WINDOWED, SET_WINDOW_BORDERLESS, SET_WINDOW_EXCLUSIVE };
 
 #define SET_KEY_SLOTS 2   /* keyboard keys per pad button */
@@ -97,6 +103,8 @@ void Settings_Flush(void);
 const char *Settings_FilePath(void);
 /* dw2-pc-port graphics profiles: the value profile p gives setting id, or -1 when p leaves it. */
 int Settings_ProfileValue(int p, int id);
+const char *Settings_ProfileName(int p);    /* "Original", "Balanced", "HD", "Ultra" */
+int Settings_ParseProfile(const char *s);   /* original/classic, balanced, hd/remastered, ultra; -1 otherwise */
 /* 1 when the settings file did not exist at start (first run): main() applies Remastered. */
 int Settings_FirstRun(void); /* NULL when no file is used (headless without --settings) */
 

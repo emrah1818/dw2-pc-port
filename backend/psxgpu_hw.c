@@ -1250,10 +1250,22 @@ static void sharpen_ctx(Ctx *cx, void *src, int x, int y, int w, int h, void *ds
     SDL_GPUTextureSamplerBinding tsb;
     SDL_GPUViewport vp;
     SDL_Rect sc = { 0, 0, w, h };
+    /* dw2-pc-port: the pass's values come from PsxHd_Post (sharpening and the other picture
+     * filters); `strength` only says that the pass is wanted */
+    PsxHdPost pp;
     struct {
         int32_t origin[2], size[2];
-        float sharpness, pad[3];
-    } par = { { x, y }, { w, h }, strength / 100.0f, { 0, 0, 0 } };
+        float sharpness, fxaa, brightness, contrast, saturation, inv_gamma, pad[2];
+    } par = { { x, y }, { w, h }, 0, 0, 0, 1, 1, 1, { 0, 0 } };
+
+    (void)strength;
+    PsxHd_Post(&pp);
+    par.sharpness = pp.sharpen > 0 ? pp.sharpen / 100.0f : -1.0f;
+    par.fxaa = pp.fxaa ? 1.0f : 0.0f;
+    par.brightness = (pp.brightness - 50) / 200.0f;
+    par.contrast = pp.contrast / 100.0f;
+    par.saturation = pp.saturation / 100.0f;
+    par.inv_gamma = 100.0f / pp.gamma;
 
     if (dev == NULL || src == NULL || dst == NULL) {
         return;

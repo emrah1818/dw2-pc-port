@@ -69,6 +69,9 @@ void Host_SetRenderer(int choice);
 void Host_SetPgxp(int on);
 /* host/sdl.c: PR.2b sharpening of the HD picture, 0..100 (0 off; F8 toggles back to the last). */
 void Host_SetSharpen(int strength);
+/* dw2-pc-port, host/sdl.c: the picture filters fxaa / brightness / contrast / saturation / gamma
+ * from the settings to the renderer (game thread, or before it starts). */
+void Host_ApplyPost(void);
 /* dw2-pc-port, host/sdl.c: running counts of the game's pictures and of the pictures shown in the
  * window, and the longest gap between two game pictures since the last call (microseconds). */
 void Host_PictureStats(unsigned *game, unsigned *window, unsigned *worst_us);

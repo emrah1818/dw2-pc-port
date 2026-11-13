@@ -530,6 +530,11 @@ void Host_SmoothCamera(const int *v, int n, int hard) {
 }
 
 /* PR.2b, game side (or before the game runs). */
+void Host_ApplyPost(void) {
+    PsxHd_SetPost(Settings_Get(SET_FXAA), Settings_Get(SET_BRIGHTNESS), Settings_Get(SET_CONTRAST),
+                  Settings_Get(SET_SATURATION), Settings_Get(SET_GAMMA));
+}
+
 void Host_SetSharpen(int strength) {
     PsxHd_SetSharpen(strength);
     if (PsxHd_Sharpen() != 0) {
@@ -1182,6 +1187,22 @@ void Host_GameEvents(void) {
             Host_SetPgxp(v - 1);
             printf("[gpu] no wobble (PGXP) %s (F1)\n", PsxHd_Pgxp() ? "on" : "off");
             Settings_Set(SET_PGXP, PsxHd_Pgxp());
+        }
+        {
+            /* dw2-pc-port: picture filters (F1) */
+            static const int ids[] = { SET_FXAA, SET_BRIGHTNESS, SET_CONTRAST, SET_SATURATION, SET_GAMMA };
+            size_t k;
+            int any = 0;
+
+            for (k = 0; k < sizeof(ids) / sizeof(ids[0]); k++) {
+                if ((v = SDL_SetAtomicInt(&wanted[ids[k]], 0)) != 0) {
+                    Settings_Set(ids[k], v - 1);
+                    any = 1;
+                }
+            }
+            if (any) {
+                Host_ApplyPost();
+            }
         }
         if ((v = SDL_SetAtomicInt(&wanted[SET_SHARPEN], 0)) != 0 && v - 1 != PsxHd_Sharpen()) {
             Host_SetSharpen(v - 1);

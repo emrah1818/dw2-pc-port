@@ -483,6 +483,151 @@ static void test_replay_pause(void) {
 }
 
 /* pixels differing by more than tol in any 8-bit channel, inside the rect (1x coordinates) */
+/* dw2-pc-port: the filter pass (PsxHd_SetPost, sharpening) through PsxGpu_ReadDisplayHd in the
+ * current renderer: plain = the picture without the pass. */
+static uint32_t *render_post(int gpu, int scale, int sharpen, int fxaa, int bright, int contrast, int sat, int gamma, int *w, int *h) {
+    uint32_t *px = calloc((size_t)W * H * scale * scale * 4, 1);
+    int ok;
+
+    PsxHd_SetGpu(gpu);
+    PsxHd_SetScale(scale);
+    PsxHd_SetTexFilter(0);
+    PsxHd_SetSmooth2d(0);
+    PsxHd_SetSharpen(sharpen);
+    PsxHd_SetPost(fxaa, bright, contrast, sat, gamma);
+    PsxGpu_Reset(0);
+    PsxGpu_SetDisplay(0, 0, W, H, 0);
+    PsxGpu_SetDisplayEnable(1);
+    load_textures();
+    scene();
+    ok = PsxGpu_ReadDisplayHd(px, w, h);
+    PsxHd_SetSharpen(0);
+    PsxHd_SetPost(0, 50, 100, 100, 100);
+    if (!ok) {
+        free(px);
+        return NULL;
+    }
+    return px;
+}
+
+static long sum_channel(const uint32_t *p, int n, int shift) {
+    long s = 0;
+    int i;
+
+    for (i = 0; i < n; i++) {
+        s += (p[i] >> shift) & 255;
+    }
+    return s;
+}
+
+static void post_tests(int gpu, int scale, const char *who) {
+    static uint32_t *soft_keep[3];
+    uint32_t *plain, *sharp, *fx, *fxs, *col;
+    int w = 0, h = 0, n, total;
+    char what[200];
+
+    plain = render_post(gpu, scale, 0, 0, 50, 100, 100, 100, &w, &h);
+    sharp = render_post(gpu, scale, 60, 0, 50, 100, 100, 100, &w, &h);
+    fx = render_post(gpu, scale, 0, 1, 50, 100, 100, 100, &w, &h);
+    fxs = render_post(gpu, scale, 60, 1, 50, 100, 100, 100, &w, &h);
+    col = render_post(gpu, scale, 0, 0, 60, 120, 0, 100, &w, &h);
+    snprintf(what, sizeof(what), "%s filters: pictures rendered", who);
+    check(plain && sharp && fx && fxs && col, what);
+    if (!(plain && sharp && fx && fxs && col)) {
+        return;
+    }
+    total = w * h;
+    snprintf(what, sizeof(what), "%s_fxaa", who);
+    write_bmp(what, fx, w, h);
+    snprintf(what, sizeof(what), "%s_colour", who);
+    write_bmp(what, col, w, h);
+    n = diff_count(plain, fx, w, scale, 0, 0, W, H, 4);
+    snprintf(what, sizeof(what), "%s filters: FXAA changes edges only (%d of %d pixels, %.2f%%)", who, n, total, 100.0 * n / total);
+    check(n > 200 && n * 100 < total * 25, what);
+    n = diff_count(sharp, fxs, w, scale, 0, 0, W, H, 4);
+    snprintf(what, sizeof(what), "%s filters: FXAA with sharpening differs from sharpening alone (%d pixels)", who, n);
+    check(n > 200, what);
+    {
+        /* saturation 0: every pixel grey; contrast and brightness up: the picture is not the plain one */
+        int i, grey = 1;
+
+        for (i = 0; i < total; i++) {
+            int r = (col[i] >> 16) & 255, g = (col[i] >> 8) & 255, b = col[i] & 255;
+
+            if (abs(r - g) > 2 || abs(g - b) > 2) {
+                grey = 0;
+                break;
+            }
+        }
+        snprintf(what, sizeof(what), "%s filters: saturation 0 gives a grey picture", who);
+        check(grey, what);
+        snprintf(what, sizeof(what), "%s filters: colour values change the picture", who);
+        check(diff_count(plain, col, w, scale, 0, 0, W, H, 4) > total / 20, what);
+    }
+    {
+        /* gamma above 1 brightens, below 1 darkens */
+        uint32_t *g_hi = render_post(gpu, scale, 0, 0, 50, 100, 100, 160, &w, &h);
+        uint32_t *g_lo = render_post(gpu, scale, 0, 0, 50, 100, 100, 70, &w, &h);
+
+        snprintf(what, sizeof(what), "%s filters: gamma 1.6 brightens, 0.7 darkens", who);
+        check(g_hi && g_lo && sum_channel(g_hi, total, 8) > sum_channel(plain, total, 8) &&
+                  sum_channel(g_lo, total, 8) < sum_channel(plain, total, 8), what);
+        free(g_hi);
+        free(g_lo);
+    }
+    /* the 1x (classic) picture is never filtered */
+    if (!gpu) {
+        uint32_t *p1[2];
+        int w1 = 0, h1 = 0, k;
+
+        for (k = 0; k < 2; k++) {
+            PsxHd_SetScale(1);
+            PsxHd_SetSharpen(k ? 60 : 0);
+            PsxHd_SetPost(k, k ? 60 : 50, k ? 120 : 100, k ? 0 : 100, k ? 160 : 100);
+            PsxGpu_Reset(0);
+            PsxGpu_SetDisplay(0, 0, W, H, 0);
+            PsxGpu_SetDisplayEnable(1);
+            load_textures();
+            scene();
+            p1[k] = calloc((size_t)640 * 480, 4);
+            PsxGpu_ReadDisplay(p1[k], &w1, &h1);
+        }
+        PsxHd_SetSharpen(0);
+        PsxHd_SetPost(0, 50, 100, 100, 100);
+        check(w1 > 0 && memcmp(p1[0], p1[1], (size_t)w1 * h1 * 4) == 0, "soft filters: 1x picture unchanged by any filter");
+        free(p1[0]);
+        free(p1[1]);
+        free(render(0, 0, 0, scale, &w, &h)); /* back to the HD surface (its first picture differs) */
+    }
+    if (!gpu) {
+        soft_keep[0] = fx;
+        soft_keep[1] = fxs;
+        soft_keep[2] = col;
+        free(plain);
+        free(sharp);
+        return;
+    }
+    if (soft_keep[0] != NULL) {
+        static const char *const nm[3] = { "FXAA", "FXAA + sharpening", "colour" };
+        uint32_t *g3[3];
+        int i;
+
+        g3[0] = fx;
+        g3[1] = fxs;
+        g3[2] = col;
+        for (i = 0; i < 3; i++) {
+            n = diff_count(soft_keep[i], g3[i], w, scale, 0, 0, W, H, 24);
+            snprintf(what, sizeof(what), "gpu = soft (%s): %d of %d pixels differ by more than 24 (%.2f%%)", nm[i], n, total, 100.0 * n / total);
+            check(n * 100 < total * 2, what);
+        }
+    }
+    free(plain);
+    free(sharp);
+    free(fx);
+    free(fxs);
+    free(col);
+}
+
 static int diff_count(const uint32_t *a, const uint32_t *b, int w, int scale, int x0, int y0, int x1, int y1, int tol) {
     int n = 0, x, y;
 
@@ -550,6 +695,7 @@ int main(int argc, char **argv) {
     check(diff_count(soft[0], soft[2], w, scale, 178, 148, 285, 213, 4) > 100, "soft: 2D smoothing changes the sprites");
     check(diff_count(soft[0], soft[2], w, scale, 10, 10, 300, 135, 0) == 0, "soft: 2D smoothing leaves the 3D quads");
 
+    post_tests(0, scale, "soft");
     texture_pack_tests(scale, soft[0], w);
     {
         static uint16_t ti[16][4];
@@ -633,6 +779,7 @@ int main(int argc, char **argv) {
             check(diff_count(gpu[0], gpu[2], w, scale, 178, 148, 285, 213, 4) > 100, "gpu: 2D smoothing changes the sprites");
             check(diff_count(gpu[0], gpu[2], w, scale, 10, 10, 300, 135, 0) == 0, "gpu: 2D smoothing leaves the 3D quads");
         }
+        post_tests(1, scale, "gpu");
         /* texture pack on the GPU (hd.frag rep_sample): as the software picture with the pack */
         TexRep_Enable();
         {

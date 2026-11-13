@@ -666,6 +666,7 @@ HOST_ENTRY int main(int argc, char **argv) {
         Host_SetPgxp(1);
     }
     Host_SetSharpen(Settings_Get(SET_SHARPEN)); /* the override's value with --sharpen */
+    Host_ApplyPost(); /* dw2-pc-port: fxaa, brightness, contrast, saturation, gamma */
     PsxHd_SetTexFilter(Settings_Get(SET_TEX_FILTER) == SET_TEXF_BILINEAR); /* dw2-pc-port */
     PsxHd_SetSmooth2d(Settings_Get(SET_SMOOTH2D));
     if (Settings_Get(SET_SMOOTH)) {

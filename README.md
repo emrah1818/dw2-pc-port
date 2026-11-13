@@ -46,9 +46,9 @@ Die Spalte „Geprüft“ sagt, wie weit eine Funktion nachgewiesen ist: **Spiel
 
 | Bereich | Stand |
 |---|---|
-| Grafikfilter | Vorhanden: Nearest, Bilinear (3D), 2D-Glättung, Schärfen, Korrektur gegen Polygonzittern (PGXP). Offen: FXAA, SMAA, MSAA, trilineare und anisotrope Filterung, Farb- und Kontrastregler. |
-| Grafikprofile | Original, Balanced, HD, Ultra (neu in 1.6.2-dev). Automatisch geprüft, im Spiel noch nicht angesehen. |
-| FPS-Anzeige | F1 → Grafik: aus, FPS, FPS und Details (neu in 1.6.2-dev). Bisher nur kompiliert, im laufenden Spiel noch nicht angesehen. |
+| Grafikfilter | Vorhanden: Nearest, Bilinear (3D), 2D-Glättung, Schärfen, Korrektur gegen Polygonzittern (PGXP); neu in 1.6.2-dev: Kantenglättung (FXAA), Helligkeit, Kontrast, Sättigung, Gamma (im Spiel geprüft, GPU nur auf Software-Vulkan). Offen: SMAA, MSAA, trilineare und anisotrope Filterung. |
+| Grafikprofile | Original, Balanced, HD, Ultra (neu in 1.6.2-dev). Automatisch geprüft; im Spiel nur HD angesehen. |
+| FPS-Anzeige | F1 → Grafik: aus, FPS, FPS und Details (neu in 1.6.2-dev). Im Spiel gesehen, in einem echten Windows-Fenster noch nicht. |
 | HD-Texturpakete | PNG-Pakete in beiden Renderern, `--dump-textures`, siehe [doc/TEXTURPAKETE.md](doc/TEXTURPAKETE.md). Offen: JPG, Verwaltung im Menü. |
 | Export bearbeitbarer Daten | `--export-assets` (Texturen, Tabellen, Originaldateien) und `--export-texts`. Offen: Angebot beim ersten Start, Audio. |
 | Moderne Oberfläche, übrige Menüs | Inventar, Speichern/Laden und Hauptmenü nutzen noch das alte Fensterlayout. |

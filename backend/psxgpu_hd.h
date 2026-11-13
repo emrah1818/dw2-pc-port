@@ -82,6 +82,25 @@ void PsxHd_Parallel(void (*fn)(int part, int parts, void *arg), void *arg);
 /* backend/sharpen.c: in (w x h, 0xAARRGGBB, alpha kept) sharpened into out, rows in parallel. */
 void PsxSharpen_Cpu(const uint32_t *in, uint32_t *out, int w, int h, int strength);
 
+/* dw2-pc-port picture filters of the HD picture, in the pass that sharpens (PsxHd_SharpenActive
+ * is non-zero when any of them is on; like sharpening they need a scale above 1, so the 1x
+ * picture is never touched):
+ *   fxaa        0 / 1: edge anti-aliasing from the picture's luma (softens stair steps)
+ *   brightness  0..100, 50 = unchanged
+ *   contrast    50..150 %, saturation 0..200 %, gamma 50..200 (100 = 1.0)
+ * Order per pixel: anti-aliasing, then sharpening (its weights from the unfiltered neighbours),
+ * then colour. With all of these at their defaults the pass is the plain sharpening as before.
+ * PsxHd_SetPost: game thread, a change bumps PsxHd_Serial. PsxHd_Post: the values in effect
+ * (sharpen 0 and everything neutral at scale 1). */
+typedef struct {
+    int sharpen, fxaa, brightness, contrast, saturation, gamma;
+} PsxHdPost;
+void PsxHd_SetPost(int fxaa, int brightness, int contrast, int saturation, int gamma);
+void PsxHd_Post(PsxHdPost *p);
+int PsxHdPost_Plain(const PsxHdPost *p); /* 1: nothing but (maybe) sharpening */
+/* backend/post.c: the pass on the CPU (software renderer), rows in parallel; in != out. */
+void PsxPost_Cpu(const uint32_t *in, uint32_t *out, int w, int h, const PsxHdPost *p);
+
 /* PG.10b GPU renderer (backend/psxgpu_hw.c, needs PsxHw_Init first): surfaces drawn on the GPU
  * instead of the software rasterizer; surfaces are rebuilt from the 1x VRAM on a switch. */
 void PsxHd_SetGpu(int on);

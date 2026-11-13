@@ -1,6 +1,34 @@
 # DW2 PC-Port – Testbericht (Stand: nach 1.5.0, 06.11.2026)
 
 
+## 1.6.2-dev (Branch `development/v1.6.2`, 13.11.2026) – noch nicht veröffentlicht
+
+Geprüft unter Linux x64 mit dem verifizierten USA-Image des Projektinhabers (Import: alle 3675 Dateien passen). GPU-Renderer hier nur auf Mesa lavapipe (Software-Vulkan), nicht auf echter Grafikkarte.
+
+**Regressionen gegenüber 1.6.0 (im Spiel, automatisch):**
+- Referenzbilder Original/Englisch: 6/6 bitgleich, vor und nach den neuen Filtern.
+- Speichern und Laden: 9/9 (inklusive vier beschädigter Karten).
+- Cheats: 31/31.
+- Domains: 33/33 geladen, 44 Kämpfe begonnen und beendet, kein Absturz, kein Hänger.
+- `textscript_test` 90/90, `fonts_test` bestanden, `hd_test` 0 Fehler.
+
+**Neu: Grafikprofile Original, Balanced, HD, Ultra**
+- `tests/profile_test.py` (Windows- und Linux-CI): Werte aller vier Profile, alte Namen `classic` und `remastered`, Vorrang einzelner Optionen, unbekannter Name wird abgelehnt.
+- Im Spiel gesehen: HD (Namenseingabe, 3× bei 720p-Fenster). Balanced und Ultra nicht im Bild angesehen.
+
+**Neu: FPS-Anzeige** (aus, FPS, FPS und Details)
+- Im Spiel gesehen (Bild ohne Fenster gerendert): Anzeige oben rechts mit Spiel- und Fensterrate, längstem Bild, Auflösung, Renderer, Version.
+- Nicht geprüft: Anzeige in einem echten Fenster unter Windows; die Zahlen selbst gegen eine Messung.
+
+**Neu: Kantenglättung (FXAA) und Farbregler (Helligkeit, Kontrast, Sättigung, Gamma)**
+- `hd_test`, beide Renderer: FXAA ändert nur Kanten (5,5 % der Pixel der Testszene); Sättigung 0 ergibt ein graues Bild; Gamma hellt auf bzw. dunkelt ab; das 1×-Bild bleibt von allen Filtern unberührt; GPU und Software stimmen überein (0,05 bis 0,21 % der Pixel weichen um mehr als 24 ab).
+- Im Spiel, Software-Renderer (Stadtkarte, 3D-Raum, 3×): reines Schärfen ist bitgleich mit 1.6.0; FXAA ändert etwa 44 000 von 920 000 Pixeln, die Farbregler das ganze Bild.
+- Im Spiel, GPU-Renderer im Fenster (lavapipe, 3D-Raum): reines Schärfen gleich 1.6.0 bis auf die animierte Spielfigur (die weicht auch zwischen zwei Läufen derselben Version ab); FXAA und Farbregler wirken sichtbar.
+- Nicht geprüft: echte Grafikkarte, Rechenzeit des Filterdurchgangs (GPU und Software), Zusammenspiel mit Smooth Frames auf echter Hardware.
+- Bekannt: FXAA wirkt auf das ganze Bild und macht auch Schrift etwas weicher. Es ist deshalb in keinem Profil eingeschaltet.
+
+**Noch nicht bearbeitet:** SMAA, MSAA, trilineare und anisotrope Filterung, 3D-Viewer, JPG-Texturen, Paketverwaltung, restliche Menüs, gelbe Pyramide.
+
 ## 1.6.0 (8.11.2026, freigegeben vom Projektinhaber)
 - Stand wie 1.6.0-preview12, nur Version und Release-Art geändert.
 - Breitbild-Dialogfenster (16:9, 21:9, Deutsch/Englisch, Hangar, Wache, Digi-Labor): Fenster über die ganze Breite, Text neu umbrochen, Namenszeile und JA/NEIN-Fragen unverändert.

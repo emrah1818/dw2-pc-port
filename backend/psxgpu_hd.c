@@ -48,6 +48,7 @@ static int frame_wide, pillar_next; /* this frame draws into the margins / next 
 static unsigned serial;
 static int last_margin; /* margin of the last ReadDisplay picture, output pixels */
 static int sharpen;     /* PR.2b strength 0..100 */
+static PsxHdPost post = { 0, 0, 50, 100, 100, 100 }; /* dw2-pc-port: the other picture filters (sharpen unused here) */
 static int texfilter;   /* dw2-pc-port: bilinear 3D textures */
 static int smooth2d;    /* dw2-pc-port: edge-smoothing upscale of 2D sprites (text, menus) */
 static uint32_t *sharp_buf; /* PR.2b: the picture before sharpening (soft) */
@@ -444,8 +445,39 @@ int PsxHd_Sharpen(void) {
     return sharpen;
 }
 
+void PsxHd_SetPost(int fxaa, int brightness, int contrast, int saturation, int gamma) {
+    PsxHdPost n;
+
+    n.sharpen = 0;
+    n.fxaa = fxaa != 0;
+    n.brightness = brightness < 0 ? 0 : brightness > 100 ? 100 : brightness;
+    n.contrast = contrast < 50 ? 50 : contrast > 150 ? 150 : contrast;
+    n.saturation = saturation < 0 ? 0 : saturation > 200 ? 200 : saturation;
+    n.gamma = gamma < 50 ? 50 : gamma > 200 ? 200 : gamma;
+    if (memcmp(&n, &post, sizeof(n)) != 0) {
+        post = n;
+        serial++; /* the host publishes the picture again */
+    }
+}
+
+int PsxHdPost_Plain(const PsxHdPost *p) {
+    return !p->fxaa && p->brightness == 50 && p->contrast == 100 && p->saturation == 100 && p->gamma == 100;
+}
+
+void PsxHd_Post(PsxHdPost *p) {
+    static const PsxHdPost off = { 0, 0, 50, 100, 100, 100 };
+
+    *p = scale > 1 ? post : off;
+    p->sharpen = scale > 1 ? sharpen : 0;
+}
+
+/* Non-zero when the published picture goes through the filter pass: the sharpening strength, or
+ * 1 for the other filters alone. The pass reads its values itself (PsxHd_Post). */
 int PsxHd_SharpenActive(void) {
-    return scale > 1 ? sharpen : 0;
+    if (scale <= 1) {
+        return 0;
+    }
+    return sharpen != 0 ? sharpen : PsxHdPost_Plain(&post) ? 0 : 1;
 }
 
 void PsxHd_SetWide(int on) {
@@ -1537,7 +1569,10 @@ int PsxHd_ReadDisplay(int x, int y, int w, int h, uint32_t *out, int *ow, int *o
             }
         }
         if (PsxHd_SharpenActive()) {
-            PsxSharpen_Cpu(sharp_buf, out, ww, h * scale, sharpen);
+            PsxHdPost pp;
+
+            PsxHd_Post(&pp);
+            PsxPost_Cpu(sharp_buf, out, ww, h * scale, &pp);
         }
         return 1;
     }

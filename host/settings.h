@@ -40,6 +40,12 @@ enum {
     SET_FPS_LIMIT,    /* dw2-pc-port: 0 = no limit, else 30..360 pictures per second (window thread) */
     SET_UI_STYLE,     /* dw2-pc-port: SET_UI_*: game windows and texts (host/uilayout.c) */
     SET_SHOW_FPS,     /* dw2-pc-port: SET_FPS_*: the picture rate top right (host/ui.cpp) */
+    /* dw2-pc-port picture filters (backend/psxgpu_hd.h PsxHd_SetPost): need a scale of 2x or more */
+    SET_FXAA,         /* 0 / 1: edge anti-aliasing */
+    SET_BRIGHTNESS,   /* 0..100, 50 = unchanged */
+    SET_CONTRAST,     /* 50..150 % */
+    SET_SATURATION,   /* 0..200 % */
+    SET_GAMMA,        /* 50..200 = 0.5..2.0 */
     SET_COUNT
 };
 enum { SET_FPS_OFF, SET_FPS_RATE, SET_FPS_DETAILS }; /* dw2-pc-port */

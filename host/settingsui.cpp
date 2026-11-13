@@ -100,6 +100,13 @@ const Tr k_tr[] = {
     { "VSync", "VSync" }, { "Waits for the monitor: no tearing, slightly more input delay.",
       "Wartet auf den Monitor: kein Tearing, etwas mehr Eingabeverzögerung." },
     { "FPS limit", "FPS-Begrenzung" }, { "no limit", "keine" },
+    { "Anti-aliasing (FXAA)", "Kantenglättung (FXAA)" },
+    { "Smooths stair-step edges of the scaled picture; text gets slightly softer.",
+      "Glättet Treppenkanten im skalierten Bild; Text wird etwas weicher." },
+    { "Brightness", "Helligkeit" }, { "Contrast", "Kontrast" }, { "Colour saturation", "Farbsättigung" }, { "Gamma", "Gamma" },
+    { "Reset colours", "Farben zurücksetzen" },
+    { "Anti-aliasing and the colour sliders need a resolution scale of 2x or more.",
+      "Kantenglättung und Farbregler brauchen eine Auflösung von 2x oder mehr." },
     { "FPS display", "FPS-Anzeige" }, { "FPS", "FPS" }, { "FPS and details", "FPS und Details" },
     { "Shows the game's pictures per second top right; details add the window's rate, the longest picture, resolution and renderer.",
       "Zeigt oben rechts die Bilder pro Sekunde des Spiels; Details ergänzen die Fensterrate, das längste Bild, Auflösung und Renderer." },
@@ -577,6 +584,34 @@ void display_tab(void) {
         ui_hint(T("Sharpens the scaled picture: needs a resolution scale of 2x or more."));
     } else {
         ui_hint(T("Contrast adaptive sharpening of the scaled picture."));
+    }
+    {
+        /* dw2-pc-port: picture filters (backend/psxgpu_hd.h PsxHd_SetPost) */
+        bool fxaa = Settings_Get(SET_FXAA) != 0;
+        static const struct { int id; const char *en, *tag; int lo, hi, neutral; const char *fmt; } sl[] = {
+            { SET_BRIGHTNESS, "Brightness", "bright", 0, 100, 50, "%d" },
+            { SET_CONTRAST, "Contrast", "contr", 50, 150, 100, "%d %%" },
+            { SET_SATURATION, "Colour saturation", "sat", 0, 200, 100, "%d %%" },
+            { SET_GAMMA, "Gamma", "gamma", 50, 200, 100, "%d" },
+        };
+
+        if (ImGui::Checkbox(TL("Anti-aliasing (FXAA)", "fxaa"), &fxaa)) {
+            Host_RequestSetting(SET_FXAA, fxaa);
+        }
+        ui_hint(T("Smooths stair-step edges of the scaled picture; text gets slightly softer."));
+        for (const auto &s : sl) {
+            int v = Settings_Get(s.id);
+
+            if (ImGui::SliderInt(TL(s.en, s.tag), &v, s.lo, s.hi, s.fmt)) {
+                Host_RequestSetting(s.id, v);
+            }
+        }
+        if (ImGui::Button(TL("Reset colours", "colreset"))) {
+            for (const auto &s : sl) {
+                Host_RequestSetting(s.id, s.neutral);
+            }
+        }
+        ui_hint(T("Anti-aliasing and the colour sliders need a resolution scale of 2x or more."));
     }
     if (ImGui::Checkbox(TL("Smooth frames (F9)", "smooth"), &smooth)) {
         Host_RequestSetting(SET_SMOOTH, smooth);

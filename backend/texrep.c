@@ -47,6 +47,14 @@ typedef struct {
     struct {
         int x, y, w, h;
     } dirty[8];
+    /* dw2-pc-port P0: VRAM copies inside a replacement file's upload (a model's blink: DR_MOVE of
+       an eye frame from the page's spare area over the eye). dst (VRAM words) holds a copy of the
+       original texels at src: primitives there keep the HD picture, with the same copy made in
+       it (derived_img), instead of falling back to the 1x texels for the length of the blink */
+    int nalias;
+    struct {
+        int sx, sy, dx, dy, w, h;
+    } alias[8];
 } Upload;
 
 #define MAX_ENTRIES 65536
@@ -948,6 +956,9 @@ static TexRepImg *idx_tile(int si, int ox, int oy, int rw, int rh, int k, const 
     return img;
 }
 
+static uint16_t vram(int x, int y);
+static void make_levels(TexRepImg *img, int k);
+
 static int overlaps(const Upload *u, int x, int y, int w, int h) {
     return x < u->x + u->w && u->x < x + w && y < u->y + u->h && u->y < y + h;
 }
@@ -956,6 +967,13 @@ void TexRep_OnWrite(int x, int y, int w, int h) {
     for (int i = 0; i < nuploads;) {
         Upload *u = &uploads[i];
         if (overlaps(u, x, y, w, h)) {
+            for (int a = 0; a < u->nalias;) { /* a copy written over: no longer one */
+                if (x < u->alias[a].dx + u->alias[a].w && u->alias[a].dx < x + w && y < u->alias[a].dy + u->alias[a].h &&
+                    u->alias[a].dy < y + h)
+                    u->alias[a] = u->alias[--u->nalias];
+                else
+                    a++;
+            }
             int whole = x <= u->x && y <= u->y && x + w >= u->x + u->w && y + h >= u->y + u->h, known = 0;
             if ((u->src >= 0 || u->orig != NULL) && !whole) {
                 for (int d = 0; d < u->ndirty && !known; d++)
@@ -980,6 +998,100 @@ void TexRep_OnWrite(int x, int y, int w, int h) {
             i++;
         }
     }
+}
+
+static int inside(const Upload *u, int x, int y, int w, int h) {
+    return x >= u->x && y >= u->y && x + w <= u->x + u->w && y + h <= u->y + u->h;
+}
+
+/* A VRAM to VRAM copy (DR_MOVE). Inside a replacement file's upload, from texels that are still
+   the original ones, it is remembered (Upload.alias): the HD picture gets the same copy. */
+void TexRep_OnMove(int sx, int sy, int dx, int dy, int w, int h) {
+    TexRep_OnWrite(dx, dy, w, h);
+    if (w <= 0 || h <= 0) return;
+    for (int i = 0; i < nuploads; i++) {
+        Upload *u = &uploads[i];
+        int same = 1, back = 1;
+        if (u->orig == NULL || !inside(u, sx, sy, w, h) || !inside(u, dx, dy, w, h)) continue;
+        for (int y = 0; y < h && same; y++)
+            for (int x = 0; x < w && same; x++) {
+                uint16_t o = u->orig[(size_t)(sy + y - u->y) * u->w + (sx + x - u->x)];
+                same = vram(dx + x, dy + y) == o;
+                back = back && vram(dx + x, dy + y) == u->orig[(size_t)(dy + y - u->y) * u->w + (dx + x - u->x)];
+            }
+        if (!same || back) continue; /* back: the original texels again, nothing to copy */
+        if (u->nalias == 8) {
+            tlog("upload %d,%d: more than 8 copied areas, the HD picture is not used where they are\n", u->x, u->y);
+            continue;
+        }
+        u->alias[u->nalias].sx = sx;
+        u->alias[u->nalias].sy = sy;
+        u->alias[u->nalias].dx = dx;
+        u->alias[u->nalias].dy = dy;
+        u->alias[u->nalias].w = w;
+        u->alias[u->nalias].h = h;
+        u->nalias++;
+    }
+}
+
+/* ---- derived pictures: a replacement with the upload's copies (aliases) made in it ---- */
+#define MAX_DERIVED 64
+static struct {
+    const TexRepImg *base;
+    uint64_t key;
+    TexRepImg *img;
+} derived[MAX_DERIVED];
+static int nderived, derived_full_logged;
+static uint64_t dirty_1x_total; /* primitives drawn 1x because their HD texels were written over */
+
+static TexRepImg *derived_img(const Upload *u, TexRepImg *base, int tpw) {
+    int k = base->w / (u->w * tpw);
+    uint64_t key = fnv(0xCBF29CE484222325ull, &u->nalias, sizeof(u->nalias));
+    for (int a = 0; a < u->nalias; a++) {
+        int r[6] = { u->alias[a].sx - u->x, u->alias[a].sy - u->y, u->alias[a].dx - u->x, u->alias[a].dy - u->y,
+                     u->alias[a].w, u->alias[a].h };
+        key = fnv(key, r, sizeof(r));
+    }
+    for (int i = 0; i < nderived; i++)
+        if (derived[i].base == base && derived[i].key == key) return derived[i].img;
+    size_t bytes = (size_t)base->w * (size_t)base->h * 4;
+    if (nderived == MAX_DERIVED || mem_bytes() + bytes * 4 / 3 > MEM_LIMIT) {
+        if (!derived_full_logged) {
+            derived_full_logged = 1;
+            tlog("blink / copied texels: no room for another HD picture (%d made, %u MiB), 1x texels drawn there\n",
+                 nderived, (unsigned)(mem_bytes() >> 20));
+        }
+        return NULL;
+    }
+    TexRepImg *img = calloc(1, sizeof(*img));
+    if (img == NULL || (img->px = malloc(bytes)) == NULL) {
+        free(img);
+        return NULL;
+    }
+    mem_add(bytes);
+    img->w = base->w;
+    img->h = base->h;
+    memcpy(img->px, base->px, bytes);
+    for (int a = 0; a < u->nalias; a++) { /* VRAM words -> texels -> replacement pixels */
+        int sx = (u->alias[a].sx - u->x) * tpw * k, sy = (u->alias[a].sy - u->y) * k;
+        int dx = (u->alias[a].dx - u->x) * tpw * k, dy = (u->alias[a].dy - u->y) * k;
+        int w = u->alias[a].w * tpw * k, h = u->alias[a].h * k;
+        for (int y = 0; y < h; y++)
+            memmove(img->px + (size_t)(dy + y) * img->w + dx, base->px + (size_t)(sy + y) * base->w + sx, (size_t)w * 4);
+    }
+    img->nlev = 1;
+    img->lev[0].w = img->w;
+    img->lev[0].h = img->h;
+    img->lev[0].px = img->px;
+    make_levels(img, k);
+    derived[nderived].base = base;
+    derived[nderived].key = key;
+    derived[nderived].img = img; /* kept for the program's life: the GPU pool knows pictures by address */
+    nderived++;
+    texrep_perf.derived++;
+    tlog("upload %d,%d: HD picture with %d copied area(s) made (blink / animated texels keep HD)\n", u->x, u->y,
+         u->nalias);
+    return img;
 }
 
 #define MAX_ORIGS 4096
@@ -1027,6 +1139,7 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     uploads[nuploads].hash = hv;
     uploads[nuploads].src = si;
     uploads[nuploads].ndirty = 0;
+    uploads[nuploads].nalias = 0;
     uploads[nuploads].orig = si < 0 && has_hash(hv) ? orig_words(hv, src, w, h) : NULL;
     nuploads++;
 }
@@ -1083,6 +1196,9 @@ static int SDLCALL loader_main(void *unused) {
  * decoded is finished, the thread is joined. Pictures already decoded stay until the process ends;
  * the game thread may still sample them. Afterwards load_png only answers from what is ready. */
 void TexRep_Shutdown(void) {
+    if (nentries > 0)
+        tlog("HD summary: %d copy picture(s) made, %llu primitive draw(s) fell back to 1x after a VRAM write\n", nderived,
+             (unsigned long long)dirty_1x_total);
     if (loader == NULL) return;
     SDL_LockMutex(load_lock);
     load_quit = 1;
@@ -1169,6 +1285,42 @@ int TexRep_SelfTestLoader(const char *png, int bw, int bh) {
     return 0;
 }
 
+/* halved copies for a power-of-two factor K (level 0 = px), averaged with alpha */
+static void make_levels(TexRepImg *img, int k) {
+        while ((k & (k - 1)) == 0 && k >> img->nlev >= 1 && img->nlev < MAX_LEVELS) {
+            int L = img->nlev, pw = img->lev[L - 1].w, ph = img->lev[L - 1].h, w = pw / 2, h = ph / 2;
+            const uint32_t *src = img->lev[L - 1].px;
+            uint32_t *dst = malloc((size_t)w * (size_t)h * 4);
+            if (dst == NULL || mem_bytes() + (size_t)w * h * 4 > MEM_LIMIT) {
+                free(dst);
+                break;
+            }
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    unsigned r = 0, g = 0, b = 0, a = 0, n = 0;
+                    for (int q = 0; q < 4; q++) {
+                        uint32_t p = src[(size_t)(2 * y + (q >> 1)) * pw + (size_t)(2 * x + (q & 1))];
+                        a += p >> 24;
+                        if ((p >> 24) >= 128) {
+                            r += (p >> 16) & 255;
+                            g += (p >> 8) & 255;
+                            b += p & 255;
+                            n++;
+                        }
+                    }
+                    /* transparent where most of the four are */
+                    dst[(size_t)y * w + x] = n == 0 || n < 2 ? (uint32_t)(a / 4) << 24 & 0x7F000000u
+                                                             : 0xFF000000u | (r / n) << 16 | (g / n) << 8 | (b / n);
+                }
+            }
+            mem_add((size_t)w * h * 4);
+            img->lev[L].w = w;
+            img->lev[L].h = h;
+            img->lev[L].px = dst;
+            img->nlev++;
+        }
+    }
+
 static TexRepImg *decode_png(Entry *e, int bw, int bh) {
     SDL_Surface *s, *c;
     TexRepImg *img;
@@ -1220,41 +1372,7 @@ static TexRepImg *decode_png(Entry *e, int bw, int bh) {
     img->lev[0].w = img->w;
     img->lev[0].h = img->h;
     img->lev[0].px = img->px;
-    {
-        int k = img->w / bw;
-        while ((k & (k - 1)) == 0 && k >> img->nlev >= 1 && img->nlev < MAX_LEVELS) {
-            int L = img->nlev, pw = img->lev[L - 1].w, ph = img->lev[L - 1].h, w = pw / 2, h = ph / 2;
-            const uint32_t *src = img->lev[L - 1].px;
-            uint32_t *dst = malloc((size_t)w * (size_t)h * 4);
-            if (dst == NULL || mem_bytes() + (size_t)w * h * 4 > MEM_LIMIT) {
-                free(dst);
-                break;
-            }
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    unsigned r = 0, g = 0, b = 0, a = 0, n = 0;
-                    for (int q = 0; q < 4; q++) {
-                        uint32_t p = src[(size_t)(2 * y + (q >> 1)) * pw + (size_t)(2 * x + (q & 1))];
-                        a += p >> 24;
-                        if ((p >> 24) >= 128) {
-                            r += (p >> 16) & 255;
-                            g += (p >> 8) & 255;
-                            b += p & 255;
-                            n++;
-                        }
-                    }
-                    /* transparent where most of the four are */
-                    dst[(size_t)y * w + x] = n == 0 || n < 2 ? (uint32_t)(a / 4) << 24 & 0x7F000000u
-                                                             : 0xFF000000u | (r / n) << 16 | (g / n) << 8 | (b / n);
-                }
-            }
-            mem_add((size_t)w * h * 4);
-            img->lev[L].w = w;
-            img->lev[L].h = h;
-            img->lev[L].px = dst;
-            img->nlev++;
-        }
-    }
+    make_levels(img, img->w / bw);
     SDL_AddAtomicInt(&a_loaded, 1);
     tlog("%s: %dx%d (%dx, %d levels)\n", e->path, img->w, img->h, img->w / bw, img->nlev);
     return img;
@@ -1391,6 +1509,7 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             stat_uses++;
             return 1;
         }
+        int aliased = 0;
         if (u->orig != NULL && u->ndirty) { /* written over in part since: only unchanged texels */
             int vx0 = u->x + (umin + du) / tpw, vx1 = u->x + (umax + du) / tpw, vy0 = u->y + vmin + dv, vy1 = u->y + vmax + dv;
             int same = 1;
@@ -1399,10 +1518,26 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
                       u->dirty[d].y <= vy1))
                     continue;
                 for (int y = vy0; y <= vy1 && same; y++)
-                    for (int x = vx0; x <= vx1 && same; x++)
-                        same = vram(x, y) == u->orig[(size_t)(y - u->y) * u->w + (x - u->x)];
+                    for (int x = vx0; x <= vx1 && same; x++) {
+                        /* the texel the HD picture holds there: the original one, or in a copied
+                           area (alias) the original one it was copied from */
+                        int ox = x, oy = y;
+                        for (int a = 0; a < u->nalias; a++)
+                            if (x >= u->alias[a].dx && x < u->alias[a].dx + u->alias[a].w && y >= u->alias[a].dy &&
+                                y < u->alias[a].dy + u->alias[a].h) {
+                                ox = x - u->alias[a].dx + u->alias[a].sx;
+                                oy = y - u->alias[a].dy + u->alias[a].sy;
+                                aliased = 1;
+                                break;
+                            }
+                        same = vram(x, y) == u->orig[(size_t)(oy - u->y) * u->w + (ox - u->x)];
+                    }
             }
-            if (!same) return 0;
+            if (!same) {
+                texrep_perf.dirty_1x++;
+                dirty_1x_total++;
+                return 0;
+            }
         }
         snprintf(base, sizeof(base), "%016llx_%dx%d", (unsigned long long)u->hash, u->w, u->h);
         if (mode < 2) {
@@ -1429,6 +1564,21 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
         if (e < 0 || (img = load_png(&entries[e], bw, bh, &k)) == NULL) {
             continue; /* the array is not in upload order (OnWrite fills gaps): another upload may hold
                          the box and a replacement (a runtime index source) */
+        }
+        if (aliased && u->nalias) {
+            /* every alias of the upload still holds its copy? (one picture for all of them) */
+            for (int a = 0; a < u->nalias && aliased; a++)
+                for (int y = 0; y < u->alias[a].h && aliased; y++)
+                    for (int x = 0; x < u->alias[a].w && aliased; x++)
+                        aliased = vram(u->alias[a].dx + x, u->alias[a].dy + y) ==
+                                  u->orig[(size_t)(u->alias[a].sy + y - u->y) * u->w + (u->alias[a].sx + x - u->x)];
+            TexRepImg *dimg = aliased ? derived_img(u, img, tpw) : NULL;
+            if (dimg == NULL) {
+                texrep_perf.dirty_1x++;
+                dirty_1x_total++;
+                return 0;
+            }
+            img = dimg;
         }
         use->img = img;
         use->k = k;

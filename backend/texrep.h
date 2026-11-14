@@ -57,6 +57,7 @@ void TexRep_Stats(int *loaded, int *failed, int *uses);
 /* VRAM writes (game thread, backend/psxgpu.c). */
 void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src);
 void TexRep_OnWrite(int x, int y, int w, int h);
+void TexRep_OnMove(int sx, int sy, int dx, int dy, int w, int h); /* VRAM copy (after it): OnWrite + HD aliases */
 
 /* A textured primitive (game thread, when it is queued): mode 0/1/2, texture page (tx, ty) in
  * VRAM words / lines, CLUT (cx, cy), texture window masks, texel box. Returns 1 and fills `use`
@@ -124,6 +125,8 @@ typedef struct {
     uint64_t gpu_ups, gpu_up_bytes, gpu_up_ns; /* replacement pool uploads (backend/psxgpu_hw.c) */
     uint64_t gpu_refused; /* pool lookups deferred (per-flush limit) or refused (full) */
     uint64_t gpu_smaller; /* drawn from a smaller level because the pool was full */
+    uint64_t derived;    /* HD pictures made with a blink's / copy's texels (TexRep_OnMove) */
+    uint64_t dirty_1x;   /* primitives drawn with 1x texels because their HD texels were written over */
     uint64_t flush_ns;   /* the HD renderer's flushes (backend/psxgpu_hd.c) */
     uint64_t sleep_ns;   /* the game thread waiting for its VBlank (host/vblank.c) */
     uint64_t used_kib;   /* the distinct runtime tiles drawn in this picture (the GPU pool's working set) */

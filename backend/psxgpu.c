@@ -567,7 +567,7 @@ void PsxGpu_MoveImage(int sx, int sy, int dx, int dy, int w, int h) {
             d[(dx + i) & (PSXGPU_VRAM_W - 1)] = line[i];
         }
     }
-    TexRep_OnWrite(dx, dy, w, h); /* dw2-pc-port texture packs */
+    TexRep_OnMove(sx, sy, dx, dy, w, h); /* dw2-pc-port texture packs (blink copies keep HD) */
     if (PsxHd_On()) {
         PsxHd_Refresh(dx, dy, w, h);
     }

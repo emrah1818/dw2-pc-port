@@ -94,6 +94,13 @@ void Host_SmoothScene(void);
  * values (n <= 16) and whether it is a shot set at once (hard: a change is a cut) or a camera that
  * moves smoothly (backend/pgxp.h Pgxp_Camera). */
 void Host_SmoothCamera(const int *v, int n, int hard);
+/* host/modconf.c: per-Digimon Mod Studio settings (Mods/digivolve_levels.json, battle_camera.json) */
+void Host_ModConfLoad(int no_mods);
+int Host_DigivolveMinLevel(int digi_id);
+void Host_BattleCamAdjust(int digi_id, int closeup, int *vpy, int *vpz, int *vry, int *rot_y);
+void Host_ModConfSetLevel(int digi_id, int level);
+int Host_ModConfParse(const char *data, unsigned long size, int which);
+void Host_ModConfReset(void);
 /* PG.3, for the game C (DW2_NATIVE): extra screen pixels on each side of a picture `width` wide
  * in 16:9 (0 in 4:3), so culls can let objects into the sides; and a mark that the frame being
  * built is a 2D picture that keeps black sides (pillarbox). */

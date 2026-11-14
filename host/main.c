@@ -541,7 +541,8 @@ HOST_ENTRY int main(int argc, char **argv) {
                 fprintf(stderr, "[mods] native image / heap exceeds the 16 MiB GPU link window\n");
                 return 1;
             }
-            puts("{\"mod_api\":2,\"max_file_bytes\":2097152,\"virtual_cd_limit\":450000}");
+            puts("{\"mod_api\":2,\"max_file_bytes\":2097152,\"virtual_cd_limit\":450000,"
+                 "\"digivolve_levels\":1,\"battle_camera\":1}");
             return 0;
         } else if (strcmp(argv[i], "--check-cache") == 0) {
             return check_mod_cache();

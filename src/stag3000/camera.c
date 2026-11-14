@@ -51,6 +51,19 @@ s32 Stg30_CamEaseStep(s32 a, s32 b) {
     return r;
 }
 
+#ifdef DW2_NATIVE
+/* Mod Studio: attack / target shot of battler I with its Mods/battle_camera.json settings */
+static void Stg30_CamModAdjust(Stg30CamWork *w, s32 i) {
+    int vpy = w->vpy, vpz = w->vpz, vry = w->vry, ry = w->rotY;
+
+    if (i < 0 || i >= 6) {
+        return;
+    }
+    Host_BattleCamAdjust(Stg30_Battle.digis[i].digiId, 0, &vpy, &vpz, &vry, &ry);
+    w->vpy = vpy, w->vpz = vpz, w->vry = vry, w->rotY = ry;
+}
+#endif
+
 void Stg30_CamEaseToward(Stg30CamWork *w, Stg30CamGoal *g) {
     s32 i;
 
@@ -136,6 +149,13 @@ void Stg30_CameraUpdate(Actor *arg0) {
                 g.vpy = -0xC30;
                 g.vpz = Stg30_CloseUpVpz[h];
                 g.vry = Stg30_CloseUpVry[h];
+#ifdef DW2_NATIVE
+                {   /* Mod Studio: Mods/battle_camera.json for this Digimon (host/modconf.c) */
+                    int vpy = g.vpy, vpz = g.vpz, vry = g.vry, ry = g.rotY;
+                    Host_BattleCamAdjust(Stg30_Battle.digis[i].digiId, 1, &vpy, &vpz, &vry, &ry);
+                    g.vpy = vpy, g.vpz = vpz, g.vry = vry, g.rotY = ry;
+                }
+#endif
                 Stg30_CamEaseToward(w, &g);
             }
             break;
@@ -244,6 +264,9 @@ void Stg30_CameraUpdate(Actor *arg0) {
                 w->originX -= 0x1E00;
                 w->originZ = -w->originZ;
             }
+#ifdef DW2_NATIVE
+            Stg30_CamModAdjust(w, arg0->stateLevel1 - 10);
+#endif
             break;
         case 16:
         case 17:
@@ -266,6 +289,9 @@ void Stg30_CameraUpdate(Actor *arg0) {
                 w->originX = (arg0->stateLevel1 - 19) * 0xA00 - 0xA00;
                 w->originZ = 0x1400;
             }
+#ifdef DW2_NATIVE
+            Stg30_CamModAdjust(w, arg0->stateLevel1 - 16);
+#endif
             break;
         case 25:
             w->originZ = -0x1400;

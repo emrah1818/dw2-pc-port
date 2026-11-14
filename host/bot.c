@@ -35,6 +35,8 @@ int Host_WritePngPacked(const char *path, const uint32_t *pixels, int w, int h);
 #include "main/156C.h"
 #if DW2_DEV || DW2_CHEATS
 #include "host/devedit.h"
+extern TaskEntry *Task_FindFirst(s32 arg0, s32 arg1, s32 arg2);
+extern s32 Gfx_ModelScreenBounds(Actor *a0, s32 *b);
 #endif
 
 extern SysState Sys_State;
@@ -224,6 +226,22 @@ void Host_BotTick(unsigned int wait) {
             }
             free(px);
             reply("ok %dx%d", w, h);
+        } else if (strcmp(cmd, "fbox") == 0) {
+            /* battle fighter I (0-5): screen rectangle of its model with the bone matrices of the
+             * last drawn frame (Gfx_ModelScreenBounds), GTE units around the screen centre, and
+             * the screen centre the game uses (Sys_State.centerX / centerY) */
+            int i = -1;
+            s32 b[6];
+            Actor *a;
+
+            sscanf(line, "%*s %d", &i);
+            a = (Actor *)(i >= 0 && i < 6 ? Task_FindFirst(0x509, -1, i) : NULL);
+            if (a == NULL || a->model == NULL || !Gfx_ModelScreenBounds(a, b)) {
+                reply("none");
+                continue;
+            }
+            reply("ok %d %d %d %d %d %d %d %d", (int)b[0], (int)b[1], (int)b[2], (int)b[3], (int)b[4], (int)b[5],
+                  (int)Sys_State.centerX.s, (int)Sys_State.centerY.s);
         } else if (strcmp(cmd, "dung") == 0) {
             DungState *d = Dung_StatePtr;
             static char cells[256 * 256 + 1];

@@ -548,6 +548,7 @@ static void load_mods(void) {
         printf("[mods] %d file override%s active\n", mod_count, mod_count == 1 ? "" : "s");
     }
     SDL_free(pref);
+    Host_ModConfLoad(no_mods); /* Mods/digivolve_levels.json, Mods/battle_camera.json */
 }
 
 /* dw2-pc-port language layer (host/lang.c): a patched copy of file `id` served like a mod file

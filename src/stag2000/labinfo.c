@@ -67,6 +67,27 @@ void Stg20_LabInfoUpdate(Actor *a) {
                 if (lv >= 4) {
                     lv = 3;
                 }
+#ifdef DW2_NATIVE
+                /* Mod Studio: Mods/digivolve_levels.json gives this Digimon its own minimum level
+                 * (host/modconf.c); Mega (rule 2) stays locked, the DP targets are unchanged */
+                if (Host_DigivolveMinLevel(d->digiId) > 0 && Stg20_DigivolveRuleTbl[0][t] != 2) {
+                    switch (d->level >= Host_DigivolveMinLevel(d->digiId) ? 1 : 0) {
+                    case 0:
+                        Stg20_MsgWinShowSysMsg(0x118);
+                        break;
+                    case 1:
+                        p = Digi_GetEvolutionTarget(d->digiId, d->dp);
+                        Stg20_MenuState.evoTargetId = p;
+                        if (p == 0) {
+                            Stg20_MsgWinShowSysMsg(0x11D);
+                        } else {
+                            Stg20_MsgWinShowDigiMsg(0x119, p);
+                        }
+                        break;
+                    }
+                    break;
+                }
+#endif
                 switch (Stg20_DigivolveRuleTbl[lv][t]) {
                 case 0:
                     Stg20_MsgWinShowSysMsg(0x118);

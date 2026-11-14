@@ -252,6 +252,12 @@ endif()
 add_executable(textscript_test ${CMAKE_SOURCE_DIR}/tests/textscript_test.c ${CMAKE_SOURCE_DIR}/host/textscript.c)
 target_include_directories(textscript_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+# dw2-pc-port Mod Studio settings reader (tests/modconf_test.c): made-up files, no game data.
+add_executable(modconf_test ${CMAKE_SOURCE_DIR}/tests/modconf_test.c ${CMAKE_SOURCE_DIR}/host/modconf.c)
+target_include_directories(modconf_test PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/psyq)
+target_compile_definitions(modconf_test PRIVATE DW2_NATIVE)
+target_link_libraries(modconf_test PRIVATE SDL3::SDL3)
+
 # dw2-pc-port renderer test (tests/hd_test.c): synthetic scene, software vs GPU renderer, no game data.
 add_executable(hd_test ${CMAKE_SOURCE_DIR}/tests/hd_test.c ${CMAKE_SOURCE_DIR}/backend/psxgpu.c
     ${CMAKE_SOURCE_DIR}/backend/psxgpu_hd.c ${CMAKE_SOURCE_DIR}/backend/psxgpu_hw.c ${CMAKE_SOURCE_DIR}/backend/pgxp.c

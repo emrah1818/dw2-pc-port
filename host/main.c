@@ -390,6 +390,49 @@ static int parse_press(int port, const char *arg) {
     return bits != 0 && len != 0 && Host_InputScriptAdd(port, at, bits, len);
 }
 
+/* dw2-pc-port --press-file FILE: one --press per line ("AT:BUTTONS[:LEN]"), "2 AT:..." for port 2,
+ * "dev WAIT:KIND=..." for a --devedit line, '#' comments. For long recorded test runs (the Windows
+ * command line is limited to 32767 characters). */
+static int press_file(const char *path) {
+    size_t size = 0;
+    char *text = (char *)SDL_LoadFile(path, &size), *line, *next;
+    int n = 0, bad = 0;
+
+    if (text == NULL) {
+        printf("[press] cannot read %s\n", path);
+        return 0;
+    }
+    for (line = text; line != NULL && *line != 0; line = next) {
+        next = strpbrk(line, "\r\n");
+        if (next != NULL) {
+            *next++ = 0;
+            while (*next == '\r' || *next == '\n') {
+                next++;
+            }
+        }
+        if (*line == 0 || *line == '#') {
+            continue;
+        }
+        if (strncmp(line, "dev ", 4) == 0) {
+#if DW2_DEV
+            if (!DevEdit_Script(line + 4)) {
+                bad++;
+            }
+#else
+            bad++;
+#endif
+        } else if (strncmp(line, "2 ", 2) == 0) {
+            bad += !parse_press(1, line + 2);
+        } else {
+            bad += !parse_press(0, line);
+        }
+        n++;
+    }
+    SDL_free(text);
+    printf("[press] %s: %d lines, %d not understood\n", path, n, bad);
+    return bad == 0;
+}
+
 static const char *pak = NULL;
 static const char *disc = NULL;
 static int no_window = 0;
@@ -598,6 +641,7 @@ HOST_ENTRY int main(int argc, char **argv) {
             hold_boot = (int)strtol(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--press") == 0 && i + 1 < argc && parse_press(0, argv[++i])) {
         } else if (strcmp(argv[i], "--press2") == 0 && i + 1 < argc && parse_press(1, argv[++i])) {
+        } else if (strcmp(argv[i], "--press-file") == 0 && i + 1 < argc && press_file(argv[++i])) {
         } else if (strcmp(argv[i], "--pad2-keys") == 0) {
             Host_InputPad2Keys();
         } else if (strcmp(argv[i], "--fast") == 0) {

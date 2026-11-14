@@ -74,7 +74,17 @@ u8 *Digi_GetDefaultName(s32 id) {
  * battle height bucket; values do not track model size (Monzaemon 857, Biyomon 1280), meaning
  * unproven. */
 s16 func_8001E79C(s32 id) {
+#ifdef DW2_NATIVE
+    /* dw2-pc-port: the battle close-up camera (stag3000 camera states 2-7) asks for a fighter slot
+     * whose digiId is already 0 (seen between turns with three party fighters and a two-enemy
+     * group). Digi_FindDataById(0) is NULL; on the PS1 the read hits low kernel RAM and the camera
+     * only picks a height bucket from it. Here: bucket 0, no crash. */
+    DigiData *d = Digi_FindDataById(id);
+
+    return d != NULL ? d->field_1E : 0;
+#else
     return Digi_FindDataById(id)->field_1E;
+#endif
 }
 
 /* Y offset of hit-fx slot 1 (the *_SpawnSkillHitFx of stag0000/3000/3500). */

@@ -493,7 +493,7 @@ static uint32_t rep_hash(const uint32_t *px) {
 }
 
 /* the word offset of a level's pixels in the pool, or UINT32_MAX (not resident, not allowed or no room) */
-static uint32_t rep_lookup(const uint32_t *px, uint32_t bytes, int alloc) {
+static uint32_t rep_lookup(const uint32_t *px, uint32_t bytes, int alloc, int *full) {
     uint32_t i = rep_hash(px);
 
     while (rep_tab[i].px != NULL) {
@@ -507,6 +507,10 @@ static uint32_t rep_lookup(const uint32_t *px, uint32_t bytes, int alloc) {
     }
     texrep_perf.gpu_refused++; /* undone below when it is taken */
     if (rep_top + bytes > REP_BYTES || rep_count >= REP_TABLE / 2 || rep_nup >= 256) {
+        if (full != NULL && rep_nup < 256) {
+            *full = 1; /* the caller tries a smaller level first (set_rep) */
+            return UINT32_MAX;
+        }
         if (rep_nup < 256 && !rep_full_logged) {
             rep_full_logged = 1;
             printf("[gpu] texture pack: the replacement memory (%u MiB) is full, it starts over at the next picture\n",
@@ -626,15 +630,48 @@ static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
     if (c->rep.img == NULL || !c->textured || rep_dead) {
         return;
     }
-    px = TexRep_GpuLevel(&c->rep, &kl, &nb, &w, &h, &idx8);
     du = c->rep.du;
     dv = c->rep.dv;
-    if (kl < 1 || kl > 16 || w > 0xFFFF || h > 0xFFFF || du < -512 || du > 511 || dv < -512 || dv > 511) {
-        return;
-    }
-    off = rep_lookup(px, idx8 ? ((uint32_t)w * (uint32_t)h + 3u) & ~3u : (uint32_t)w * (uint32_t)h * 4u, x == &game_ctx);
-    if (off == UINT32_MAX) {
-        return;
+    /* dw2-pc-port: the chosen level, or when the replacement memory is full a smaller one of the
+     * same picture (2048 x 4096 Mod Studio textures are 32 MiB each: three of them and their
+     * levels did not fit in 128 MiB, the pool started over every picture and the models showed
+     * the 1x texture most of the time). Only when no level fits does the pool start over. */
+    for (int drop = 0;; drop++) {
+        int full = 0;
+
+        px = TexRep_GpuLevelDrop(&c->rep, drop, &kl, &nb, &w, &h, &idx8);
+        if (px == NULL) {
+            if (x == &game_ctx && drop > 0) {
+                if (!rep_full_logged) {
+                    rep_full_logged = 1;
+                    printf("[gpu] texture pack: the replacement memory (%u MiB) is full, it starts over at the next picture\n",
+                           REP_BYTES >> 20);
+                }
+                rep_reset_req = 1;
+            }
+            return;
+        }
+        if (kl < 1 || kl > 16 || w > 0xFFFF || h > 0xFFFF || du < -512 || du > 511 || dv < -512 || dv > 511) {
+            return;
+        }
+        off = rep_lookup(px, idx8 ? ((uint32_t)w * (uint32_t)h + 3u) & ~3u : (uint32_t)w * (uint32_t)h * 4u,
+                         x == &game_ctx, x == &game_ctx ? &full : NULL);
+        if (off != UINT32_MAX) {
+            if (drop > 0) {
+                static int said;
+
+                texrep_perf.gpu_smaller++;
+                if (!said) {
+                    said = 1;
+                    printf("[gpu] texture pack: replacement memory full, drawing a smaller level of %dx%d (1/%d)\n",
+                           w << drop, h << drop, 1 << drop);
+                }
+            }
+            break;
+        }
+        if (!full) {
+            return; /* not resident yet (the next flush) */
+        }
     }
     r[0] = off;
     r[1] = (uint32_t)w | (uint32_t)h << 16;

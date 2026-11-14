@@ -1467,12 +1467,24 @@ static int out_px(const TexRepUse *use) {
 }
 
 const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h, int *idx8) {
+    return TexRep_GpuLevelDrop(use, 0, kl, n, w, h, idx8);
+}
+
+/* As TexRep_GpuLevel, DROP levels smaller (half the size each): the GPU renderer's fallback when
+ * its replacement memory cannot take the chosen level. NULL when there is no such level. */
+const uint32_t *TexRep_GpuLevelDrop(const TexRepUse *use, int drop, int *kl, int *n, int *w, int *h, int *idx8) {
     const TexRepImg *img0 = use->img;
     *idx8 = img0->idx8;
     int k = use->k, L = 0, op = out_px(use);
 
     while (L + 1 < img0->nlev && (k >> (L + 1)) >= op) {
         L++;
+    }
+    if (drop > 0) {
+        if (img0->idx8 || L + drop >= img0->nlev || (k >> (L + drop)) < 1) {
+            return NULL;
+        }
+        L += drop;
     }
     k >>= L;
     *kl = k;

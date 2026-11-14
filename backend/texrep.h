@@ -43,6 +43,7 @@ void TexRep_Enable(void); /* tests: undo TexRep_Disable */
 /* The replacement level for the GPU: its pixels (w x h; idx8: palette index bytes, (w*h+3)/4 words,
    coloured in the shader through the primitive's CLUT; else 0xAARRGGBB words) */
 const uint32_t *TexRep_GpuLevel(const TexRepUse *use, int *kl, int *n, int *w, int *h, int *idx8);
+const uint32_t *TexRep_GpuLevelDrop(const TexRepUse *use, int drop, int *kl, int *n, int *w, int *h, int *idx8);
 void TexRep_Shutdown(void); /* joins the loader thread (program exit) */
 /* every [textures] line also into this file (Mods/Textures/textures_log.txt) */
 void TexRep_SetLog(const char *path);
@@ -122,6 +123,7 @@ typedef struct {
     uint64_t style_ns;   /* Modern UI panel style */
     uint64_t gpu_ups, gpu_up_bytes, gpu_up_ns; /* replacement pool uploads (backend/psxgpu_hw.c) */
     uint64_t gpu_refused; /* pool lookups deferred (per-flush limit) or refused (full) */
+    uint64_t gpu_smaller; /* drawn from a smaller level because the pool was full */
     uint64_t flush_ns;   /* the HD renderer's flushes (backend/psxgpu_hd.c) */
     uint64_t sleep_ns;   /* the game thread waiting for its VBlank (host/vblank.c) */
     uint64_t used_kib;   /* the distinct runtime tiles drawn in this picture (the GPU pool's working set) */

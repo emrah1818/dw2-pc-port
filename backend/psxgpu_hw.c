@@ -77,6 +77,9 @@ static Ctx game_ctx = { .alpha = 1.0f }, win_ctx = { .alpha = 1.0f };
 
 /* dw2-pc-port texture packs on the GPU: see rep_lookup */
 #define REP_BYTES (128u << 20)
+/* dw2-pc-port: the largest level drawn (16 MiB = 1024 x 2048 pixels for a 128 x 256 page, 8 x):
+ * 2048 x 4096 levels (32 MiB) of three models already filled the pool */
+#define REP_LEVEL_MAX (16u << 20)
 #define REP_FRAME_BYTES (32u << 20)
 #define REP_TABLE 8192
 
@@ -640,6 +643,11 @@ static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
         int full = 0;
 
         px = TexRep_GpuLevelDrop(&c->rep, drop, &kl, &nb, &w, &h, &idx8);
+        if (px != NULL && !idx8 && (uint64_t)w * (uint64_t)h * 4u > REP_LEVEL_MAX &&
+            TexRep_GpuLevelDrop(&c->rep, drop + 1, &kl, &nb, &w, &h, &idx8) != NULL) {
+            continue; /* one level is at most REP_LEVEL_MAX: several large models stay resident */
+        }
+        px = TexRep_GpuLevelDrop(&c->rep, drop, &kl, &nb, &w, &h, &idx8);
         if (px == NULL) {
             if (x == &game_ctx && drop > 0) {
                 if (!rep_full_logged) {
@@ -663,7 +671,7 @@ static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
                 texrep_perf.gpu_smaller++;
                 if (!said) {
                     said = 1;
-                    printf("[gpu] texture pack: replacement memory full, drawing a smaller level of %dx%d (1/%d)\n",
+                    printf("[gpu] texture pack: drawing a smaller level of %dx%d (1/%d) to keep it in GPU memory\n",
                            w << drop, h << drop, 1 << drop);
                 }
             }

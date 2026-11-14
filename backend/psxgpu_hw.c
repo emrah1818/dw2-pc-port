@@ -645,7 +645,23 @@ static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
         px = TexRep_GpuLevelDrop(&c->rep, drop, &kl, &nb, &w, &h, &idx8);
         if (px != NULL && !idx8 && (uint64_t)w * (uint64_t)h * 4u > REP_LEVEL_MAX &&
             TexRep_GpuLevelDrop(&c->rep, drop + 1, &kl, &nb, &w, &h, &idx8) != NULL) {
-            continue; /* one level is at most REP_LEVEL_MAX: several large models stay resident */
+            /* one level is at most REP_LEVEL_MAX: several large models stay resident. Not silent:
+               logged once per size and counted (P0: no quiet quality fallbacks) */
+            static uint32_t said_sizes[8];
+            uint32_t key = (uint32_t)w << 16 | (uint32_t)h;
+            int known = 0, slot = -1;
+            for (int i = 0; i < 8; i++) {
+                if (said_sizes[i] == key) known = 1;
+                if (said_sizes[i] == 0 && slot < 0) slot = i;
+            }
+            if (!known && slot >= 0) {
+                said_sizes[slot] = key;
+                printf("[gpu] texture pack: a %dx%d level (%u MiB) is over the per-texture limit of %u MiB; "
+                       "the GPU renderer draws its %dx%d level (the soft renderer draws all levels)\n",
+                       w, h, (unsigned)(((uint64_t)w * h * 4u) >> 20), REP_LEVEL_MAX >> 20, w / 2, h / 2);
+            }
+            texrep_perf.gpu_smaller++;
+            continue;
         }
         px = TexRep_GpuLevelDrop(&c->rep, drop, &kl, &nb, &w, &h, &idx8);
         if (px == NULL) {

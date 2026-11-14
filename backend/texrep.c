@@ -37,6 +37,10 @@ typedef struct {
     int x, y, w, h;
     uint64_t hash;
     int src; /* index source (TexRep_AddIndexSource) with these pixels, or -1 */
+    /* dw2-pc-port: a replacement file's upload keeps its original words, so a partial write over
+       the page (a model's blink copy, a palette flash in its CLUT rows) only sends the primitives
+       whose texels really changed back to VRAM; before, any write dropped the whole replacement */
+    const uint16_t *orig;
     /* index sources: parts written over since (the game rewrites a few texels of a page every
        frame): primitives touching them draw the original, the rest keeps its runtime picture */
     int ndirty;
@@ -444,6 +448,7 @@ void TexRep_NoteUploadAt(const uint16_t *words, int w, int h, int vx, int vy) {
     uploads[nuploads].hash = hv;
     uploads[nuploads].src = si;
     uploads[nuploads].ndirty = 0;
+    uploads[nuploads].orig = NULL;
     nuploads++;
 }
 
@@ -952,7 +957,7 @@ void TexRep_OnWrite(int x, int y, int w, int h) {
         Upload *u = &uploads[i];
         if (overlaps(u, x, y, w, h)) {
             int whole = x <= u->x && y <= u->y && x + w >= u->x + u->w && y + h >= u->y + u->h, known = 0;
-            if (u->src >= 0 && !whole) {
+            if ((u->src >= 0 || u->orig != NULL) && !whole) {
                 for (int d = 0; d < u->ndirty && !known; d++)
                     known = u->dirty[d].x <= x && u->dirty[d].y <= y && u->dirty[d].x + u->dirty[d].w >= x + w &&
                             u->dirty[d].y + u->dirty[d].h >= y + h;
@@ -977,6 +982,26 @@ void TexRep_OnWrite(int x, int y, int w, int h) {
     }
 }
 
+#define MAX_ORIGS 4096
+static struct {
+    uint64_t hash;
+    uint16_t *words;
+} origs[MAX_ORIGS];
+static int norigs;
+
+/* the words of an upload a replacement file is named after (kept for the program's life: one per
+ * replacement file at most) */
+static const uint16_t *orig_words(uint64_t hv, const uint16_t *src, int w, int h) {
+    for (int i = 0; i < norigs; i++)
+        if (origs[i].hash == hv) return origs[i].words;
+    if (norigs == MAX_ORIGS) return NULL;
+    origs[norigs].words = malloc((size_t)w * (size_t)h * 2);
+    if (origs[norigs].words == NULL) return NULL;
+    memcpy(origs[norigs].words, src, (size_t)w * (size_t)h * 2);
+    origs[norigs].hash = hv;
+    return origs[norigs++].words;
+}
+
 void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     uint64_t hv;
     int dims[2] = { w, h };
@@ -988,7 +1013,8 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     hv = fnv(hv, src, (size_t)w * (size_t)h * 2);
     int si = src_of(hv, w, h);
     if (getenv("DW2_UPLOAD_LOG") && w == 32 && h == 256)
-        printf("[upload] %d,%d %dx%d src %d\n", x, y, w, h, si);
+        printf("[upload] %d,%d %dx%d src %d hash %016llx known %d\n", x, y, w, h, si, (unsigned long long)hv,
+               has_hash(hv));
     if (dump_dir == NULL && si < 0 && !has_hash(hv)) return;
     if (nuploads == MAX_UPLOADS) {
         memmove(uploads, uploads + 1, sizeof(uploads[0]) * (MAX_UPLOADS - 1)); /* drop the oldest */
@@ -1001,6 +1027,7 @@ void TexRep_OnUpload(int x, int y, int w, int h, const uint16_t *src) {
     uploads[nuploads].hash = hv;
     uploads[nuploads].src = si;
     uploads[nuploads].ndirty = 0;
+    uploads[nuploads].orig = si < 0 && has_hash(hv) ? orig_words(hv, src, w, h) : NULL;
     nuploads++;
 }
 
@@ -1364,6 +1391,19 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
             stat_uses++;
             return 1;
         }
+        if (u->orig != NULL && u->ndirty) { /* written over in part since: only unchanged texels */
+            int vx0 = u->x + (umin + du) / tpw, vx1 = u->x + (umax + du) / tpw, vy0 = u->y + vmin + dv, vy1 = u->y + vmax + dv;
+            int same = 1;
+            for (int d = 0; d < u->ndirty && same; d++) {
+                if (!(vx0 < u->dirty[d].x + u->dirty[d].w && u->dirty[d].x <= vx1 && vy0 < u->dirty[d].y + u->dirty[d].h &&
+                      u->dirty[d].y <= vy1))
+                    continue;
+                for (int y = vy0; y <= vy1 && same; y++)
+                    for (int x = vx0; x <= vx1 && same; x++)
+                        same = vram(x, y) == u->orig[(size_t)(y - u->y) * u->w + (x - u->x)];
+            }
+            if (!same) return 0;
+        }
         snprintf(base, sizeof(base), "%016llx_%dx%d", (unsigned long long)u->hash, u->w, u->h);
         if (mode < 2) {
             uint16_t pal[256];
@@ -1380,6 +1420,11 @@ int TexRep_Find(int mode, int tx, int ty, int cx, int cy, int tw_mask_x, int tw_
         } else {
             if (dump_dir != NULL && !was_dumped(base)) dump(u, mode, cx, cy, base);
             e = find_entry(base);
+        }
+        if (e >= 0 && getenv("DW2_TEXREP_LOG")) {
+            static int nl;
+            if (nl++ < 30) printf("[texrep] %s entry %d state %d uv %d..%d,%d..%d\n", name, e,
+                                  SDL_GetAtomicInt(&entries[e].state), umin + du, umax + du, vmin + dv, vmax + dv);
         }
         if (e < 0 || (img = load_png(&entries[e], bw, bh, &k)) == NULL) {
             continue; /* the array is not in upload order (OnWrite fills gaps): another upload may hold

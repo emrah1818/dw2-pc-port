@@ -143,6 +143,14 @@ static void load_textures(void) {
     PsxGpu_LoadImage(768, 0, 64, 64, &t15[0][0]);
     PsxGpu_LoadImage(0, 480, 16, 1, clut16);
     PsxGpu_LoadImage(0, 481, 256, 1, clut256);
+    {
+        /* dw2-pc-port: a partial write over the 4-bit sheet after its upload (a model's blink copy):
+           1 = texels no sprite uses (u 56..63, v 60..61), 2 = sprite 0's texels (u 0..7, v 16..17) */
+        extern int part_write;
+        static uint16_t junk[4] = { 0x3333, 0x3333, 0x3333, 0x3333 };
+        if (part_write == 1) PsxGpu_LoadImage(526, 60, 2, 2, junk);
+        if (part_write == 2) PsxGpu_LoadImage(512, 16, 2, 2, junk);
+    }
 }
 
 #define XY(x, y) ((uint32_t)(uint16_t)(x) | (uint32_t)(uint16_t)(y) << 16)
@@ -197,6 +205,7 @@ static void scene(void) {
 /* ---- runtime index sources (texrep.h TexRep_AddIndexSource, the modern fonts) ---- */
 static int idx_calls;
 int idx_swap;
+int part_write;
 static void checker_index(void *ctx, int k, int x0, int y0, int w, int h, uint8_t *idx) {
     (void)ctx;
     (void)x0;
@@ -222,6 +231,7 @@ static int checker_off(const uint32_t *px, int w, int scale) {
 /* ---- texture packs (backend/texrep.c) ---- */
 
 static uint32_t *render(int gpu, int filter, int s2d, int scale, int *w, int *h);
+extern int part_write;
 static int diff_count(const uint32_t *a, const uint32_t *b, int w, int scale, int x0, int y0, int x1, int y1, int tol);
 
 static void pattern(int hx, int hy, int *r, int *g, int *b) {
@@ -346,6 +356,26 @@ static void texture_pack_tests(int scale, const uint32_t *orig, int w) {
         check(diff_count(orig, hd, w, scale, 170, 20, 300, 130, 0) == 0, "textures: wrong-size 8-bit file ignored (original)");
         check(diff_count(orig, hd, w, scale, 40, 145, 150, 215, 0) == 0, "textures: broken 16-bit file ignored (original)");
         write_bmp("soft_texture_pack", hd, w, hh);
+        {
+            /* a partial write elsewhere in the sheet keeps the replacement for unchanged texels
+               (before: any write dropped the whole replacement: imported models lost their HD
+               texture at the first blink); a write over a sprite's texels draws that sprite from
+               VRAM again */
+            int w2, h2;
+            uint32_t *p1, *p2;
+            part_write = 1;
+            p1 = render(0, 0, 0, scale, &w2, &h2);
+            part_write = 2;
+            p2 = render(0, 0, 0, scale, &w2, &h2);
+            part_write = 0;
+            check(p1 != NULL && diff_count(hd, p1, w, scale, 180, 195, 180 + 3 * 34, 211, 0) == 0,
+                  "textures: partial write elsewhere in the page keeps the replacement");
+            check(p2 != NULL && diff_count(hd, p2, w, scale, 180, 195, 196, 211, 0) > 0 &&
+                  diff_count(hd, p2, w, scale, 214, 195, 180 + 3 * 34, 211, 0) == 0,
+                  "textures: partial write over a sprite's texels: that sprite from VRAM, the others replaced");
+            free(p1);
+            free(p2);
+        }
         {
             int loaded, failed, uses;
             TexRep_Stats(&loaded, &failed, &uses);

@@ -93,8 +93,12 @@ void Snd_ServiceSlotLoads(void) {
                 n = Snd_SlotBufSizes[i];
                 dst = e->headerBuf;
 #ifdef DW2_NATIVE
-                if ((u32)src + n > (u32)PS1_RAM(0x801FFFFF)) {
-                    n = (u32)PS1_RAM(0x801FFFFC) - (u32)src;
+                /* CD buffers now live in the native heap, outside PS1 RAM.
+                 * Bound the copy by the actual sector allocation, not a PS1
+                 * absolute end address (which would underflow here). */
+                Mem_Zero(dst, n);
+                if (n > (u32)Cd_GetFileSectors(e->vhFileId) * 2048u) {
+                    n = (u32)Cd_GetFileSectors(e->vhFileId) * 2048u;
                 }
 #else
                 if ((u32)src + n > 0x801FFFFF) {

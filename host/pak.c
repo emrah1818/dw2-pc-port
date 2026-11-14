@@ -437,7 +437,23 @@ done:
  * untouched and verified; an override may not be larger than the original file (the game's file
  * table gives each file its sector count) and Form 2 files (audio, movies) cannot be replaced.
  * --no-mods (Host_PakNoMods) turns the layer off. Deleting the file restores the original. */
+/* Viewer overlay API 2: original pack/index stay immutable. Larger Form-1
+ * replacements get virtual CD extents and adjusted game allocation counts. */
 static Uint8 *mod_data[PAK_FILES];
+static Uint64 mod_capacity[PAK_FILES];
+static int mod_lba[PAK_FILES];
+static int mod_sectors[PAK_FILES];
+static int virtual_next, virtual_first;
+static Uint64 mod_bytes;
+#define MOD_FILE_LIMIT (2u << 20)
+#define MOD_MEMORY_LIMIT (64u << 20)
+
+static int mod_at(int lba) {
+    if (virtual_first == 0 || lba < virtual_first) return -1;
+    for (int id = 0; id < PAK_FILES; id++)
+        if (mod_lba[id] && lba >= mod_lba[id] && lba < mod_lba[id] + mod_sectors[id]) return id;
+    return -1;
+}
 static int no_mods;
 static int mod_count;
 
@@ -473,19 +489,33 @@ static void load_mod_dir(const char *root) {
         }
         SDL_asprintf(&path, "%s/%s", dir, names[k]);
         data = path != NULL ? SDL_LoadFile(path, &size) : NULL;
-        if (data == NULL || size == 0 || size > files[id].size) {
+        if (data == NULL || size == 0 || size > MOD_FILE_LIMIT) {
             printf("[mods] %s: %s (original %llu bytes), skipped\n", path ? path : names[k],
-                   data == NULL ? "cannot read" : size == 0 ? "empty" : "larger than the original",
+                   data == NULL ? "cannot read" : size == 0 ? "empty" : "larger than 2 MiB",
                    (unsigned long long)files[id].size);
             SDL_free(data);
             SDL_free(path);
             continue;
         }
-        free(mod_data[id]);
-        mod_data[id] = calloc(1, (size_t)files[id].size);
-        if (mod_data[id] != NULL) {
-            memcpy(mod_data[id], data, size);
-            printf("[mods] file 0x%03lX replaced by %s (%zu bytes)\n", id, path, size);
+        Uint64 capacity = size > files[id].size ? ((Uint64)size + 2047) & ~(Uint64)2047 : files[id].size;
+        int extended = capacity > files[id].size;
+        int sectors = (int)(capacity / 2048);
+        if (mod_bytes - mod_capacity[id] + capacity > MOD_MEMORY_LIMIT ||
+            (extended && virtual_next + sectors >= 450000)) {
+            printf("[mods] %s: memory / virtual CD limit exceeded, skipped\n", path);
+            SDL_free(data); SDL_free(path); continue;
+        }
+        Uint8 *replacement = calloc(1, (size_t)capacity);
+        if (replacement != NULL) {
+            memcpy(replacement, data, size);
+            mod_bytes = mod_bytes - mod_capacity[id] + capacity;
+            free(mod_data[id]); mod_data[id] = replacement; mod_capacity[id] = capacity;
+            mod_lba[id] = extended ? virtual_next : 0;
+            mod_sectors[id] = sectors;
+            if (extended) virtual_next += sectors;
+            Cd_FileLba[id] = extended ? mod_lba[id] : files[id].lba;
+            Cd_FileSectors[id] = (unsigned short)sectors;
+            printf("[mods] API 2 file 0x%03lX replaced by %s (%zu bytes, allocation %llu)\n", id, path, size, (unsigned long long)capacity);
         }
         SDL_free(data);
         SDL_free(path);
@@ -498,6 +528,10 @@ static void load_mods(void) {
     const char *base = SDL_GetBasePath();
     char *pref = SDL_GetPrefPath("", "DW2-Online");
 
+    virtual_next = 1;
+    for (int k = 0; k < PAK_FILES; k++)
+        if (files[k].lba + files[k].sectors > virtual_next) virtual_next = files[k].lba + files[k].sectors;
+    virtual_first = virtual_next;
     if (no_mods) {
         printf("[mods] off (--no-mods)\n");
     } else {
@@ -526,6 +560,8 @@ void Host_PakSetLayer(int id, const Uint8 *data, int size) {
     }
     if (mod_data[id] == NULL) {
         mod_data[id] = calloc(1, (size_t)files[id].size);
+        mod_capacity[id] = files[id].size;
+        mod_bytes += files[id].size;
         lang_count++;
     }
     if (mod_data[id] != NULL) {
@@ -542,11 +578,11 @@ void *Host_PakReadFileLayered(int id, int *size) {
     void *buf;
 
     if (id >= 0 && id < PAK_FILES && mod_data[id] != NULL) {
-        buf = malloc((size_t)files[id].size + 1);
+        buf = malloc((size_t)mod_capacity[id] + 1);
         if (buf != NULL) {
-            memcpy(buf, mod_data[id], (size_t)files[id].size);
-            ((Uint8 *)buf)[files[id].size] = 0xFF;
-            *size = (int)files[id].size;
+            memcpy(buf, mod_data[id], (size_t)mod_capacity[id]);
+            ((Uint8 *)buf)[mod_capacity[id]] = 0xFF;
+            *size = (int)mod_capacity[id];
         }
         return buf;
     }
@@ -584,8 +620,9 @@ static int file_at(int lba) {
 }
 
 int Host_PakFileAt(int lba, int *sectors) {
-    int id = file_at(lba);
-
+    int id = mod_at(lba);
+    if (id >= 0) { *sectors = mod_sectors[id]; return id; }
+    id = file_at(lba);
     *sectors = id < 0 ? 0 : files[id].sectors;
     return id;
 }
@@ -597,6 +634,12 @@ int Host_PakSector(int lba, unsigned char *body) {
     Uint64 at;
 
     memset(body, 0, 2336);
+    int extended = mod_at(lba);
+    if (extended >= 0) {
+        memcpy(body, form1_subheader, 8);
+        memcpy(body + 8, mod_data[extended] + (size_t)(lba-mod_lba[extended])*2048, 2048);
+        return extended;
+    }
     if (id < 0) {
         return -1;
     }

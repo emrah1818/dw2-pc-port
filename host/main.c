@@ -11,9 +11,20 @@
 #endif
 
 #include "common.h"
+#include "main/156C.h"
+extern SysState Sys_State;
+extern Blk20 Gfx_IdentityMatrix;
+extern s32 Mem_Alloc(s32 size, s32 tag);
+extern void Mem_Zero(void *ptr, s32 size);
+extern ActorModel *Gfx_AttachModel(Actor *, s32);
+extern void Anim_SetModelAnimFile(Actor *, s32, s32);
+extern void Anim_StepModelAnim(Actor *);
+extern void Gfx_CalcModelBoneMatrices(Actor *);
+extern GfxTexSlot *Gfx_FindOrLoadTexSlot(s32);
 #include <SDL3/SDL.h>
 
 #include "backend/psxgpu_hd.h"
+#include "backend/texrep.h"
 #include "host/host.h"
 #include "host/host_sdl.h"
 #include "host/settings.h"
@@ -122,6 +133,43 @@ extern void Snd_NativeInit(void);
 extern u8 Ovl_LoadArea[];
 extern s32 Sys_FlipPending;
 
+/* No original game data required: reproduce full-cache pressure with a large heap. */
+static int check_mod_cache(void) {
+    extern void Mem_InitHeap(MemBlock *, s32);
+    extern void Cd_ClearFileCache(void);
+    extern void Cd_QueueFile(s32);
+    extern CdCacheEntry Cd_FileCache[0x50];
+    extern u16 Cd_FileSectors[];
+    int i, j, count;
+    Mem_InitHeap((MemBlock *)Dw2_ModHeap, DW2_MOD_HEAP_SIZE);
+    Cd_ClearFileCache();
+    Sys_State.frameCount = 100;
+    for (i = 0; i < 80; i++) {
+        CdCacheEntry *e = &Cd_FileCache[i];
+        e->fileId = 0x100+i; e->data = Mem_Alloc(32,3);
+        memset((void *)(uintptr_t)e->data, 0xA5, 32);
+        e->state = i == 1 ? 2 : 3; e->locked = i == 0; e->lastUsed = i;
+    }
+    for (j = 1; j <= 200; j++) {
+        CdCacheEntry *added;
+        Cd_FileSectors[j] = 1;
+        Cd_QueueFile(j);
+        added = Cd_FindCachedFile(j);
+        if (!added || added->state != 1 || !added->data ||
+            !Cd_FindCachedFile(0x100) || !Cd_FindCachedFile(0x101) ||
+            (j == 1 && Cd_FindCachedFile(0x102))) return 1;
+        added->state = 3; added->lastUsed = ++Sys_State.frameCount;
+        count = 0;
+        for (i = 0; i < 80; i++) if (Cd_FileCache[i].fileId) count++;
+        if (count != 80) return 1;
+    }
+    for (i = 0; i < 32; i++)
+        if (((unsigned char *)(uintptr_t)Cd_FindCachedFile(0x100)->data)[i] != 0xA5) return 1;
+    puts("[mod-check] 200 full-cache replacements passed; locked and pending entries preserved");
+    return 0;
+}
+
+static int check_mod_model, check_mod_anim, checking_mod;
 static unsigned int max_vblanks;
 static unsigned int vblanks;
 static const char *shot_dir;
@@ -214,7 +262,7 @@ void Host_DisplayOn(void) {
  * sign extended alike). */
 static void check_window(void) {
     uintptr_t base = (uintptr_t)Ps1_Ram & ~(uintptr_t)0xFFFFFF;
-    const void *probes[] = { Ps1_Ram, Ps1_Ram + PS1_RAM_SIZE - 1, Ps1_Scratchpad, Ovl_LoadArea, &Sys_FlipPending,
+    const void *probes[] = { Dw2_ModHeap, Dw2_ModHeap + DW2_MOD_HEAP_SIZE - 1, Ps1_Ram, Ps1_Ram + PS1_RAM_SIZE - 1, Ps1_Scratchpad, Ovl_LoadArea, &Sys_FlipPending,
                              (const void *)Sys_Main };
     volatile int stack_probe = 0;
     size_t i;
@@ -231,7 +279,7 @@ static void check_window(void) {
         exit(1);
     }
     printf("[host] 16 MB window 0x%08lX: Ps1_Ram %p, heap %p..%p\n", (unsigned long)base, (void *)Ps1_Ram,
-           PS1_RAM(0x80075000), PS1_RAM(0x801FF000));
+           (void *)Dw2_ModHeap, (void *)(Dw2_ModHeap+DW2_MOD_HEAP_SIZE));
 }
 
 void Host_WaitVBlank(void) {
@@ -240,6 +288,43 @@ void Host_WaitVBlank(void) {
     if (vblanks == 0) {
         printf("[host] first VBlank wait (Sys_FlipPending spin) reached after %u Psy-Q calls\n", Psyq_CallCount);
         fflush(stdout);
+    }
+    if (check_mod_model && !checking_mod && vblanks == 0) {
+        checking_mod = 1;
+        Actor *actor = (Actor *)Mem_Alloc(sizeof(Actor), 2);
+        Mem_Zero(actor, sizeof(Actor));
+        actor->u38.ptr38 = (ActorTransformView *)Mem_Alloc(sizeof(ActorTransformView), 2);
+        Mem_Zero(actor->u38.ptr38, sizeof(ActorTransformView));
+        actor->u38.ptr38->matrix = Gfx_IdentityMatrix;
+        ActorModel *model = Gfx_AttachModel(actor, check_mod_model);
+        if (model == NULL || model->boneCount <= 0 || model->boneCount > 64) {
+            fprintf(stderr, "[mod-check] invalid model\n"); exit(1);
+        }
+        Anim_SetModelAnimFile(actor, 0, check_mod_anim);
+        int changes = 0;
+        for (int tick = 0; tick < 120; tick++) {
+            int old = model->animPos;
+            Sys_State.frameDelta = 1;
+            Anim_StepModelAnim(actor);
+            Gfx_CalcModelBoneMatrices(actor);
+            if (old != model->animPos) changes++;
+        }
+        printf("[mod-check] model %04X: %d bones; animation %04X: 120 game steps, %d row advances\n", check_mod_model, model->boneCount, check_mod_anim, changes);
+        fflush(stdout);
+        if (!changes) exit(1);
+        GfxTexSlot *slot = Gfx_FindOrLoadTexSlot(check_mod_model << 16);
+        if (TexRep_Count() > 0) {
+            TexRepUse use;
+            TexRep_SetScale(4);
+            int found = 0;
+            for (int attempt = 0; attempt < 1000 && !found; attempt++) {
+                found = TexRep_Find(0, slot->vramX, slot->vramY, slot->vramX, slot->vramY+224, 0, 0, 0, 127, 0, 223, &use);
+                if (!found) SDL_Delay(10);
+            }
+            if (!found || use.k < 2) { fprintf(stderr, "[mod-check] HD replacement not resolved\n"); exit(1); }
+            printf("[mod-check] HD replacement resolved at %dx (sample %d)\n", use.k, TexRep_Sample(&use,32<<8,32<<8));
+        }
+        Host_Quit("native model/animation check passed");
     }
     vblanks++;
     Host_TraceTick(vblanks);
@@ -448,7 +533,23 @@ HOST_ENTRY int main(int argc, char **argv) {
 #endif
     SDL_SetAppMetadata("DW2-PC", DW2_VERSION, NULL);
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--vblanks") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--mod-api") == 0) {
+            uintptr_t base = (uintptr_t)Ps1_Ram & ~(uintptr_t)0xFFFFFF;
+            if (((uintptr_t)Dw2_ModHeap & ~(uintptr_t)0xFFFFFF) != base ||
+                (((uintptr_t)Dw2_ModHeap+DW2_MOD_HEAP_SIZE-1) & ~(uintptr_t)0xFFFFFF) != base ||
+                ((uintptr_t)main & ~(uintptr_t)0xFFFFFF) != base) {
+                fprintf(stderr, "[mods] native image / heap exceeds the 16 MiB GPU link window\n");
+                return 1;
+            }
+            puts("{\"mod_api\":2,\"max_file_bytes\":2097152,\"virtual_cd_limit\":450000}");
+            return 0;
+        } else if (strcmp(argv[i], "--check-cache") == 0) {
+            return check_mod_cache();
+        } else if (strcmp(argv[i], "--check-model") == 0 && i+2 < argc) {
+            check_mod_model = (int)strtol(argv[++i], NULL, 0);
+            check_mod_anim = (int)strtol(argv[++i], NULL, 0);
+            if (check_mod_model <= 0 || check_mod_model >= 3675 || check_mod_anim <= 0 || check_mod_anim >= 3675) return 2;
+        } else if (strcmp(argv[i], "--vblanks") == 0 && i + 1 < argc) {
             max_vblanks = (unsigned int)strtoul(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--pak") == 0 && i + 1 < argc) {
             pak = argv[++i];

@@ -5,3 +5,6 @@
  * (Mem_HeapStart, Sys_Main); the low part stays unused (main exe and overlay area on the PS1). */
 u_char Ps1_Ram[PS1_RAM_SIZE] __attribute__((aligned(16)));
 u_char Ps1_Scratchpad[PS1_SCRATCHPAD_SIZE] __attribute__((aligned(16)));
+
+/* Native overlay API 2 heap: PS1 address mirroring remains 2 MiB. */
+u_char Dw2_ModHeap[DW2_MOD_HEAP_SIZE] __attribute__((aligned(16)));

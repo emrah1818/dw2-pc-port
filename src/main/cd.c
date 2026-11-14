@@ -1,4 +1,7 @@
 #include "common.h"
+#ifdef DW2_NATIVE
+#include <stdlib.h>
+#endif
 #include "main/game.h"
 #include "main/task.h"
 #include "main/cdpreload.h"
@@ -138,6 +141,12 @@ s32 Cd_GetFileState(s32 arg0) {
 
 void Cd_EvictLruFile(void) {
     CdLruEntry *p = Cd_FindLruCachedFile();
+#ifdef DW2_NATIVE
+    if (p == NULL) {
+        printf("[cd] no completed unlocked cache entry available for eviction\n");
+        abort();
+    }
+#endif
     Mem_Free(p->data);
     p->fileId = 0;
     p->data = 0;
@@ -154,6 +163,14 @@ void Cd_QueueFile(s32 id) {
         return;
     }
     p = Cd_FindFreeCacheSlot();
+#ifdef DW2_NATIVE
+    /* The expanded heap can keep all 80 entries alive. Evict by slot pressure
+     * too, before allocating a new cache record, rather than dereferencing NULL. */
+    if (p == NULL) {
+        Cd_EvictLruFile();
+        p = Cd_FindFreeCacheSlot();
+    }
+#endif
     p->fileId = id;
     p->data = Mem_Alloc(Cd_GetFileSectors(id) << 11, 3);
     p->state = 1;

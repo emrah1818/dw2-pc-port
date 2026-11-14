@@ -131,7 +131,7 @@ void Sys_Main(void) {
     CdSetDebug(0);
     SetGraphDebug(0);
 #ifdef DW2_NATIVE
-    Mem_InitHeap(Mem_HeapStart, (s32)PS1_RAM(0x801FF000) - (s32)Mem_HeapStart);
+    Mem_InitHeap(Mem_HeapStart, DW2_MOD_HEAP_SIZE);
 #else
     Mem_InitHeap(Mem_HeapStart, 0x801FF000 - (s32)Mem_HeapStart);
 #endif

@@ -14,6 +14,8 @@
  * Ps1_Ram and so the heap share one 16 MB window: base | link gives the pointer back. */
 
 #define PS1_RAM_SIZE 0x200000
+#define DW2_MOD_HEAP_SIZE (6 * 1024 * 1024)
+extern u_char Dw2_ModHeap[DW2_MOD_HEAP_SIZE];
 /* 1 KB on the PS1; twice that here: Gfx_CalcModelBoneMatrices keeps its bone nodes there
  * (0x44 bytes each, 0x48 in 64-bit, P1.12). */
 #define PS1_SCRATCHPAD_SIZE 0x800

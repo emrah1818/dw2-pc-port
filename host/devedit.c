@@ -60,7 +60,7 @@ static const char *const kind_names[DEVEDIT_KINDS] = {
     "storage", "part", "broken", "beetle", "warp", "floor", "dump",
 };
 static const char *const field_names[DEVDIGI_FIELDS] = {
-    "species", "level", "maxlevel", "exp", "dp", "hp", "maxhp", "mp", "maxmp", "attack", "defense", "speed",
+    "species", "level", "maxlevel", "exp", "dp", "hp", "maxhp", "mp", "maxmp", "attack", "defense", "speed", "state",
 };
 static const char *const beetle_names[4] = { "hp", "maxhp", "ep", "maxep" };
 
@@ -405,6 +405,16 @@ static void apply_digi(const DevEdit *e) {
         }
         old = d->exp;
         d->exp = e->c;
+        break;
+    case DEVDIGI_STATE:
+        /* 1 = Digimon server, 2 = carried, 3..5 = party place (the order Battle Mode and the
+         * team menu list them) */
+        if (!clamp_ok(e->c, 1, 5)) {
+            refuse(e, "state 1..5");
+            return;
+        }
+        old = d->state;
+        d->state = (u8)e->c;
         break;
     case DEVDIGI_DP:
         if (!clamp_ok(e->c, 0, 255)) {

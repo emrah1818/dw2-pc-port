@@ -31,3 +31,20 @@ stammen aus `integration/pc_port_api2.patch` des Viewers (0.15b) und liegen jetz
 | Viewer-Mod Renamon (DW3) im Gazimon-Slot, erster Kampf der Boot Domain | geladen, gezeigt, Kampf beendet | – |
 
 Nicht geprüft: Windows-Hardware, längere Spielstände, Domain- und Cheat-Test mit einer echten Karte.
+
+## Mod Studio settings, Format 1 (`host/modconf.c`)
+
+Two optional files next to `Mods/files`, read once at start (user folder, then the folder of
+`dw2.exe`, which wins). Missing, broken or newer-format files change nothing; the game then
+behaves exactly as without them. `--mod-api` reports `"digivolve_levels":1,"battle_camera":1`.
+
+- `Mods/digivolve_levels.json`: `{"format":1,"levels":{"<id>":<level 1-99>}}`. In the Digi-Lab
+  (`Stg20_LabInfo`) a Digimon with an entry may digivolve from that level on instead of the
+  fixed band (Rookie 11, Champion 21, Ultimate 31). Mega stays locked.
+- `Mods/battle_camera.json`: `{"format":1,"digimon":{"<id>":{"distance":<percent 25-400>,
+  "height":<units>,"target":<units>,"angle":<4096 = 360 deg>,"closeup":{same keys}}}}`.
+  The top-level keys change the attack and target shots (camera states 10-21) of that
+  Digimon, `closeup` the command / target-select close-up (states 2-7). Missing keys keep
+  the game's values.
+
+Tests: `modconf_test` (made-up files, no game data).

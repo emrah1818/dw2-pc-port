@@ -774,6 +774,7 @@ int main(int argc, char **argv) {
     }
 
     dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, NULL);
+    PsxHw_SetTrueColor(0); /* the comparisons against the software renderer are in the PS1's 15 bit */
     if (dev != NULL && PsxHw_Init(dev)) {
         have_gpu = 1;
         printf("GPU device: %s\n", SDL_GetGPUDeviceDriver(dev));

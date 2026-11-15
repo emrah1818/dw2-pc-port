@@ -108,6 +108,7 @@ void PsxHd_SetGpu(int on);
  * after PsxHd_SetGpu(0), before the device goes. */
 int PsxHw_Init(void *device);
 void PsxHw_Shutdown(void);
+void PsxHw_SetTrueColor(int on); /* GPU renderer: replacement textures 24 bit (default) or 15 bit + dither */
 /* PG.10 b3: pictures for the host's present (another thread): a GPU texture w x h (render target
  * + sampler), its release (deferred by SDL_GPU until the GPU is done with it), and a copy of the
  * texture rect x, y, w, h of src to the top-left corner of dst, submitted on the calling thread. */

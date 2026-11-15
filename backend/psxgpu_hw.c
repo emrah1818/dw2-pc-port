@@ -77,7 +77,7 @@ static Ctx game_ctx = { .alpha = 1.0f }, win_ctx = { .alpha = 1.0f };
 
 /* dw2-pc-port texture packs on the GPU: see rep_lookup */
 #define REP_BYTES (128u << 20) /* one pool: the storage buffer range every Vulkan device allows */
-#define REP_POOLS 4            /* up to 512 MiB of replacement pixels, pools made as they are needed */
+#define REP_POOLS 7            /* up to 896 MiB of replacement pixels, pools made as they are needed (SDL_GPU: 8 storage buffers per stage, one is the VRAM) */
 /* the largest level drawn on the GPU: a whole pool (2048 x 4096 = 32 MiB, the largest the packs
  * hold, is drawn as it is; until rc5 16 MiB, so 2048 x 4096 showed its 1024 x 2048 level) */
 #define REP_LEVEL_MAX REP_BYTES
@@ -97,6 +97,11 @@ typedef struct {
 } RepUp;
 
 static SDL_GPUBuffer *rep_buf[REP_POOLS], *rep_dummy;
+/* replacement textures in 8 bits per channel (DW2_HD_15BIT=1 or PsxHw_SetTrueColor(0): as the PS1, 15 bit + dither) */
+static int hw_truecolor = 1;
+void PsxHw_SetTrueColor(int on) {
+    hw_truecolor = on != 0;
+}
 static int rep_pools = REP_POOLS; /* DW2_TEXTURE_MEMORY_MB / pools the device gave */
 static SDL_GPUTransferBuffer *rep_tb; /* rep_upload */
 static uint32_t rep_tb_size;
@@ -267,13 +272,17 @@ int PsxHw_Init(void *device) {
         di.size = 256;
         rep_dummy = SDL_CreateGPUBuffer(dev, &di); /* bound while no replacement exists */
         {
-            /* DW2_TEXTURE_MEMORY_MB: at most this much replacement memory (128 MiB pools, 128..512) */
+            /* DW2_TEXTURE_MEMORY_MB: at most this much replacement memory (128 MiB pools, 128..896) */
             const char *mb = SDL_getenv("DW2_TEXTURE_MEMORY_MB");
             if (mb != NULL && SDL_atoi(mb) > 0) {
                 int n = SDL_atoi(mb) / 128;
                 rep_pools = n < 1 ? 1 : n > REP_POOLS ? REP_POOLS : n;
             }
-            printf("[gpu] texture pack memory: up to %d x %u MiB, made when needed\n", rep_pools, REP_BYTES >> 20);
+            if (SDL_getenv("DW2_HD_15BIT") != NULL && SDL_atoi(SDL_getenv("DW2_HD_15BIT")) != 0) {
+                hw_truecolor = 0;
+            }
+            printf("[gpu] texture pack memory: up to %d x %u MiB, made when needed; replacement colours: %s\n", rep_pools,
+                   REP_BYTES >> 20, hw_truecolor ? "24 bit" : "15 bit (as the PS1)");
         }
         if (rep_dummy == NULL) {
             vram_buf = NULL;
@@ -1166,7 +1175,7 @@ static void draw_built(Ctx *x, SDL_GPUCommandBuffer *cmd, int scale, SDL_GPUBuff
             SDL_GPUBufferBinding vb;
             SDL_FColor half = { 0.5f, 0.5f, 0.5f, 0.5f };
             float size[2];
-            int par[4] = { scale, x->ox, x->oy, 0 };
+            int par[4] = { scale, x->ox, x->oy, hw_truecolor };
 
             if (pass != NULL) {
                 SDL_EndGPURenderPass(pass);

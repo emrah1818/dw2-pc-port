@@ -29,25 +29,37 @@ layout(std430, set = 2, binding = 0) readonly buffer Vram {
     uint px[];
 } vram;
 
-/* dw2-pc-port: the replacement memory is up to four 128 MiB pools (the guaranteed Vulkan storage
- * buffer range each); v_rep.x = pool << 28 | the level's first word in that pool */
+/* dw2-pc-port: the replacement memory is up to seven 128 MiB pools (SDL_GPU binds at most 8 storage buffers per stage, one is the VRAM) (the guaranteed Vulkan storage
+ * buffer range each); v_rep.x = pool << 28 (3 bits) | the level's first word in that pool */
 layout(std430, set = 2, binding = 1) readonly buffer Rep0 { uint px[]; } rep0;
 layout(std430, set = 2, binding = 2) readonly buffer Rep1 { uint px[]; } rep1;
 layout(std430, set = 2, binding = 3) readonly buffer Rep2 { uint px[]; } rep2;
 layout(std430, set = 2, binding = 4) readonly buffer Rep3 { uint px[]; } rep3;
+layout(std430, set = 2, binding = 5) readonly buffer Rep4 { uint px[]; } rep4;
+layout(std430, set = 2, binding = 6) readonly buffer Rep5 { uint px[]; } rep5;
+layout(std430, set = 2, binding = 7) readonly buffer Rep6 { uint px[]; } rep6;
 
 uint rep_px(uint i) {
-    uint pool = v_rep.x >> 28;
-    if (pool == 0u) return rep0.px[i];
-    if (pool == 1u) return rep1.px[i];
-    if (pool == 2u) return rep2.px[i];
-    return rep3.px[i];
+    switch (v_rep.x >> 28) {
+    case 0u: return rep0.px[i];
+    case 1u: return rep1.px[i];
+    case 2u: return rep2.px[i];
+    case 3u: return rep3.px[i];
+    case 4u: return rep4.px[i];
+    case 5u: return rep5.px[i];
+    default: return rep6.px[i];
+    }
 }
 
 layout(set = 3, binding = 0) uniform Params {
     int scale;
     int ox, oy; /* PR.34: the target's origin in surface pixels (0 for a surface) */
+    int truecolor; /* dw2-pc-port: replacement textures keep 8 bits per channel (no 15-bit rounding, no dither) */
 } params;
+
+/* the 8-bit colour of the last rep_sample (true-colour replacements), valid when rep8_ok */
+ivec3 rep8;
+bool rep8_ok = false;
 
 const int dither_tbl[16] = int[16](-4, 0, -3, 1, 2, -2, 3, -1, -3, 1, -4, 0, 3, -1, 2, -2);
 
@@ -146,6 +158,8 @@ int rep_sample(ivec2 f, uint tex) {
         if (cnt == 0u || cnt * 2u < all) {
             return -1; /* mostly transparent there */
         }
+        rep8 = ivec3(r / cnt, g / cnt, b / cnt);
+        rep8_ok = true;
         return int((r / cnt) >> 3 | ((g / cnt) >> 3) << 5 | ((b / cnt) >> 3) << 10);
     }
     hx += du * k;
@@ -157,6 +171,8 @@ int rep_sample(ivec2 f, uint tex) {
     if ((p >> 24) < 128u) {
         return -1;
     }
+    rep8 = ivec3((p >> 16) & 255u, (p >> 8) & 255u, p & 255u);
+    rep8_ok = true;
     return int(((p >> 19) & 31u) | ((p >> 11) & 31u) << 5 | ((p >> 3) & 31u) << 10);
 }
 
@@ -207,6 +223,16 @@ void main() {
         bool tsemi = (t & 0x8000u) != 0u;
         if ((pass == 1 && tsemi) || (pass == 2 && !tsemi)) {
             discard;
+        }
+        if (params.truecolor != 0 && rep8_ok) {
+            /* true colour: the replacement's 8 bits per channel, lit like the PS1 (texel * colour / 128),
+             * without rounding to 15 bit and without dither; blending and the mask bit as below */
+            ivec3 c8 = (tex & 4u) == 0u ? clamp((rep8 * col) >> 7, 0, 255) : rep8;
+            if (pass == 2 && abr == 3) {
+                c8 >>= 2;
+            }
+            o_col = vec4(vec3(c8) / 255.0, (mask || tsemi) ? 1.0 : 0.0);
+            return;
         }
         c5 = ivec3(t & 31u, (t >> 5) & 31u, (t >> 10) & 31u);
         if ((tex & 4u) == 0u) {

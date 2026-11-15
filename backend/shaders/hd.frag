@@ -29,9 +29,20 @@ layout(std430, set = 2, binding = 0) readonly buffer Vram {
     uint px[];
 } vram;
 
-layout(std430, set = 2, binding = 1) readonly buffer Rep {
-    uint px[];
-} rep;
+/* dw2-pc-port: the replacement memory is up to four 128 MiB pools (the guaranteed Vulkan storage
+ * buffer range each); v_rep.x = pool << 28 | the level's first word in that pool */
+layout(std430, set = 2, binding = 1) readonly buffer Rep0 { uint px[]; } rep0;
+layout(std430, set = 2, binding = 2) readonly buffer Rep1 { uint px[]; } rep1;
+layout(std430, set = 2, binding = 3) readonly buffer Rep2 { uint px[]; } rep2;
+layout(std430, set = 2, binding = 4) readonly buffer Rep3 { uint px[]; } rep3;
+
+uint rep_px(uint i) {
+    uint pool = v_rep.x >> 28;
+    if (pool == 0u) return rep0.px[i];
+    if (pool == 1u) return rep1.px[i];
+    if (pool == 2u) return rep2.px[i];
+    return rep3.px[i];
+}
 
 layout(set = 3, binding = 0) uniform Params {
     int scale;
@@ -90,7 +101,7 @@ uint fetch_box(int u, int v, uint tex, uint win, ivec4 box) {
 int rep_sample(ivec2 f, uint tex) {
     int k = int(v_rep.z & 31u), n = int((v_rep.z >> 5) & 7u);
     int du = int((v_rep.z >> 8) & 1023u) - 512, dv = int((v_rep.z >> 18) & 1023u) - 512;
-    int W = int(v_rep.y & 0xFFFFu), H = int(v_rep.y >> 16), base = int(v_rep.x);
+    int W = int(v_rep.y & 0xFFFFu), H = int(v_rep.y >> 16), base = int(v_rep.x & 0x0FFFFFFFu);
     int umin = int(v_rep.w & 255u), umax = int((v_rep.w >> 8) & 255u);
     int vmin = int((v_rep.w >> 16) & 255u), vmax = int((v_rep.w >> 24) & 255u);
     int hx = (f.x * k) >> 8, hy = (f.y * k) >> 8;
@@ -106,7 +117,7 @@ int rep_sample(ivec2 f, uint tex) {
             return -1;
         }
         uint a = uint(hy * W + hx);
-        uint i = (rep.px[uint(base) + (a >> 2)] >> ((a & 3u) * 8u)) & 255u;
+        uint i = (rep_px(uint(base) + (a >> 2)) >> ((a & 3u) * 8u)) & 255u;
         uint c = i != 0u ? vram16(int((tex >> 9) & 63u) * 16 + int(i), int((tex >> 15) & 511u)) : 0u;
         return c == 0u ? -1 : int(c | 0x10000u); /* with its own mask bit (TexRep_Sample) */
     }
@@ -121,7 +132,7 @@ int rep_sample(ivec2 f, uint tex) {
                 if (sx < 0 || sy < 0 || sx >= W || sy >= H) {
                     continue;
                 }
-                uint p = rep.px[base + sy * W + sx];
+                uint p = rep_px(uint(base + sy * W + sx));
                 all++;
                 if ((p >> 24) < 128u) {
                     continue;
@@ -142,7 +153,7 @@ int rep_sample(ivec2 f, uint tex) {
     if (hx < 0 || hy < 0 || hx >= W || hy >= H) {
         return -1;
     }
-    uint p = rep.px[base + hy * W + hx];
+    uint p = rep_px(uint(base + hy * W + hx));
     if ((p >> 24) < 128u) {
         return -1;
     }

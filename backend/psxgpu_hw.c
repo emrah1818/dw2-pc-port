@@ -76,10 +76,11 @@ static int dirty_y0, dirty_y1 = PSXGPU_VRAM_H; /* VRAM rows to upload before the
 static Ctx game_ctx = { .alpha = 1.0f }, win_ctx = { .alpha = 1.0f };
 
 /* dw2-pc-port texture packs on the GPU: see rep_lookup */
-#define REP_BYTES (128u << 20)
-/* dw2-pc-port: the largest level drawn (16 MiB = 1024 x 2048 pixels for a 128 x 256 page, 8 x):
- * 2048 x 4096 levels (32 MiB) of three models already filled the pool */
-#define REP_LEVEL_MAX (16u << 20)
+#define REP_BYTES (128u << 20) /* one pool: the storage buffer range every Vulkan device allows */
+#define REP_POOLS 4            /* up to 512 MiB of replacement pixels, pools made as they are needed */
+/* the largest level drawn on the GPU: a whole pool (2048 x 4096 = 32 MiB, the largest the packs
+ * hold, is drawn as it is; until rc5 16 MiB, so 2048 x 4096 showed its 1024 x 2048 level) */
+#define REP_LEVEL_MAX REP_BYTES
 #define REP_FRAME_BYTES (32u << 20)
 #define REP_TABLE 8192
 
@@ -92,14 +93,16 @@ typedef struct {
 typedef struct {
     const uint32_t *px;
     uint32_t off, bytes;
+    int pool;
 } RepUp;
 
-static SDL_GPUBuffer *rep_buf, *rep_dummy;
+static SDL_GPUBuffer *rep_buf[REP_POOLS], *rep_dummy;
+static int rep_pools = REP_POOLS; /* DW2_TEXTURE_MEMORY_MB / pools the device gave */
 static SDL_GPUTransferBuffer *rep_tb; /* rep_upload */
 static uint32_t rep_tb_size;
 static RepEnt rep_tab[REP_TABLE];
 static int rep_count, rep_dead, rep_reset_req, rep_full_logged;
-static uint32_t rep_top; /* bytes used */
+static uint32_t rep_top[REP_POOLS]; /* bytes used per pool */
 static RepUp rep_up[256];
 static int rep_nup;
 static uint32_t rep_frame;
@@ -186,7 +189,7 @@ int PsxHw_Init(void *device) {
 
     dev = device;
     vs = make_shader(spv_hd_vert, sizeof(spv_hd_vert), SDL_GPU_SHADERSTAGE_VERTEX, 0);
-    fs = make_shader(spv_hd_frag, sizeof(spv_hd_frag), SDL_GPU_SHADERSTAGE_FRAGMENT, 2);
+    fs = make_shader(spv_hd_frag, sizeof(spv_hd_frag), SDL_GPU_SHADERSTAGE_FRAGMENT, 1 + REP_POOLS);
     if (vs == NULL || fs == NULL) {
         printf("[gpu] GPU renderer: shaders failed: %s\n", SDL_GetError());
         dev = NULL;
@@ -263,6 +266,15 @@ int PsxHw_Init(void *device) {
         di.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
         di.size = 256;
         rep_dummy = SDL_CreateGPUBuffer(dev, &di); /* bound while no replacement exists */
+        {
+            /* DW2_TEXTURE_MEMORY_MB: at most this much replacement memory (128 MiB pools, 128..512) */
+            const char *mb = SDL_getenv("DW2_TEXTURE_MEMORY_MB");
+            if (mb != NULL && SDL_atoi(mb) > 0) {
+                int n = SDL_atoi(mb) / 128;
+                rep_pools = n < 1 ? 1 : n > REP_POOLS ? REP_POOLS : n;
+            }
+            printf("[gpu] texture pack memory: up to %d x %u MiB, made when needed\n", rep_pools, REP_BYTES >> 20);
+        }
         if (rep_dummy == NULL) {
             vram_buf = NULL;
         }
@@ -309,13 +321,16 @@ void PsxHw_Shutdown(void) {
     sharpen_sampler = NULL;
     SDL_ReleaseGPUBuffer(dev, vram_buf);
     SDL_ReleaseGPUTransferBuffer(dev, vram_tb);
-    if (rep_buf != NULL) {
-        SDL_ReleaseGPUBuffer(dev, rep_buf);
+    for (int p = 0; p < REP_POOLS; p++) {
+        if (rep_buf[p] != NULL) {
+            SDL_ReleaseGPUBuffer(dev, rep_buf[p]);
+        }
+        rep_buf[p] = NULL;
     }
     if (rep_dummy != NULL) {
         SDL_ReleaseGPUBuffer(dev, rep_dummy);
     }
-    rep_buf = rep_dummy = NULL;
+    rep_dummy = NULL;
     if (rep_tb != NULL) {
         SDL_ReleaseGPUTransferBuffer(dev, rep_tb);
     }
@@ -323,7 +338,7 @@ void PsxHw_Shutdown(void) {
     rep_tb_size = 0;
     memset(rep_tab, 0, sizeof(rep_tab));
     rep_count = rep_nup = 0;
-    rep_top = 0;
+    memset(rep_top, 0, sizeof(rep_top));
     rep_dead = rep_reset_req = rep_full_logged = 0;
     if (read_tb != NULL) {
         SDL_ReleaseGPUTransferBuffer(dev, read_tb);
@@ -509,15 +524,21 @@ static uint32_t rep_lookup(const uint32_t *px, uint32_t bytes, int alloc, int *f
         return UINT32_MAX;
     }
     texrep_perf.gpu_refused++; /* undone below when it is taken */
-    if (rep_top + bytes > REP_BYTES || rep_count >= REP_TABLE / 2 || rep_nup >= 256) {
+    int pool = -1;
+    for (int p = 0; p < rep_pools && pool < 0; p++) {
+        if (rep_top[p] + bytes <= REP_BYTES) {
+            pool = p;
+        }
+    }
+    if (pool < 0 || rep_count >= REP_TABLE / 2 || rep_nup >= 256) {
         if (full != NULL && rep_nup < 256) {
             *full = 1; /* the caller tries a smaller level first (set_rep) */
             return UINT32_MAX;
         }
         if (rep_nup < 256 && !rep_full_logged) {
             rep_full_logged = 1;
-            printf("[gpu] texture pack: the replacement memory (%u MiB) is full, it starts over at the next picture\n",
-                   REP_BYTES >> 20);
+            printf("[gpu] texture pack: the replacement memory (%d x %u MiB) is full, it starts over at the next picture\n",
+                   rep_pools, REP_BYTES >> 20);
         }
         rep_reset_req = 1;
         return UINT32_MAX;
@@ -525,29 +546,38 @@ static uint32_t rep_lookup(const uint32_t *px, uint32_t bytes, int alloc, int *f
     if (rep_frame + bytes > REP_FRAME_BYTES && rep_frame > 0) {
         return UINT32_MAX; /* the next flush */
     }
-    if (rep_buf == NULL) {
+    if (rep_buf[pool] == NULL) {
         SDL_GPUBufferCreateInfo bi;
 
         SDL_zero(bi);
         bi.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
         bi.size = REP_BYTES;
-        rep_buf = SDL_CreateGPUBuffer(dev, &bi);
-        if (rep_buf == NULL) {
-            printf("[gpu] texture pack: no GPU memory for replacements (%s), originals are used\n", SDL_GetError());
-            rep_dead = 1;
+        rep_buf[pool] = SDL_CreateGPUBuffer(dev, &bi);
+        if (rep_buf[pool] == NULL) {
+            /* logged, never silent: the pools made so far are what this device gives */
+            printf("[gpu] texture pack: no GPU memory for replacement pool %d (%s): %d x %u MiB in use\n", pool + 1,
+                   SDL_GetError(), pool, REP_BYTES >> 20);
+            if (pool == 0) {
+                rep_dead = 1;
+                return UINT32_MAX;
+            }
+            rep_pools = pool;
+            rep_reset_req = 1;
             return UINT32_MAX;
         }
+        printf("[gpu] texture pack: replacement pool %d made (%u MiB)\n", pool + 1, REP_BYTES >> 20);
     }
     texrep_perf.gpu_refused--;
     rep_tab[i].px = px;
-    rep_tab[i].off = rep_top / 4u;
+    rep_tab[i].off = (uint32_t)pool << 28 | rep_top[pool] / 4u;
     rep_tab[i].words = bytes / 4u;
     rep_up[rep_nup].px = px;
-    rep_up[rep_nup].off = rep_top;
+    rep_up[rep_nup].off = rep_top[pool];
     rep_up[rep_nup].bytes = bytes;
+    rep_up[rep_nup].pool = pool;
     rep_nup++;
     rep_count++;
-    rep_top += bytes;
+    rep_top[pool] += bytes;
     rep_frame += bytes;
     return rep_tab[i].off;
 }
@@ -558,7 +588,7 @@ static void rep_begin(void) {
     if (rep_reset_req) {
         memset(rep_tab, 0, sizeof(rep_tab));
         rep_count = 0;
-        rep_top = 0;
+        memset(rep_top, 0, sizeof(rep_top));
         rep_nup = 0;
         rep_reset_req = 0;
         rep_full_logged = 0;
@@ -611,7 +641,7 @@ static void rep_upload(SDL_GPUCopyPass *copy) {
 
         src.transfer_buffer = rep_tb;
         src.offset = at;
-        dst.buffer = rep_buf;
+        dst.buffer = rep_buf[rep_up[i].pool];
         dst.offset = rep_up[i].off;
         dst.size = rep_up[i].bytes;
         SDL_UploadToGPUBuffer(copy, &src, &dst, false);
@@ -668,8 +698,8 @@ static void set_rep(Ctx *x, Vert *v, int n, const PsxHdCmd *c) {
             if (x == &game_ctx && drop > 0) {
                 if (!rep_full_logged) {
                     rep_full_logged = 1;
-                    printf("[gpu] texture pack: the replacement memory (%u MiB) is full, it starts over at the next picture\n",
-                           REP_BYTES >> 20);
+                    printf("[gpu] texture pack: the replacement memory (%d x %u MiB) is full, it starts over at the next picture\n",
+                           rep_pools, REP_BYTES >> 20);
                 }
                 rep_reset_req = 1;
             }
@@ -1151,8 +1181,12 @@ static void draw_built(Ctx *x, SDL_GPUCommandBuffer *cmd, int scale, SDL_GPUBuff
             vb.offset = 0;
             SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
             {
-                SDL_GPUBuffer *sb[2] = { vram, rep_buf != NULL ? rep_buf : rep_dummy };
-                SDL_BindGPUFragmentStorageBuffers(pass, 0, sb, 2);
+                SDL_GPUBuffer *sb[1 + REP_POOLS];
+                sb[0] = vram;
+                for (int p = 0; p < REP_POOLS; p++) {
+                    sb[1 + p] = rep_buf[p] != NULL ? rep_buf[p] : rep_dummy;
+                }
+                SDL_BindGPUFragmentStorageBuffers(pass, 0, sb, 1 + REP_POOLS);
             }
             SDL_SetGPUBlendConstants(pass, half);
             size[0] = target != NULL ? (float)tw : (float)((cur->w + 2 * cur->m) * scale);

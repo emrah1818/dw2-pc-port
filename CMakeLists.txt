@@ -283,7 +283,7 @@ if(NOT WIN32)
 endif()
 
 # Real DNA resolver/rank getter against synthetic species; no copyrighted game data.
-add_executable(dna_test tests/dna_test.c host/modconf.c src/stag2000/dna.c src/main/digibase.c src/stag2000/digilab.c)
+add_executable(dna_test tests/dna_test.c host/modconf.c src/stag2000/dna.c tests/dna_game_runtime.c)
 target_include_directories(dna_test PRIVATE ${DW2_INCLUDES} ${CMAKE_SOURCE_DIR}/psyq)
 target_compile_definitions(dna_test PRIVATE ${DW2_DEFS})
 target_compile_options(dna_test PRIVATE ${DW2_GAME_FLAGS} -ffunction-sections -fdata-sections)

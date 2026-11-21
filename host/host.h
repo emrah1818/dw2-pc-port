@@ -101,6 +101,9 @@ void Host_BattleCamAdjust(int digi_id, int closeup, int *vpy, int *vpz, int *vry
 void Host_ModConfSetLevel(int digi_id, int level);
 int Host_ModConfParse(const char *data, unsigned long size, int which);
 void Host_ModConfReset(void);
+int Host_DnaResult(int a, int b);
+int Host_DnaRank(int id);
+int Host_DnaHasPartner(int id);
 /* PG.3, for the game C (DW2_NATIVE): extra screen pixels on each side of a picture `width` wide
  * in 16:9 (0 in 4:3), so culls can let objects into the sides; and a mark that the frame being
  * built is a 2D picture that keeps black sides (pillarbox). */

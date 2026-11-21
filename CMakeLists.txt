@@ -281,3 +281,18 @@ target_link_options(gte_test PRIVATE ${DW2_ARCH_FLAG})
 if(NOT WIN32)
     target_link_libraries(gte_test PRIVATE m)
 endif()
+
+# Real DNA resolver/rank getter against synthetic species; no copyrighted game data.
+add_executable(dna_test tests/dna_test.c host/modconf.c src/stag2000/dna.c src/main/digibase.c src/stag2000/digilab.c)
+target_include_directories(dna_test PRIVATE ${DW2_INCLUDES} ${CMAKE_SOURCE_DIR}/psyq)
+target_compile_definitions(dna_test PRIVATE ${DW2_DEFS})
+target_compile_options(dna_test PRIVATE ${DW2_GAME_FLAGS} -ffunction-sections -fdata-sections)
+target_link_libraries(dna_test PRIVATE SDL3::SDL3)
+target_link_options(dna_test PRIVATE -Wl,--gc-sections)
+if(WIN32)
+    # Cd_GetFileOrNull returns the game's 32-bit address representation.
+    target_link_options(dna_test PRIVATE -Wl,--image-base=0x01000000 -Wl,--disable-dynamicbase
+        $<$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>:-Wl,--disable-high-entropy-va>)
+else()
+    target_link_options(dna_test PRIVATE -no-pie)
+endif()

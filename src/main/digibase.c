@@ -1,4 +1,7 @@
 #include "common.h"
+#ifdef DW2_NATIVE
+#include "host/host.h"
+#endif
 #include "main/game.h"
 #include "main/task.h"
 #include "main/cdpreload.h"
@@ -41,6 +44,10 @@ u8 Digi_GetType(s32 digiId) {
 }
 
 s32 Digi_GetRank(s32 digiId) {
+#ifdef DW2_NATIVE
+    int rank = Host_DnaRank(digiId);
+    if (rank >= 0) return rank;
+#endif
     return (Digi_FindBaseData(digiId)->u4.field_4h >> 4) & 0xF;
 }
 

@@ -222,9 +222,103 @@ static void top_member(Js *j, const char *key, void *ctx) {
     }
 }
 
+/* DNA rules are unordered species pairs. The result rank is a species property,
+ * used by every game screen and saved roster entry, not only the DNA animation. */
+static unsigned char dna_results[IDS][IDS];
+static signed char dna_ranks[IDS]; /* rank + 1; zero means original rank */
+
+typedef struct {
+    unsigned char results[IDS][IDS];
+    signed char ranks[IDS];
+    int version, format, rules;
+} DnaDoc;
+typedef struct { int a, b, result, rank, seen; } DnaRule;
+
+static int dna_int(Js *j) {
+    long value;
+    const char *start;
+    ws(j);
+    start = j->p;
+    if (start >= j->end || *start < '0' || *start > '9') { j->bad = 1; return 0; }
+    value = num(j);
+    for (const char *p = start; p < j->p; p++)
+        if (*p < '0' || *p > '9') j->bad = 1;
+    if (value > 255 || (j->p - start > 1 && *start == '0')) j->bad = 1;
+    return (int)value;
+}
+static void dna_field(Js *j, const char *key, void *ctx) {
+    DnaRule *r = ctx;
+    int bit, *field;
+    if (!strcmp(key, "a")) { bit = 1; field = &r->a; }
+    else if (!strcmp(key, "b")) { bit = 2; field = &r->b; }
+    else if (!strcmp(key, "result")) { bit = 4; field = &r->result; }
+    else if (!strcmp(key, "rank")) { bit = 8; field = &r->rank; }
+    else { j->bad = 1; return; }
+    if (r->seen & bit) { j->bad = 1; return; }
+    r->seen |= bit;
+    *field = dna_int(j);
+}
+static void dna_top(Js *j, const char *key, void *ctx) {
+    DnaDoc *d = ctx;
+    if (!strcmp(key, "format")) {
+        char name[64];
+        if (d->format || !str(j, name, sizeof name) || strcmp(name, "dw2-dna-overrides")) j->bad = 1;
+        d->format = 1;
+    } else if (!strcmp(key, "version")) {
+        if (d->version) j->bad = 1;
+        d->version = dna_int(j);
+    } else if (!strcmp(key, "rules")) {
+        if (d->rules++ || j->p >= j->end || *j->p++ != '[') { j->bad = 1; return; }
+        ws(j);
+        if (j->p < j->end && *j->p == ']') { j->p++; return; }
+        while (!j->bad) {
+            DnaRule r = {0};
+            if (!members(j, dna_field, &r) || r.seen != 15 || r.a < 1 || r.b < 1 ||
+                r.result < 1 || r.a == r.b || r.rank > 3 ||
+                d->results[r.a][r.b] || (d->ranks[r.result] && d->ranks[r.result] != r.rank + 1)) {
+                j->bad = 1; return;
+            }
+            d->results[r.a][r.b] = d->results[r.b][r.a] = r.result;
+            d->ranks[r.result] = r.rank + 1;
+            ws(j);
+            if (j->p < j->end && *j->p == ']') { j->p++; return; }
+            if (j->p >= j->end || *j->p++ != ',') { j->bad = 1; return; }
+        }
+    }
+}
+static int dna_parse(const char *data, unsigned long size) {
+    DnaDoc *d;
+    Js j = {data, data + size, 0};
+    int ok;
+    if (size > 4 * 1024 * 1024) return 0;
+    d = calloc(1, sizeof *d);
+    if (!d) return 0;
+    ok = members(&j, dna_top, d);
+    ws(&j);
+    ok = ok && !j.bad && j.p == j.end && d->format == 1 && d->version == 1 && d->rules == 1;
+    if (ok) {
+        memcpy(dna_results, d->results, sizeof dna_results);
+        memcpy(dna_ranks, d->ranks, sizeof dna_ranks);
+    }
+    free(d);
+    return ok;
+}
+int Host_DnaResult(int a, int b) {
+    return a > 0 && a < IDS && b > 0 && b < IDS ? dna_results[a][b] : 0;
+}
+int Host_DnaHasPartner(int id) {
+    if (id <= 0 || id >= IDS) return 0;
+    for (int b = 1; b < IDS; b++) if (dna_results[id][b]) return 1;
+    return 0;
+}
+int Host_DnaRank(int id) {
+    return id > 0 && id < IDS ? dna_ranks[id] - 1 : -1;
+}
+
 /* parses one file's text (WHICH 0 levels, 1 camera); a damaged or newer file changes nothing.
  * Returns 1 if read, 0 if ignored. */
 int Host_ModConfParse(const char *data, unsigned long size, int which) {
+    if (which == 2) return dna_parse(data, size);
     unsigned char save_levels[IDS];
     Cam save_cams[IDS], save_close[IDS];
     int save_nl = n_levels, save_nc = n_cams;
@@ -272,6 +366,8 @@ static void read_file(const char *root, const char *name, int which) {
 }
 
 void Host_ModConfReset(void) {
+    memset(dna_results, 0, sizeof dna_results);
+    memset(dna_ranks, 0, sizeof dna_ranks);
     memset(levels, 0, sizeof levels);
     memset(cams, 0, sizeof cams);
     memset(closeups, 0, sizeof closeups);
@@ -287,8 +383,9 @@ void Host_ModConfLoad(int no_mods) {
     if (no_mods) return;
     base = SDL_GetBasePath();
     pref = SDL_GetPrefPath("", "DW2-Online");
-    for (int which = 0; which < 2; which++) {
-        const char *name = which ? "battle_camera.json" : "digivolve_levels.json";
+    for (int which = 0; which < 3; which++) {
+        const char *names[] = {"digivolve_levels.json", "battle_camera.json", "dna_overrides.json"};
+        const char *name = names[which];
         if (pref) read_file(pref, name, which);
         if (base) read_file(base, name, which); /* next to the exe wins */
     }

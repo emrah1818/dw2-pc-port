@@ -48,3 +48,27 @@ behaves exactly as without them. `--mod-api` reports `"digivolve_levels":1,"batt
   the game's values.
 
 Tests: `modconf_test` (made-up files, no game data).
+
+### DNA overrides (Studio 0.99, interface `dna_overrides: 1`)
+
+Optional UTF-8 `Mods/dna_overrides.json`:
+
+```json
+{"format":"dw2-dna-overrides","version":1,"rules":[{"a":1,"b":2,"result":3,"rank":3}]}
+```
+
+IDs must be present species 1–255 in the game's active DIGIMNDT table; the Studio
+checks this before authoring/export. Partners must differ. A+B equals B+A. Invalid,
+duplicate, contradictory or newer documents are ignored atomically. An executable-folder
+file replaces the entire preference-folder DNA document. Empty rules clear all overrides.
+Missing pairs use the original DNA table. `--no-mods` also disables DNA overrides.
+Restart the game after installing/enabling/disabling a mod.
+
+Rank is a species property: a result's rank (0 Rookie, 1 Champion, 2 Ultimate,
+3 Mega) applies everywhere `Digi_GetRank` is used, including other instances of that
+species. All rules with that result must agree. Removing the mod restores its original
+rank. Start level is rank*10+1; inherited maximum level is raised to the start level if
+necessary. Mega results use Ultimate's HP/MP/attack/defense/speed inheritance factors.
+The lab's club/type restrictions still apply; explicitly configured Rookie partners are
+allowed, including as the first partner when that species has a configured DNA pair.
+This does not add a new model/species: import/replace a slot first to use e.g. Omnimon.

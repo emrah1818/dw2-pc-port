@@ -3,6 +3,7 @@
 #include "stag2000/areaselect.h"
 #include "stag2000/msgwin.h"
 #ifdef DW2_NATIVE
+#include "host/host.h"
 /* declared with its return type (an implicit int declaration reads the unextended high bits
  * natively) */
 u8 Stg20_GetDnaResult(s32 a, s32 b);
@@ -108,7 +109,11 @@ void Stg20_LabInfoUpdate(Actor *a) {
                 Stg20_MsgWinShowDigiMsg(0x126, Stg20_MenuState.evoTargetId);
                 break;
             case 2:
-                if (Digi_GetRank(w->digi->digiId) != 0) {
+                if (Digi_GetRank(w->digi->digiId) != 0
+#ifdef DW2_NATIVE
+                    || Host_DnaHasPartner(w->digi->digiId)
+#endif
+                ) {
                     Stg20_MsgWinShowSysMsg(0x11B);
                 } else {
                     Stg20_MsgWinShowSysMsg(0x11A);
@@ -141,10 +146,19 @@ void Stg20_LabInfoUpdate(Actor *a) {
                     break;
                 }
                 if (ok != 0) {
-                    if (Digi_GetRank(w->digi->digiId) == 0) {
+                    if (Digi_GetRank(w->digi->digiId) == 0
+#ifdef DW2_NATIVE
+                        && !Host_DnaResult(id0, id1)
+#endif
+                    ) {
                         Stg20_MsgWinShowSysMsg(0x11A);
                     } else {
                         Stg20_MenuState.evoTargetId = Stg20_GetDnaResult(id0, id1);
+#ifdef DW2_NATIVE
+                        if (!Stg20_MenuState.evoTargetId) {
+                            Stg20_MsgWinShowSysMsg(0x11D);
+                        } else
+#endif
                         Stg20_MsgWinShowDigiMsg(0x128, Stg20_MenuState.evoTargetId);
                     }
                 } else {

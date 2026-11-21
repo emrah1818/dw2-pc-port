@@ -585,7 +585,7 @@ HOST_ENTRY int main(int argc, char **argv) {
                 return 1;
             }
             puts("{\"mod_api\":2,\"max_file_bytes\":2097152,\"virtual_cd_limit\":450000,"
-                 "\"digivolve_levels\":1,\"battle_camera\":1}");
+                 "\"digivolve_levels\":1,\"battle_camera\":1,\"dna_overrides\":1}");
             return 0;
         } else if (strcmp(argv[i], "--check-cache") == 0) {
             return check_mod_cache();

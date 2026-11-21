@@ -1,4 +1,7 @@
 #include "common.h"
+#ifdef DW2_NATIVE
+#include "host/host.h"
+#endif
 #include "stag2000/stag2000.h"
 
 u8 Stg20_DnaTypeIndexTbl[3][3] = { { 0, 0, 2 }, { 0, 1, 1 }, { 2, 1, 2 } };
@@ -109,11 +112,16 @@ s32 Stg20_GetDnaTypeIndex(s32 a, s32 b) {
 }
 
 u8 Stg20_GetDnaResult(s32 a, s32 b) {
+#ifdef DW2_NATIVE
+    int override = Host_DnaResult(a, b);
+    if (override && Digi_FindBaseData(override)) return (u8)override;
+#endif
     s32 s4 = Stg20_GetDnaTypeIndex(a, b);
     s32 r1 = Digi_GetRank(a);
     s32 r2 = Digi_GetRank(b);
     s32 m = (r1 < r2 ? r1 : r2) - 1;
     s32 r3 = Digi_GetDnaGroup(a);
     s32 r4 = Digi_GetDnaGroup(b);
+    if (s4 < 0 || s4 > 2 || m < 0 || m > 2 || r3 < 0 || r3 > 7 || r4 < 0 || r4 > 7) return 0;
     return Stg20_DnaResultTbl[s4][m][r3][r4];
 }
